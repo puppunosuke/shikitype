@@ -1000,6 +1000,7 @@ function createCanvasRowAt(worldPoint) {
   claimRowFocus(row);
   fitCanvasRowsToViewport();
   scheduleNoteSave();
+  commitHistoryBoundary();
   return row;
 }
 
@@ -1300,12 +1301,48 @@ function commitConversionCandidate(row, candidateId) {
   const query = row.conversion?.searchReading ?? row.conversion?.reading ?? '';
   conversionLearning = recordCandidateSelection(conversionLearning, query, candidateId, Date.now(), activeConversionCandidates());
   saveConversionPreferences();
+  // 再変換（2.）用に確定直前の状態を覚えておく。次のBackspaceが「何も挟まず
+  // 直後」であることは、mf.value/positionが確定直後のままかで判定する
+  // （detachedFramesと同じ、値の一致で確認する既存パターン）。
+  const latexBefore = row.mf.value;
+  const positionBefore = row.mf.position;
+  const rawBefore = row.conversion?.raw ?? ''; // 見せる文字は常に物理キーどおりの英字（raw）
   insertConversionLatex(row, candidate.latex);
+  row.lastConfirm = {
+    latexBefore, positionBefore, raw: rawBefore,
+    latexAfter: row.mf.value, positionAfter: row.mf.position,
+  };
   tickKeystroke();
   renderBreadcrumb();
   // 一時遷移で変換層へ来ていた場合は、候補の確定を「1入力」として戻す。
   consumeTemporaryLayer();
   closeConversion(row, { clear: true, focus: true });
+  // 候補確定は独立した取り消し単位にする（直前の読み入力や直後の打鍵と混ざらない）。
+  commitHistoryBoundary();
+  return true;
+}
+
+// ---------------------------------------------------------------------------
+// 再変換（2.）— 確定直後に限り、Backspaceで読みへ戻す
+// ---------------------------------------------------------------------------
+// 「直後」の範囲: mf.value/positionが確定直後のスナップショット（latexAfter/
+// positionAfter）と完全一致している間だけ有効にする。カーソル移動や他の文字入力を
+// 挟むとどちらかが変わるため、自然に対象外になる（1.のUndoと違って専用の無効化
+// フックを増やさず、既存コードのdetachedFramesと同じ「値の一致」で境界を判定する）。
+function tryReconvertLastConfirm(row) {
+  const lc = row?.lastConfirm;
+  if (!lc || row.mf.value !== lc.latexAfter || row.mf.position !== lc.positionAfter) return false;
+  row.lastConfirm = null;
+  row.mf.value = lc.latexBefore;
+  row.mf.position = lc.positionBefore;
+  reconcileStack(row);
+  checkDepth(row);
+  openConversion(row, true);
+  updateConversionReading(row.conversion, lc.raw);
+  row.conversion.navigation = false;
+  row.conversion.selectedIndex = 0;
+  renderConversionCandidates(row);
+  scheduleNoteSave();
   return true;
 }
 
@@ -1671,12 +1708,18 @@ function saveCurrentNoteNow() {
   persistNotesStore();
   renderNotesList();
   queueCloudSave(note);
+  // クラウド未ログインでは queueCloudSave が何もしないため、保存済みの表示は
+  // ここで出す（3. 保存された感）。ログイン時はクラウド同期側の状態表示を優先する。
+  if (!cloudAccount.userId) updateCloudStatus('local-saved');
   return true;
 }
 
 function scheduleNoteSave() {
   if (restoringNote) return;
   clearTimeout(noteSaveTimer);
+  // 保存はNOTE_SAVE_DELAY_MSだけ遅延書き込みなので、その間は「保存中」を出す
+  // （3. 保存された感。書き込み自体はsaveCurrentNoteNow側で従来どおり正しく動く）。
+  if (!cloudAccount.userId) updateCloudStatus('local-saving');
   noteSaveTimer = setTimeout(() => saveCurrentNoteNow(), NOTE_SAVE_DELAY_MS);
 }
 
@@ -1719,6 +1762,9 @@ function loadNote(id, restoreFocus = true, saveCurrent = true) {
   renderLayoutMode();
   persistNotesStore();
   renderNotesList();
+  // ノートを跨いで取り消し履歴を持ち越さない（別ノートを開いた後のCtrl+Zが
+  // 今のノートを別内容で上書きしてしまうのを防ぐ）。
+  initHistory();
   cancelAnimationFrame(restoreFocusFrame);
   restoreFocusFrame = requestAnimationFrame(() => {
     const row = rows[0];
@@ -1758,6 +1804,7 @@ function newNote() {
   // 新規作成直後の1打目をボタンへ落とさず、mount後にMathLiveが旧fieldへ戻す
   // focusもここで吸収する。
   claimRowFocus(row);
+  initHistory();
 }
 
 function toggleNotesList(open) {
@@ -1795,6 +1842,7 @@ function removeEmptyRow(row, { requireEmpty = true } = {}) {
   }
   renderBreadcrumb();
   scheduleNoteSave();
+  commitHistoryBoundary();
   return true;
 }
 
@@ -1909,7 +1957,7 @@ function createRow(focus, latex = '', position = null, insertIndex = rows.length
       if (activeRow() === row) row.inputProxy?.focus({ preventScroll: true });
     });
   });
-  mf.addEventListener('input', scheduleNoteSave);
+  mf.addEventListener('input', () => { scheduleNoteSave(); scheduleHistoryCommit(); });
 
   // IME 遮断（数式ブロック）: compositionstart 経路は keydown を迂回するため個別に塞ぐ
   attachImeGuard(row);
@@ -1942,7 +1990,149 @@ function newRowAfterActive() {
   // その間に打鍵が来ると前の行へ入ってしまうので、ここで同期的に切り替えておく。
   claimRowFocus(row);
   if (layoutMode === 'canvas') fitCanvasRowsToViewport();
+  commitHistoryBoundary();
   return row;
+}
+
+// ---------------------------------------------------------------------------
+// 取り消し・やり直し（Undo/Redo）— 汎用の操作履歴スタック
+// ---------------------------------------------------------------------------
+// 設計方針:
+// - 機能ごとに履歴を持たず、「編集操作の直後の完全な状態」をスナップショットとして
+//   1本のスタックへ積む。ブロック複製・コピー貼り付け・範囲選択削除など後続の段階の
+//   操作も、その操作の後で markHistoryDirty() + commitHistoryNow()（＝下の
+//   commitHistoryBoundary()）を呼ぶだけでこの履歴へ乗る。個別の逆操作（delta）を
+//   持たないので、新しい操作の種類が増えても取り消し側の実装を増やさなくてよい。
+// - スナップショットの復元は loadNote() が既に使っている「latex+座標の配列から行を
+//   再構築する」経路を再利用する。ブロック数が変わらない取り消し（打鍵単位の内容変更・
+//   将来のブロック移動）は既存のMathLive要素へ値と座標を書き戻すだけにして、頻度の
+//   高い操作を軽く保つ。ブロック数が変わる取り消し（追加・削除）だけ、loadNote()と同じ
+//   「全消し→再構築」を使う。
+// - 連続した文字入力は毎打鍵では戻さない。UNDO_COALESCE_MS（600ms）の無操作、または
+//   ブロック追加・削除・候補確定などの区切り操作が起きた時点でひとつの取り消し単位として
+//   確定する。600msは「一続きの入力を打ち終えて一息つく間隔」の目安（連続する打鍵の
+//   間隔より十分長く、次の操作を待たされている感覚も出ない）。
+// - canvasの視点移動（パン・ズーム）は編集ではないため、スナップショットにも履歴にも
+//   含めない（captureHistorySnapshot() は camera を持たない）。
+const UNDO_COALESCE_MS = 600;
+const HISTORY_LIMIT = 200;
+let historyStack = [];
+let historyIndex = -1;
+let historyDirty = false; // 直近のスナップショット以降、未確定の変更があるか
+let historyCommitTimer = null;
+let applyingHistorySnapshot = false; // 復元中はこの復元自体を新しい操作として記録しない
+
+function captureHistorySnapshot() {
+  return {
+    layoutMode,
+    activeIndex: activeRowIndex,
+    position: activeRow()?.mf?.position ?? 0,
+    blocks: rows.map((row, index) => ({ latex: String(row.mf.value || ''), ...rowWorldPosition(row, index) })),
+  };
+}
+
+// ノートの読込・新規作成のたびに呼ぶ。ノートをまたいで履歴を持ち越すと、別ノートを
+// 開いた後のCtrl+Zが今開いているノートを別ノートの内容で上書きしてしまうため。
+function initHistory() {
+  clearTimeout(historyCommitTimer);
+  historyCommitTimer = null;
+  historyStack = [captureHistorySnapshot()];
+  historyIndex = 0;
+  historyDirty = false;
+}
+
+function markHistoryDirty() {
+  if (applyingHistorySnapshot) return;
+  historyDirty = true;
+}
+
+// 打鍵ごとの細かい変更はデバウンスでまとめる。区切り操作（ブロック追加/削除、候補確定、
+// 将来のブロック移動）は呼び出し側で commitHistoryBoundary() を使い、まとめの単位を
+// 強制的に閉じる。
+function scheduleHistoryCommit() {
+  if (applyingHistorySnapshot) return;
+  markHistoryDirty();
+  clearTimeout(historyCommitTimer);
+  historyCommitTimer = setTimeout(commitHistoryNow, UNDO_COALESCE_MS);
+}
+
+function commitHistoryNow() {
+  clearTimeout(historyCommitTimer);
+  historyCommitTimer = null;
+  if (!historyDirty) return;
+  historyDirty = false;
+  const snapshot = captureHistorySnapshot();
+  // MathLiveの'input'イベントは値の変更より後（マイクロタスク/rAF）で届くことがあり、
+  // commitHistoryBoundary()で既に確定させた内容と同じ状態への「二重通知」になる。
+  // 直前と中身が同じスナップショットは積まない（=空の取り消し単位を作らない）。
+  const top = historyStack[historyIndex];
+  if (top && JSON.stringify(top) === JSON.stringify(snapshot)) return;
+  // 取り消してからの再編集＝進んだ先（redo対象）を捨ててから積む。
+  historyStack = historyStack.slice(0, historyIndex + 1);
+  historyStack.push(snapshot);
+  if (historyStack.length > HISTORY_LIMIT) historyStack.shift();
+  historyIndex = historyStack.length - 1;
+}
+
+// 区切り操作の直後に呼ぶ: まず直前の入力burstを独立した1エントリとして確定させ、
+// 続けてこの操作自体も独立した1エントリにする（Enterでの改行が、その前の打鍵や
+// 次の打鍵と同じ取り消し単位に混ざらないようにする）。
+function commitHistoryBoundary() {
+  commitHistoryNow();
+  markHistoryDirty();
+  commitHistoryNow();
+}
+
+function applyHistorySnapshot(snapshot) {
+  applyingHistorySnapshot = true;
+  try {
+    const blocks = snapshot.blocks;
+    if (blocks.length === rows.length) {
+      rows.forEach((row, index) => {
+        const block = blocks[index];
+        if (row.mf.value !== block.latex) row.mf.value = block.latex;
+        setRowWorldPosition(row, block, index);
+        row.lastConfirm = null;
+      });
+    } else {
+      clearRowsForNote();
+      blocks.forEach((item) => createRow(false, String(item.latex || ''), item));
+    }
+    layoutMode = snapshot.layoutMode;
+    activeRowIndex = Math.max(0, Math.min(rows.length - 1, snapshot.activeIndex));
+    renderLayoutMode();
+    const row = activeRow();
+    if (row) {
+      const maxPos = row.mf.lastOffset ?? snapshot.position;
+      row.mf.position = Math.max(0, Math.min(snapshot.position, maxPos));
+      reconcileStack(row);
+      checkDepth(row);
+      claimRowFocus(row);
+      renderBreadcrumb();
+    }
+    scheduleNoteSave();
+  } finally {
+    applyingHistorySnapshot = false;
+  }
+}
+
+function performUndo() {
+  // 未確定の入力burst（デバウンス待ち、または確定操作の直後に非同期で届く
+  // 重複inputの残り）があれば、Ctrl+Zの対象として先に確定させる。中身が直前と
+  // 同じならcommitHistoryNow()が何も積まないので、実質「その場でキャンセル」になる。
+  commitHistoryNow();
+  if (historyIndex <= 0) return;
+  historyIndex -= 1;
+  applyHistorySnapshot(historyStack[historyIndex]);
+}
+
+function performRedo() {
+  // 保留中の変更を先に確定させる。それが実際に新しい内容なら、進んだ先
+  // （redo対象）は既に古くなっているのでここで捨てる（新しい編集は redo を無効にする）。
+  commitHistoryNow();
+  if (historyIndex >= historyStack.length - 1) return;
+  historyIndex += 1;
+  applyHistorySnapshot(historyStack[historyIndex]);
 }
 
 // ---------------------------------------------------------------------------
@@ -2138,6 +2328,26 @@ document.addEventListener('keydown', (e) => {
 
   const withinRow = document.activeElement && isWithinRow(document.activeElement);
 
+  // 取り消し・やり直し（Ctrl+Z / Ctrl+Shift+Z / Ctrl+Y）。
+  // 設定モーダルは上のreturnで既に外れている。文章ブロック（\text{}内）と
+  // アカウントdialog等の通常input/textarea/selectは、そのフィールド本来の
+  // 取り消し動作を奪わないようここでは対象外にする。それ以外（数式編集面・
+  // canvasの空白面フォーカスを含む）はこのアプリの履歴で取り消す。
+  if (e.ctrlKey && !e.altKey && !e.metaKey && (e.code === 'KeyZ' || e.code === 'KeyY')) {
+    const target = document.activeElement;
+    // math-field自体もisContentEditable=trueを持つため、行の外（設定・アカウント
+    // dialogの通常input/textarea/select等）にフォーカスがある場合だけ
+    // 「そのフィールド本来の取り消し」を優先し、行の中はこのアプリの履歴が持つ。
+    const nativeEditable = !withinRow && (target instanceof HTMLInputElement || target instanceof HTMLTextAreaElement
+      || target instanceof HTMLSelectElement || (target instanceof HTMLElement && target.isContentEditable));
+    const inNativeText = withinRow && isNativeTextContext(activeRow());
+    if (!nativeEditable && !inNativeText) {
+      e.preventDefault(); e.stopPropagation(); e.stopImmediatePropagation();
+      if (e.code === 'KeyY' || (e.code === 'KeyZ' && e.shiftKey)) performRedo(); else performUndo();
+      return;
+    }
+  }
+
   // キー操作モードが accessible のときだけ、数式欄フォーカス中でも画面操作キーを奪う。
   // F2=設定 / F4=キーガイド / F8・F9=テーマ切替。original モードでは従来どおり何もしない。
   // 設定内のボタンでは Enter/Space を普通の押下として扱う。
@@ -2204,6 +2414,7 @@ document.addEventListener('keydown', (e) => {
 
   if (e.code === 'Backspace') {
     tickKeystroke();
+    if (tryReconvertLastConfirm(row)) { renderBreadcrumb(); return; }
     backspace(row);
     renderBreadcrumb();
     return;
@@ -3757,6 +3968,11 @@ function updateCloudStatus(state = cloudAccount.state) {
   const detail = document.getElementById('account-sync-detail');
   const copy = {
     local: 'この端末に保存',
+    // 未ログイン時だけの表示（3. 保存された感）。ログイン後はクラウドの
+    // saving/savedがここより先に出るため、local-*はcloudAccount.userIdが
+    // 無いときしか呼ばれない。
+    'local-saving': '保存中…',
+    'local-saved': '保存済み',
     saving: 'クラウドへ保存中',
     saved: 'クラウドに保存済み',
     offline: 'オフライン保存',
@@ -4407,6 +4623,7 @@ readNotesStore();
 const initialNote = notesStore.notes.find((note) => note.id === notesStore.activeId)
   ?? [...notesStore.notes].sort((a, b) => String(b.updatedAt).localeCompare(String(a.updatedAt)))[0];
 if (initialNote) loadNote(initialNote.id, true, false);
+else initHistory(); // loadNote()は内部でinitHistory()するが、保存済みノートが無い初回起動はここで初期化する
 setInputSystem(inputSystem, false);
 renderNotesList();
 renderBreadcrumb();
@@ -4504,4 +4721,7 @@ window.__neoApp = {
   newNote,
   loadNote,
   getNotes: () => structuredClone(notesStore),
+  undo: performUndo,
+  redo: performRedo,
+  getHistoryState: () => ({ index: historyIndex, length: historyStack.length, dirty: historyDirty }),
 };
