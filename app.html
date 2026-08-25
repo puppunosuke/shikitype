@@ -19,7 +19,18 @@
       <nav id="note-actions" aria-label="ノート">
         <button type="button" id="new-note"><span aria-hidden="true">＋</span><span>新しいノート</span></button>
         <button type="button" id="notes-toggle" aria-label="過去のノートを開く" aria-expanded="false" aria-controls="notes-list"><span aria-hidden="true">▤</span><span>過去のノート</span></button>
-        <div id="notes-list" hidden aria-label="過去のノート一覧"></div>
+        <div id="notes-list" hidden aria-label="過去のノート一覧">
+          <label class="notes-search-label" for="notes-search">ノートを検索</label>
+          <input id="notes-search" type="search" placeholder="名前・中身で絞り込み…" autocomplete="off" />
+          <div id="notes-list-items" aria-label="ノート一覧"></div>
+          <button type="button" id="notes-trash-toggle" aria-expanded="false" aria-controls="notes-trash-list">ゴミ箱</button>
+          <div id="notes-trash-list" hidden aria-label="削除済みノート"></div>
+        </div>
+        <button type="button" id="export-note-toggle" aria-label="ノートを書き出す" aria-haspopup="true" aria-expanded="false" aria-controls="export-note-menu"><span aria-hidden="true">⇩</span><span>書き出す</span></button>
+        <div id="export-note-menu" hidden aria-label="書き出し方法">
+          <button type="button" id="export-note-latex-copy">LaTeXをコピー</button>
+          <button type="button" id="export-note-latex-download">LaTeXをダウンロード（.tex）</button>
+        </div>
         <button type="button" id="account-toggle" aria-label="ログインまたはアカウント作成" aria-haspopup="dialog"><span aria-hidden="true">◉</span><span>ログイン</span></button>
         <div id="sync-status" role="status" aria-live="polite">この端末に保存</div>
       </nav>

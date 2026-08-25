@@ -1689,9 +1689,17 @@ function createConversionPanel(row, wrap) {
 const NOTE_STORAGE_KEY = 'neo-math.notes.v1';
 const NOTE_STORE_VERSION = 1;
 const NOTE_SAVE_DELAY_MS = 420;
+const NOTE_TITLE_MAX = 80;
+// 誤削除の猶予期間（段階3要件：「間違って消したものが戻らない設計にはしない」）。
+// ノート削除は即時の物理削除にせず、deletedAtを立てるだけのソフトデリートにして
+// 「過去のノート」一覧から隠し、ゴミ箱から復元できるようにする。この期間を過ぎた
+// ものだけ、次回のstore読込時に物理削除する（無限に溜め続けない）。
+const NOTE_TRASH_RETENTION_MS = 30 * 24 * 60 * 60 * 1000;
 let notesStore = { version: NOTE_STORE_VERSION, activeId: null, notes: [] };
 let noteSaveTimer = null;
 let restoringNote = false;
+let notesFilterQuery = '';
+let notesTrashOpen = false;
 let cloudAccount = { userId: null, state: 'local', epoch: 0 };
 const cloudQueues = new Map();
 let cloudGeneration = 0;
@@ -1814,6 +1822,19 @@ function notesStorageKey() {
   return cloudAccount.userId ? `${NOTE_STORAGE_KEY}.user.${cloudAccount.userId}` : NOTE_STORAGE_KEY;
 }
 
+// ノートの名前は任意入力（未設定=null）。空文字・空白だけの入力もnullへ丸め、
+// その場合は従来どおりnotePreview()の自動プレビューを表示する。
+function sanitizeNoteTitle(value) {
+  if (typeof value !== 'string') return null;
+  const trimmed = value.replace(/\s+/g, ' ').trim().slice(0, NOTE_TITLE_MAX);
+  return trimmed || null;
+}
+
+function sanitizeNoteDeletedAt(value) {
+  if (typeof value !== 'string' || Number.isNaN(Date.parse(value))) return null;
+  return value;
+}
+
 function normalizeNotesStore(saved, { anonymous = false } = {}) {
   if (!saved || saved.version !== NOTE_STORE_VERSION || !Array.isArray(saved.notes)) {
     return { version: NOTE_STORE_VERSION, activeId: null, notes: [] };
@@ -1825,12 +1846,25 @@ function normalizeNotesStore(saved, { anonymous = false } = {}) {
       ...note,
       revision: Number.isSafeInteger(note.revision) && note.revision >= 0 ? note.revision : 0,
       layout: normalizeNoteLayout(note.layout, note.rows),
+      title: sanitizeNoteTitle(note.title),
+      deletedAt: sanitizeNoteDeletedAt(note.deletedAt),
     }));
   return {
     version: NOTE_STORE_VERSION,
-    activeId: typeof saved.activeId === 'string' && notes.some((note) => note.id === saved.activeId) ? saved.activeId : null,
+    // ゴミ箱入りのノートはactiveIdの復元先にしない（editorへ削除済みノートを開かせない）。
+    activeId: typeof saved.activeId === 'string' && notes.some((note) => note.id === saved.activeId && !note.deletedAt) ? saved.activeId : null,
     notes,
   };
+}
+
+// 猶予期間（NOTE_TRASH_RETENTION_MS）を過ぎたゴミ箱ノートだけを物理削除する。
+// 参照透過（storeを書き換えず、変更があれば新しいオブジェクトを返す）にして、
+// 呼び出し側で「変わったときだけ再保存する」を判断しやすくする。
+function purgeExpiredTrash(store) {
+  const cutoff = Date.now() - NOTE_TRASH_RETENTION_MS;
+  const kept = store.notes.filter((note) => !note.deletedAt || Date.parse(note.deletedAt) >= cutoff);
+  if (kept.length === store.notes.length) return store;
+  return { ...store, notes: kept, activeId: kept.some((note) => note.id === store.activeId) ? store.activeId : null };
 }
 
 function readRawNotesStore(key) {
@@ -1852,6 +1886,8 @@ function readNotesStore() {
   try {
     const saved = JSON.parse(localStorage.getItem(notesStorageKey()) || 'null');
     notesStore = normalizeNotesStore(saved, { anonymous: !cloudAccount.userId });
+    const purged = purgeExpiredTrash(notesStore);
+    if (purged !== notesStore) { notesStore = purged; persistNotesStore(); }
   } catch (err) {
     console.warn('[neo-math] notes read failed', err);
   }
@@ -1896,34 +1932,205 @@ function persistNotesStore() {
   }
 }
 
+// 名前が付いていればそれを、無ければ従来どおり中身からの自動プレビューを表示する。
+function noteDisplayTitle(note) {
+  return sanitizeNoteTitle(note.title) || notePreview(note.rows);
+}
+
+// 設定モーダルの検索（部分一致・大小無視、input即時反映）と操作感を揃える。
+// 対象は表示名（名前があればそれ、無ければ自動プレビュー）と行の生LaTeX本文。
+function noteMatchesFilter(note, query) {
+  const q = query.trim().toLowerCase();
+  if (!q) return true;
+  const haystack = `${noteDisplayTitle(note)} ${note.rows.join(' ')}`.toLowerCase();
+  return haystack.includes(q);
+}
+
+function buildNoteListItem(note) {
+  const item = document.createElement('div');
+  item.className = 'note-list-item';
+  item.dataset.noteId = note.id;
+  item.tabIndex = 0;
+  item.setAttribute('role', 'button');
+  item.setAttribute('aria-current', String(note.id === notesStore.activeId));
+  const title = document.createElement('b');
+  title.textContent = noteDisplayTitle(note);
+  const meta = document.createElement('small');
+  const unit = UNITS.find((entry) => entry.id === note.unitId);
+  const date = new Date(note.updatedAt);
+  const time = Number.isNaN(date.getTime()) ? '' : date.toLocaleString('ja-JP', { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' });
+  meta.textContent = [unit?.label, time].filter(Boolean).join(' · ');
+  const actions = document.createElement('div');
+  actions.className = 'note-item-actions';
+  const renameBtn = document.createElement('button');
+  renameBtn.type = 'button';
+  renameBtn.className = 'note-item-action';
+  renameBtn.textContent = '名前';
+  renameBtn.setAttribute('aria-label', `${noteDisplayTitle(note)}の名前を変更`);
+  const deleteBtn = document.createElement('button');
+  deleteBtn.type = 'button';
+  deleteBtn.className = 'note-item-action note-item-action-delete';
+  deleteBtn.textContent = '削除';
+  deleteBtn.setAttribute('aria-label', `${noteDisplayTitle(note)}を削除（ゴミ箱へ）`);
+  // action系ボタンはpointerdown段階でstopPropagationし、親item（開く操作）の
+  // クリック判定に巻き込まれないようにする（既存のrow-delete等と同じ作法）。
+  [renameBtn, deleteBtn].forEach((btn) => btn.addEventListener('pointerdown', (event) => event.stopPropagation()));
+  renameBtn.addEventListener('click', (event) => { event.preventDefault(); event.stopPropagation(); beginRenameNote(item, note); });
+  deleteBtn.addEventListener('click', (event) => { event.preventDefault(); event.stopPropagation(); deleteNote(note.id); });
+  actions.append(renameBtn, deleteBtn);
+  item.append(title, meta, actions);
+  const open = () => loadNote(note.id);
+  item.addEventListener('click', (event) => { if (event.target instanceof Element && event.target.closest('.note-item-actions, .note-item-rename-input')) return; open(); });
+  item.addEventListener('keydown', (event) => {
+    if (event.target !== item) return; // 名前入力欄・操作ボタン自身のキー操作は奪わない
+    if (event.code === 'Enter' || event.code === 'Space') { event.preventDefault(); open(); }
+  });
+  return item;
+}
+
+// 名前を変更する。<b>を一時的に<input>へ差し替えるだけの軽量な行内編集にして、
+// 別モーダルを増やさない（既存の一覧popoverの操作感のまま完結させる）。
+function beginRenameNote(item, note) {
+  if (item.querySelector('.note-item-rename-input')) return;
+  const titleEl = item.querySelector('b');
+  if (!titleEl) return;
+  const input = document.createElement('input');
+  input.type = 'text';
+  input.className = 'note-item-rename-input';
+  input.maxLength = NOTE_TITLE_MAX;
+  input.value = sanitizeNoteTitle(note.title) || '';
+  input.placeholder = notePreview(note.rows);
+  input.setAttribute('aria-label', 'ノートの名前');
+  let settled = false;
+  const commit = () => { if (settled) return; settled = true; renameNote(note.id, input.value); };
+  const cancel = () => { if (settled) return; settled = true; renderNotesList(); };
+  input.addEventListener('keydown', (event) => {
+    event.stopPropagation();
+    if (event.code === 'Enter') { event.preventDefault(); commit(); }
+    else if (event.code === 'Escape') { event.preventDefault(); cancel(); }
+  });
+  input.addEventListener('click', (event) => event.stopPropagation());
+  input.addEventListener('pointerdown', (event) => event.stopPropagation());
+  input.addEventListener('blur', commit);
+  titleEl.replaceWith(input);
+  input.focus();
+  input.select();
+}
+
+function renameNote(id, rawTitle) {
+  const note = notesStore.notes.find((entry) => entry.id === id);
+  if (!note) return;
+  // 名前変更は内容編集ではないためupdatedAtは動かさない（一覧の並び順を崩さない）。
+  note.title = sanitizeNoteTitle(rawTitle);
+  persistNotesStore();
+  renderNotesList();
+}
+
+// 削除＝即物理削除ではなくdeletedAtを立てるソフトデリート。ゴミ箱から復元・
+// 完全削除できるようにし、「間違って消したものが戻らない」を防ぐ。
+function deleteNote(id) {
+  const note = notesStore.notes.find((entry) => entry.id === id);
+  if (!note || note.deletedAt) return;
+  note.deletedAt = new Date().toISOString();
+  persistNotesStore();
+  if (notesStore.activeId === id) {
+    // 表示中のノートを消した場合、削除済みノートをそのまま編集面に残さない。
+    // 直近の生存ノートへ切り替えるか、無ければ新規ノートを開く。
+    clearTimeout(noteSaveTimer);
+    const next = [...notesStore.notes]
+      .filter((entry) => !entry.deletedAt)
+      .sort((a, b) => String(b.updatedAt).localeCompare(String(a.updatedAt)))[0];
+    if (next) loadNote(next.id, true, false);
+    else newNote();
+  } else {
+    renderNotesList();
+  }
+}
+
+function restoreNote(id) {
+  const note = notesStore.notes.find((entry) => entry.id === id);
+  if (!note) return;
+  note.deletedAt = null;
+  persistNotesStore();
+  renderNotesList();
+}
+
+// ゴミ箱からの完全削除。これだけは本当に取り消せないため、実行前に確認を挟む
+// （ソフトデリート側の「削除」には確認を挟まない代わりに、ここで最後の安全弁を置く）。
+function purgeNoteForever(id) {
+  const note = notesStore.notes.find((entry) => entry.id === id);
+  if (!note) return;
+  const label = noteDisplayTitle(note);
+  if (!confirm(`「${label}」を完全に削除します。この操作は取り消せません。よろしいですか？`)) return;
+  notesStore.notes = notesStore.notes.filter((entry) => entry.id !== id);
+  if (notesStore.activeId === id) notesStore.activeId = null;
+  persistNotesStore();
+  renderNotesList();
+}
+
+function buildTrashListItem(note) {
+  const item = document.createElement('div');
+  item.className = 'note-list-item note-list-item-trash';
+  item.dataset.noteId = note.id;
+  const title = document.createElement('b');
+  title.textContent = noteDisplayTitle(note);
+  const meta = document.createElement('small');
+  const deleted = new Date(note.deletedAt);
+  meta.textContent = Number.isNaN(deleted.getTime()) ? '' : `削除: ${deleted.toLocaleString('ja-JP', { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' })}`;
+  const actions = document.createElement('div');
+  actions.className = 'note-item-actions';
+  const restoreBtn = document.createElement('button');
+  restoreBtn.type = 'button';
+  restoreBtn.className = 'note-item-action';
+  restoreBtn.textContent = '元に戻す';
+  restoreBtn.addEventListener('click', () => restoreNote(note.id));
+  const purgeBtn = document.createElement('button');
+  purgeBtn.type = 'button';
+  purgeBtn.className = 'note-item-action note-item-action-delete';
+  purgeBtn.textContent = '完全に削除';
+  purgeBtn.addEventListener('click', () => purgeNoteForever(note.id));
+  actions.append(restoreBtn, purgeBtn);
+  item.append(title, meta, actions);
+  return item;
+}
+
 function renderNotesList() {
-  const list = document.getElementById('notes-list');
+  const list = document.getElementById('notes-list-items');
+  const trashToggle = document.getElementById('notes-trash-toggle');
+  const trashList = document.getElementById('notes-trash-list');
   if (!list) return;
   list.innerHTML = '';
-  const ordered = [...notesStore.notes].sort((a, b) => String(b.updatedAt).localeCompare(String(a.updatedAt)));
+  const active = notesStore.notes.filter((note) => !note.deletedAt);
+  const trashed = notesStore.notes.filter((note) => note.deletedAt);
+  const ordered = active
+    .filter((note) => noteMatchesFilter(note, notesFilterQuery))
+    .sort((a, b) => String(b.updatedAt).localeCompare(String(a.updatedAt)));
   if (!ordered.length) {
     const empty = document.createElement('p');
     empty.className = 'note-list-empty';
-    empty.textContent = 'まだ保存したノートはありません';
+    empty.textContent = active.length ? '一致するノートがありません' : 'まだ保存したノートはありません';
     list.appendChild(empty);
-    return;
+  } else {
+    for (const note of ordered) list.appendChild(buildNoteListItem(note));
   }
-  for (const note of ordered) {
-    const item = document.createElement('button');
-    item.type = 'button';
-    item.className = 'note-list-item';
-    item.dataset.noteId = note.id;
-    item.setAttribute('aria-current', String(note.id === notesStore.activeId));
-    const title = document.createElement('b');
-    title.textContent = notePreview(note.rows);
-    const meta = document.createElement('small');
-    const unit = UNITS.find((entry) => entry.id === note.unitId);
-    const date = new Date(note.updatedAt);
-    const time = Number.isNaN(date.getTime()) ? '' : date.toLocaleString('ja-JP', { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' });
-    meta.textContent = [unit?.label, time].filter(Boolean).join(' · ');
-    item.append(title, meta);
-    item.addEventListener('click', () => loadNote(note.id));
-    list.appendChild(item);
+  if (trashToggle) {
+    trashToggle.textContent = `ゴミ箱（${trashed.length}）`;
+    trashToggle.setAttribute('aria-expanded', String(notesTrashOpen));
+  }
+  if (trashList) {
+    trashList.hidden = !notesTrashOpen;
+    trashList.innerHTML = '';
+    if (notesTrashOpen) {
+      if (!trashed.length) {
+        const empty = document.createElement('p');
+        empty.className = 'note-list-empty';
+        empty.textContent = 'ゴミ箱は空です';
+        trashList.appendChild(empty);
+      } else {
+        const orderedTrash = [...trashed].sort((a, b) => String(b.deletedAt).localeCompare(String(a.deletedAt)));
+        for (const note of orderedTrash) trashList.appendChild(buildTrashListItem(note));
+      }
+    }
   }
 }
 
@@ -1935,7 +2142,7 @@ function saveCurrentNoteNow() {
   const values = rows.map((row) => row.mf.value);
   let note = current;
   if (!note) {
-    note = { id: makeNoteId(), createdAt: now, updatedAt: now, unitId: currentUnit, rows: [], revision: 0 };
+    note = { id: makeNoteId(), createdAt: now, updatedAt: now, unitId: currentUnit, rows: [], revision: 0, title: null, deletedAt: null };
     notesStore.notes.push(note);
     notesStore.activeId = note.id;
   }
@@ -2062,6 +2269,78 @@ function toggleNotesList(open) {
   if (next) renderNotesList();
 }
 
+// ---------------------------------------------------------------------------
+// 書き出し（LaTeX） — 段階3
+// MathLiveのmath-field.value は元々LaTeX文字列そのもの（取り消し履歴・クラウド
+// 保存など既存コードも一貫してこの前提で latex: row.mf.value を使っている）。
+// よって「LaTeXへ変換する」処理は不要で、既に持っている値をそのまま書き出すだけでよい。
+// ---------------------------------------------------------------------------
+
+function flashButtonFeedback(button, ok, { okText = 'コピーしました', failText = '失敗しました', holdMs = 1100 } = {}) {
+  if (!button) return;
+  const original = button.textContent;
+  button.textContent = ok ? okText : failText;
+  button.disabled = true;
+  setTimeout(() => { button.textContent = original; button.disabled = false; }, holdMs);
+}
+
+async function copyRowLatexToClipboard(row) {
+  const latex = String(row?.mf?.value || '');
+  if (!latex) return false;
+  try { await navigator.clipboard.writeText(latex); return true; }
+  catch (err) { console.warn('[neo-math] latex copy failed', err); return false; }
+}
+
+// 現在の編集面を書き出し順に並べたLaTeX配列を返す。canvasレイアウトは自由配置の
+// ため「上→下、同じ高さなら左→右」という一般的な読み順に並べ替え、座標情報自体は
+// 捨てる（レポート等へ持ち出す用途では座標に意味がなく、そのまま持ち出しても
+// 貼り付け先で解釈できないため）。行モードはもともとの並び=読み順なのでそのまま使う。
+function currentNoteOrderedLatex() {
+  const blocks = rows
+    .map((row, index) => ({ latex: String(row.mf.value || ''), ...rowWorldPosition(row, index) }))
+    .filter((block) => block.latex.replace(/\\placeholder\{\}/g, '').trim());
+  if (layoutMode === 'canvas') blocks.sort((a, b) => (a.y - b.y) || (a.x - b.x));
+  return blocks.map((block) => block.latex);
+}
+
+// 1式ずつ独立したdisplay math（\[ ... \]）として書き出す。LaTeX文書にそのまま
+// 貼れる形を優先した判断（区切りが不要なら呼び出し側で単純な文字列置換で外せる）。
+function noteLatexExportText() {
+  return currentNoteOrderedLatex().map((latex) => `\\[ ${latex} \\]`).join('\n\n');
+}
+
+async function copyNoteLatexToClipboard() {
+  const text = noteLatexExportText();
+  if (!text) return false;
+  try { await navigator.clipboard.writeText(text); return true; }
+  catch (err) { console.warn('[neo-math] note latex copy failed', err); return false; }
+}
+
+function downloadNoteLatex() {
+  const text = noteLatexExportText();
+  if (!text) return false;
+  const blob = new Blob([text], { type: 'text/plain;charset=utf-8' });
+  const href = URL.createObjectURL(blob);
+  const link = document.createElement('a');
+  link.href = href;
+  const current = notesStore.notes.find((entry) => entry.id === notesStore.activeId);
+  const label = current ? noteDisplayTitle(current) : notePreview(rows.map((row) => row.mf.value));
+  const safeName = label.replace(/[\\/:*?"<>|]+/g, '_').trim().slice(0, 60) || 'shikitype-note';
+  link.download = `${safeName}.tex`;
+  link.click();
+  setTimeout(() => URL.revokeObjectURL(href), 0);
+  return true;
+}
+
+function toggleExportMenu(open) {
+  const menu = document.getElementById('export-note-menu');
+  const button = document.getElementById('export-note-toggle');
+  if (!menu || !button) return;
+  const next = open ?? menu.hidden;
+  menu.hidden = !next;
+  button.setAttribute('aria-expanded', String(next));
+}
+
 function isEmptyMathBlock(row) {
   return !String(row?.mf?.value || '').replace(/\\placeholder\{\}/g, '').trim();
 }
@@ -2152,6 +2431,24 @@ function createRow(focus, latex = '', position = null, insertIndex = rows.length
   remove.addEventListener('pointerdown', (event) => { event.preventDefault(); event.stopPropagation(); });
   remove.addEventListener('click', (event) => { event.preventDefault(); event.stopPropagation(); removeEmptyRow(row, { requireEmpty: false }); });
   wrap.appendChild(remove);
+
+  // ブロック単位のLaTeXコピー（段階3最優先要件）。行モード・canvasモード両方で
+  // 常に見えるようにする（row-deleteは行モードでは隠すが、こちらは書き出し用途の
+  // 一次操作なので隠さない。段階2振り返りで「発見しにくいジェスチャー」を残した
+  // 反省を踏まえ、ここは最初からボタンで出す）。
+  const copyLatex = document.createElement('button');
+  copyLatex.type = 'button';
+  copyLatex.className = 'row-copy-latex';
+  copyLatex.textContent = 'TeX';
+  copyLatex.setAttribute('aria-label', 'この数式のLaTeXをコピー');
+  copyLatex.title = 'この数式のLaTeXをコピー';
+  copyLatex.addEventListener('pointerdown', (event) => { event.preventDefault(); event.stopPropagation(); });
+  copyLatex.addEventListener('click', async (event) => {
+    event.preventDefault(); event.stopPropagation();
+    const ok = await copyRowLatexToClipboard(row);
+    flashButtonFeedback(copyLatex, ok, { okText: '済', failText: '空' });
+  });
+  wrap.appendChild(copyLatex);
 
   // canvasでのブロックdrag移動。event.target===wrapのときだけ、つまり数式欄・
   // 削除ボタン・変換パネルなど「wrapの子要素自身」がクリックされた場合を除く、
@@ -2286,6 +2583,9 @@ let applyingHistorySnapshot = false; // 復元中はこの復元自体を新し�
 
 function captureHistorySnapshot() {
   return {
+    // layoutMode（行/キャンバス表示）は編集内容ではなく「今どちらを見ているか」という
+    // 表示状態。captureはしてもapplyHistorySnapshot側では書き戻さない（下のコメント参照）。
+    // カメラのpan/zoomをスナップショットに含めないのと同じ理由。
     layoutMode,
     activeIndex: activeRowIndex,
     position: activeRow()?.mf?.position ?? 0,
@@ -2360,7 +2660,10 @@ function applyHistorySnapshot(snapshot) {
       clearRowsForNote();
       blocks.forEach((item) => createRow(false, String(item.latex || ''), item));
     }
-    layoutMode = snapshot.layoutMode;
+    // layoutModeは意図的に書き戻さない。表示モードの切替はカメラのpan/zoomと同じく
+    // 「編集」ではないため、取り消しの対象から外す（段階2で申し送った不具合の修正）。
+    // これを書き戻すと、新規ノート作成直後にキャンバスへ切り替えて編集を重ねた状態から
+    // Ctrl+Zで切替前まで戻し切ったとき、表示モードごと行モードへ戻ってしまっていた。
     activeRowIndex = Math.max(0, Math.min(rows.length - 1, snapshot.activeIndex));
     renderLayoutMode();
     const row = activeRow();
@@ -4098,6 +4401,24 @@ document.getElementById('sidebar')?.addEventListener('close', () => {
 });
 document.getElementById('new-note')?.addEventListener('click', newNote);
 document.getElementById('notes-toggle')?.addEventListener('click', () => toggleNotesList());
+document.getElementById('notes-search')?.addEventListener('input', (event) => {
+  notesFilterQuery = event.target.value;
+  renderNotesList();
+});
+document.getElementById('notes-trash-toggle')?.addEventListener('click', () => {
+  notesTrashOpen = !notesTrashOpen;
+  renderNotesList();
+});
+document.getElementById('export-note-toggle')?.addEventListener('click', () => toggleExportMenu());
+document.getElementById('export-note-latex-copy')?.addEventListener('click', async (event) => {
+  const ok = await copyNoteLatexToClipboard();
+  flashButtonFeedback(event.currentTarget, ok, { okText: 'コピーしました', failText: '書き出す式がありません' });
+});
+document.getElementById('export-note-latex-download')?.addEventListener('click', (event) => {
+  const ok = downloadNoteLatex();
+  if (!ok) flashButtonFeedback(event.currentTarget, false, { failText: '書き出す式がありません' });
+  else toggleExportMenu(false);
+});
 window.addEventListener('beforeunload', saveCurrentNoteNow);
 document.getElementById('reset-all')?.addEventListener('click', () => {
   clearAllOverrides();

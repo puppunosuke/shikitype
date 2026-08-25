@@ -101,12 +101,89 @@ button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
   box-shadow: 7px 7px 0 rgba(17,17,17,.18);
 }
 #notes-list[hidden] { display: none; }
+/* 設定モーダルの検索(#settings-search)と操作感を揃える（同じ余白・枠線・角丸なし）。 */
+.notes-search-label { display: block; margin-bottom: 4px; color: #666; font-size: 10px; font-weight: 700; }
+#notes-search { width: 100%; min-height: 32px; margin-bottom: 7px; padding: 6px 8px; border: 1px solid #d2d0ca; border-radius: 0; background: #fff; color: #111; font: inherit; font-size: 12px; }
+#notes-list-items { display: grid; gap: 5px; }
 .note-list-empty { margin: 5px; color: #666; font-size: 11px; }
-.note-list-item { width: 100%; display: grid; gap: 3px; padding: 9px; border: 1px solid #d2d0ca; background: #fff; color: #111; text-align: left; cursor: pointer; }
-.note-list-item + .note-list-item { margin-top: 5px; }
-.note-list-item:hover, .note-list-item[aria-current="true"] { border-color: #111; background: #eceae3; }
+.note-list-item {
+  position: relative;
+  width: 100%;
+  display: grid;
+  gap: 3px;
+  padding: 9px 9px 34px;
+  border: 1px solid #d2d0ca;
+  background: #fff;
+  color: #111;
+  text-align: left;
+  cursor: pointer;
+}
+.note-list-item:hover, .note-list-item[aria-current="true"], .note-list-item:focus-visible { border-color: #111; background: #eceae3; outline: none; }
 .note-list-item b { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 12px; }
 .note-list-item small { overflow: hidden; color: #666; font-size: 10px; line-height: 1.3; text-overflow: ellipsis; white-space: nowrap; }
+.note-item-rename-input { width: 100%; padding: 2px 4px; border: 1px solid #111; border-radius: 0; background: #fff; color: #111; font: inherit; font-size: 12px; }
+/* 頻出操作(開く)は項目全体、低頻度操作(名前・削除)は行末にまとめて置く（デザイン原則のレイアウト原則に合わせる）。 */
+.note-item-actions { position: absolute; left: 9px; right: 9px; bottom: 8px; display: flex; gap: 6px; }
+.note-item-action {
+  padding: 3px 8px;
+  border: 1px solid #d2d0ca;
+  border-radius: 0;
+  background: #fff;
+  color: #555;
+  font: 500 10px/1 var(--font-en), var(--font-jp);
+  cursor: pointer;
+}
+.note-item-action:hover, .note-item-action:focus-visible { border-color: #111; color: #111; outline: none; }
+.note-item-action-delete:hover, .note-item-action-delete:focus-visible { border-color: #b3261e; color: #b3261e; }
+.note-list-item-trash { cursor: default; padding-bottom: 34px; }
+.note-list-item-trash:hover { border-color: #d2d0ca; background: #fff; }
+#notes-trash-toggle {
+  width: 100%;
+  margin-top: 7px;
+  padding: 6px 8px;
+  border: 1px solid #d2d0ca;
+  border-radius: 0;
+  background: transparent;
+  color: #555;
+  font: 500 10px/1 var(--font-en), var(--font-jp);
+  letter-spacing: .04em;
+  cursor: pointer;
+}
+#notes-trash-toggle:hover { border-color: #111; color: #111; }
+#notes-trash-list { display: grid; gap: 5px; margin-top: 7px; padding-top: 7px; border-top: 1px solid #d2d0ca; }
+#notes-trash-list[hidden] { display: none; }
+/* 書き出しメニュー。#notes-listと同じpopoverの見た目に揃える。 */
+#export-note-menu {
+  position: absolute;
+  z-index: 105;
+  top: 300px;
+  left: 8px;
+  width: min(240px, calc(100vw - 24px));
+  display: grid;
+  gap: 5px;
+  padding: 7px;
+  border: 1px solid #111;
+  background: #f7f6f2;
+  color: #111;
+  box-shadow: 7px 7px 0 rgba(17,17,17,.18);
+}
+#export-note-menu[hidden] { display: none; }
+#export-note-menu button {
+  width: 100%;
+  padding: 9px;
+  border: 1px solid #d2d0ca;
+  border-radius: 0;
+  background: #fff;
+  color: #111;
+  text-align: left;
+  cursor: pointer;
+  font: 500 12px var(--font-jp), var(--font-en);
+}
+#export-note-menu button:hover, #export-note-menu button:focus-visible { border-color: #111; outline: none; }
+#export-note-menu button:disabled { cursor: wait; opacity: .7; }
+@media (max-width: 640px) {
+  #export-note-menu { position: fixed; top: 56px; left: 12px; right: 12px; width: auto; }
+}
 .theme-choice {
   position: relative;
   min-height: 70px;
@@ -256,6 +333,7 @@ body[data-key-capture="original"] #capture-hint { display: none; }
   min-height: 66px;
   display: block;
   padding-left: 22px;
+  padding-right: 40px;
   border-bottom: 1px solid var(--line);
 }
 .row::before {
@@ -297,6 +375,24 @@ body[data-key-capture="original"] #capture-hint { display: none; }
 .conversion-caret[hidden] { display: none; }
 @keyframes conversion-caret-blink { 50% { opacity: 0; } }
 .row-delete { display: none; }
+/* ブロック単位のLaTeXコピー。row-deleteと違い行モードでも隠さない（段階3最優先要件）。
+   目立たせすぎない透明背景にして、hover/focusでだけ枠線が出るようにする。 */
+.row-copy-latex {
+  position: absolute;
+  z-index: 2;
+  top: 4px;
+  right: 4px;
+  padding: 3px 7px;
+  border: 1px solid transparent;
+  border-radius: 0;
+  background: transparent;
+  color: var(--muted);
+  font: 500 9px/1 var(--font-en);
+  letter-spacing: .04em;
+  cursor: pointer;
+}
+.row-copy-latex:hover, .row-copy-latex:focus-visible { border-color: var(--accent); color: var(--accent); outline: none; }
+.row-copy-latex:disabled { cursor: default; opacity: .8; }
 .slot-context {
   display: inline-flex;
   align-items: center;
@@ -437,6 +533,14 @@ body[data-key-capture="original"] #capture-hint { display: none; }
 }
 #editor-sheet.canvas-mode .row-delete:hover,
 #editor-sheet.canvas-mode .row-delete:focus-visible { border-color: var(--accent); color: var(--accent); outline: none; }
+/* canvasモードでは丸い削除ボタン(top:4/right:4, 44x44)の左どなりへ寄せる。 */
+#editor-sheet.canvas-mode .row-copy-latex {
+  top: 4px;
+  right: 52px;
+  border-color: var(--line);
+  background: var(--sheet);
+  padding: 4px 8px;
+}
 
 /* ---------- 新キーガイド ---------- */
 #key-guide {
