@@ -825,11 +825,32 @@ const CANVAS_COORDINATE_LIMIT = 12000;
 // 空白面を押した位置はそのまま新規blockの左上にする。ただし、狭い画面や
 // pan後にblock全体（×を含む）が最初から画面外に出ないよう、この余白だけは守る。
 const CANVAS_NEW_BLOCK_INSET = 8;
+// Alt+ドラッグ複製の初期位置ずらし幅と、同じ内容を連続貼り付けしたときに
+// 完全に重ならないよう1回ごとに足していく貼り付けオフセットの単位。
+const CANVAS_DUPLICATE_OFFSET = 24;
+const CANVAS_PASTE_OFFSET_STEP = 32;
 let layoutMode = 'rows';
 let canvasCamera = { x: 72, y: 54, zoom: 1 };
 let canvasPointer = null;
 const canvasTouches = new Map();
 let canvasPinch = null;
+// 段階2: canvasの矩形選択・ブロックdrag・ブロックコピー貼り付け用の状態。
+let selectedRows = new Set(); // 矩形選択で選ばれたRowStateの集合（見た目はis-selectedクラス）
+// 矩形選択の直後は、選択前に編集していた行のMathLive内部sinkがdocument.activeElement
+// へ残ったまま（blur()してもMathLive自身の非同期な内部復帰でblur直後に再取得される。
+// 実測でMathLive側のfocus呼び出し(vendor/mathlive.min.mjs内)がblur後も遅れて発生する
+// ことを確認済み。アプリ側のclaimRowFocus系の仕組みでは止められない）になりうる。
+// document.activeElementのwithinRow判定だけでDelete/Backspaceの宛先を決めると、
+// 「選択は見えているのに何も消えない、代わりに元の行の中身が1文字消える」という
+// 実害が起きる。この矛盾を避けるため、直近の操作が矩形選択だったことを専用フラグで
+// 覚えておき、キー判定はDOM focusでなくこのフラグを優先する。ユーザーが実際に
+// どこかの行へ明示的に手を伸ばした（クリック・入力）時点でフラグを下ろす。
+let selectionFocusOverride = false;
+let canvasSelectDrag = null; // 矩形選択ドラッグ中のポインタ情報（{id, start, current}）
+let selectBoxEl = null; // 矩形選択の可視化オーバーレイ要素
+let blockDrag = null; // ブロック移動/複製ドラッグ中の状態（{pointerId, startWorld, entries}）
+let blockClipboard = null; // ブロックコピー&ペーストの内部クリップボード（OSクリップボードは使わない）
+let blockClipboardPasteCount = 0; // 同じコピー内容を連続貼り付けした回数（貼り付け位置をずらす）
 
 function clampCanvasNumber(value, fallback, limit = CANVAS_COORDINATE_LIMIT) {
   const numeric = Number(value);
@@ -1004,6 +1025,189 @@ function createCanvasRowAt(worldPoint) {
   return row;
 }
 
+// ---------------------------------------------------------------------------
+// canvas: 矩形選択・まとめて移動/削除
+// ---------------------------------------------------------------------------
+
+function setSelectedRows(list) {
+  // 選択が入れ替わるたび（新しい矩形選択・貼り付け直後の自動選択・解除）に一旦下ろす。
+  // 「直近の操作が矩形選択だった」という意味を持たせたいのはfinishPointer側の1箇所
+  // だけなので、そちらで選択確定の直後に改めて立て直す。
+  selectionFocusOverride = false;
+  const next = new Set(list);
+  rows.forEach((row) => row.wrap?.classList.toggle('is-selected', next.has(row)));
+  selectedRows = next;
+}
+
+function clearSelection() {
+  if (selectedRows.size) setSelectedRows([]);
+}
+
+function ensureSelectBoxEl() {
+  if (selectBoxEl || !canvasViewport) return;
+  selectBoxEl = document.createElement('div');
+  selectBoxEl.className = 'canvas-select-box';
+  canvasViewport.appendChild(selectBoxEl);
+}
+
+function selectBoxScreenRect() {
+  if (!canvasSelectDrag) return { left: 0, top: 0, width: 0, height: 0 };
+  const { start, current } = canvasSelectDrag;
+  return {
+    left: Math.min(start.x, current.x),
+    top: Math.min(start.y, current.y),
+    width: Math.abs(current.x - start.x),
+    height: Math.abs(current.y - start.y),
+  };
+}
+
+function updateSelectBoxEl() {
+  if (!selectBoxEl) return;
+  const rect = selectBoxScreenRect();
+  selectBoxEl.style.left = `${rect.left}px`;
+  selectBoxEl.style.top = `${rect.top}px`;
+  selectBoxEl.style.width = `${rect.width}px`;
+  selectBoxEl.style.height = `${rect.height}px`;
+}
+
+function removeSelectBoxEl() {
+  selectBoxEl?.remove();
+  selectBoxEl = null;
+}
+
+// 矩形（viewport相対のscreen座標）と各行の実際の描画矩形（getBoundingClientRect）を
+// 直接比較する。world座標へ変換して比較しないのは、zoomの値によらず「今画面に見えて
+// いる重なり」がそのまま選択結果になるようにするため。
+function applyRectSelection(rect) {
+  if (!canvasViewport) return;
+  const viewportRect = canvasViewport.getBoundingClientRect();
+  const hit = rows.filter((row) => {
+    const box = row.wrap.getBoundingClientRect();
+    const left = box.left - viewportRect.left;
+    const top = box.top - viewportRect.top;
+    const right = box.right - viewportRect.left;
+    const bottom = box.bottom - viewportRect.top;
+    return left < rect.left + rect.width && right > rect.left && top < rect.top + rect.height && bottom > rect.top;
+  });
+  setSelectedRows(hit);
+}
+
+function deleteSelectedRows() {
+  if (!selectedRows.size) return;
+  const targets = [...selectedRows];
+  targets.forEach((row) => removeEmptyRow(row, { requireEmpty: false, skipHistory: true }));
+  setSelectedRows([]);
+  scheduleNoteSave();
+  commitHistoryBoundary();
+}
+
+// ---------------------------------------------------------------------------
+// canvas: ブロックのdrag移動・Alt+drag複製
+// ---------------------------------------------------------------------------
+
+function duplicateRowNear(row) {
+  const pos = rowWorldPosition(row);
+  const copy = createRow(false, String(row.mf.value || ''), { x: pos.x + CANVAS_DUPLICATE_OFFSET, y: pos.y + CANVAS_DUPLICATE_OFFSET });
+  fitCanvasRowsToViewport();
+  return copy;
+}
+
+function onBlockDragMove(event) {
+  if (!blockDrag || event.pointerId !== blockDrag.pointerId) return;
+  const world = canvasWorldPoint(canvasPoint(event));
+  const dx = world.x - blockDrag.startWorld.x;
+  const dy = world.y - blockDrag.startWorld.y;
+  blockDrag.entries.forEach(({ row, start }) => setRowWorldPosition(row, { x: start.x + dx, y: start.y + dy }));
+  event.preventDefault();
+}
+
+function endBlockDrag(event) {
+  if (!blockDrag || (event && event.pointerId !== blockDrag.pointerId)) return;
+  document.removeEventListener('pointermove', onBlockDragMove);
+  document.removeEventListener('pointerup', endBlockDrag);
+  document.removeEventListener('pointercancel', endBlockDrag);
+  canvasViewport?.classList.remove('is-block-dragging');
+  blockDrag?.entries.forEach(({ row }) => row.wrap?.classList.remove('is-dragging'));
+  blockDrag = null;
+  fitCanvasRowsToViewport();
+  scheduleNoteSave();
+  // ブロック移動の確定はここで1つの取り消し単位にする（段階1の設計どおり、
+  // pointerupで一度だけcommitHistoryBoundary()を呼ぶ）。
+  commitHistoryBoundary();
+}
+
+// wrapのpointerdownから呼ぶ。event.altKeyなら「掴んだ瞬間に複製し、複製の方を
+// 動かす」（元のblockはその場に残る＝Alt+dragで複製、という一般的な操作感に合わせた）。
+// 選択中のblockを掴んだ場合（複製時を除く）は選択全体をまとめて動かす。
+function startBlockDrag(row, event) {
+  if (blockDrag) return;
+  // 選択に入っていないblockを個別に掴んだら、以前の矩形選択の「直後」扱いは終える。
+  // 選択中のblockそのものを掴んだ場合（複製・グループ移動）は、掴んだ後も見た目の
+  // 選択がそのまま残るため、そのDelete/Backspace対象という扱いを維持してよい。
+  if (!selectedRows.has(row)) selectionFocusOverride = false;
+  const isDuplicate = event.altKey;
+  const targetRow = isDuplicate ? duplicateRowNear(row) : row;
+  const dragRows = (!isDuplicate && selectedRows.has(row) && selectedRows.size > 1) ? [...selectedRows] : [targetRow];
+  activeRowIndex = rows.indexOf(targetRow);
+  claimRowFocus(targetRow);
+  const startWorld = canvasWorldPoint(canvasPoint(event));
+  blockDrag = {
+    pointerId: event.pointerId,
+    startWorld,
+    entries: dragRows.map((r) => ({ row: r, start: rowWorldPosition(r) })),
+  };
+  canvasViewport?.classList.add('is-block-dragging');
+  blockDrag.entries.forEach(({ row: r }) => r.wrap?.classList.add('is-dragging'));
+  document.addEventListener('pointermove', onBlockDragMove);
+  document.addEventListener('pointerup', endBlockDrag);
+  document.addEventListener('pointercancel', endBlockDrag);
+}
+
+// ---------------------------------------------------------------------------
+// ブロックのコピー・貼り付け（内部クリップボード）
+// ---------------------------------------------------------------------------
+
+// コピー対象は「canvasで複数選択中ならその全部」「そうでなければ現在アクティブな
+// 1ブロック」。数式編集面では文字単位の範囲選択という既存機能が無い（後述キー
+// ハンドラのコメント参照）ため、ここでの単位は常にブロック全体でよいと判断した。
+function copyBlocksToClipboard() {
+  const source = layoutMode === 'canvas' && selectedRows.size > 0 ? [...selectedRows] : (activeRow() ? [activeRow()] : []);
+  if (!source.length) return false;
+  blockClipboard = source.map((row) => {
+    const pos = rowWorldPosition(row);
+    return { latex: String(row.mf.value || ''), x: pos.x, y: pos.y };
+  });
+  blockClipboardPasteCount = 0;
+  return true;
+}
+
+function pasteBlockClipboard() {
+  if (!blockClipboard || !blockClipboard.length) return;
+  let createdRows;
+  if (layoutMode === 'canvas') {
+    // 元の位置にそのまま重ねると見えなくなるため、右下へオフセットして貼り付ける。
+    // 連続してCtrl+Vしても同じ場所へ積み重ならないよう、貼り付けるたびにオフセットを足す。
+    blockClipboardPasteCount += 1;
+    const offset = CANVAS_PASTE_OFFSET_STEP * blockClipboardPasteCount;
+    createdRows = blockClipboard.map((entry) => createRow(false, entry.latex, { x: entry.x + offset, y: entry.y + offset }));
+    fitCanvasRowsToViewport();
+    setSelectedRows(createdRows);
+  } else {
+    // 行モードでは現在行の直下へ、コピー順のまま連続挿入する。
+    const cur = activeRow();
+    let insertIndex = cur ? rows.indexOf(cur) + 1 : rows.length;
+    createdRows = blockClipboard.map((entry) => {
+      const created = createRow(false, entry.latex, null, insertIndex);
+      insertIndex += 1;
+      return created;
+    });
+  }
+  const last = createdRows[createdRows.length - 1];
+  if (last) { activeRowIndex = rows.indexOf(last); claimRowFocus(last); }
+  scheduleNoteSave();
+  commitHistoryBoundary();
+}
+
 function updateCanvasPinch() {
   if (!canvasPinch || canvasTouches.size < 2) return;
   const [first, second] = [...canvasTouches.values()];
@@ -1034,6 +1238,23 @@ function installCanvasControls() {
   canvasViewport.addEventListener('pointerdown', (event) => {
     if (layoutMode !== 'canvas' || (event.target instanceof Element && event.target.closest('.row'))) return;
     const point = canvasPoint(event);
+    // 空白のShift+左drag＝矩形選択。素のドラッグは既存どおりpan（拓男が明示要望した
+    // 「左クリックドラッグで移動」を奪わないため、選択は別の組み合わせに割り当てる）。
+    if (event.button === 0 && event.shiftKey && event.pointerType !== 'touch') {
+      // 見た目だけでも手を離す（MathLiveが内部で再focusを差し戻すことがあるため、
+      // これ単体では宛先の判定に使えない。判定はselectionFocusOverrideで行う）。
+      if (isWithinRow(document.activeElement)) {
+        rowFocusClaim += 1;
+        protectedFocusRow = null;
+        document.activeElement.blur();
+      }
+      canvasSelectDrag = { id: event.pointerId, start: point, current: point };
+      capturePointer(event.pointerId);
+      ensureSelectBoxEl();
+      updateSelectBoxEl();
+      event.preventDefault();
+      return;
+    }
     if (event.pointerType === 'touch') {
       canvasTouches.set(event.pointerId, point);
       capturePointer(event.pointerId);
@@ -1051,6 +1272,12 @@ function installCanvasControls() {
   canvasViewport.addEventListener('pointermove', (event) => {
     if (layoutMode !== 'canvas') return;
     const point = canvasPoint(event);
+    if (canvasSelectDrag && canvasSelectDrag.id === event.pointerId) {
+      canvasSelectDrag.current = point;
+      updateSelectBoxEl();
+      event.preventDefault();
+      return;
+    }
     if (event.pointerType === 'touch' && canvasTouches.has(event.pointerId)) {
       canvasTouches.set(event.pointerId, point);
       if (canvasTouches.size >= 2) { updateCanvasPinch(); event.preventDefault(); return; }
@@ -1069,6 +1296,17 @@ function installCanvasControls() {
   });
   const finishPointer = (event) => {
     if (layoutMode !== 'canvas') return;
+    if (canvasSelectDrag && canvasSelectDrag.id === event.pointerId) {
+      const rect = selectBoxScreenRect();
+      if (rect.width > 3 || rect.height > 3) applyRectSelection(rect); else clearSelection();
+      // 矩形選択が実際にblockを拾った直後だけ、Delete/Backspaceの宛先判定を
+      // このフラグに委ねる（選択が消える操作＝clearSelection/次の選択のたびに
+      // setSelectedRowsが呼ばれるので、そちらで毎回リセットする）。
+      selectionFocusOverride = selectedRows.size > 0;
+      removeSelectBoxEl();
+      canvasSelectDrag = null;
+      return;
+    }
     const wasPointer = canvasPointer?.id === event.pointerId ? canvasPointer : null;
     if (event.pointerType === 'touch') {
       canvasTouches.delete(event.pointerId);
@@ -1742,6 +1980,12 @@ function clearRowsForNote() {
   rows.splice(0, rows.length);
   blockEl.replaceChildren();
   activeRowIndex = 0;
+  // ノート切り替えで消えるrowへの参照を残さない（矩形選択・drag中状態・貼り付け
+  // オフセットの起点は、このノートに固有の一時状態のため）。
+  selectedRows = new Set();
+  canvasSelectDrag = null;
+  removeSelectBoxEl();
+  blockDrag = null;
 }
 
 function loadNote(id, restoreFocus = true, saveCurrent = true) {
@@ -1822,7 +2066,7 @@ function isEmptyMathBlock(row) {
   return !String(row?.mf?.value || '').replace(/\\placeholder\{\}/g, '').trim();
 }
 
-function removeEmptyRow(row, { requireEmpty = true } = {}) {
+function removeEmptyRow(row, { requireEmpty = true, skipHistory = false } = {}) {
   const index = rows.indexOf(row);
   if (index < 0 || (requireEmpty && !isEmptyMathBlock(row))) return false;
   // 行モードには常に入力先を1つ残す。キャンバスは0 blockを正規の状態として保存できる。
@@ -1834,6 +2078,7 @@ function removeEmptyRow(row, { requireEmpty = true } = {}) {
   row.caret?.remove();
   row.wrap.remove();
   rows.splice(index, 1);
+  selectedRows.delete(row);
   const nextIndex = rows.length ? Math.max(0, index - 1) : -1;
   activeRowIndex = nextIndex;
   if (nextIndex >= 0) {
@@ -1841,8 +2086,9 @@ function removeEmptyRow(row, { requireEmpty = true } = {}) {
     claimRowFocus(next);
   }
   renderBreadcrumb();
-  scheduleNoteSave();
-  commitHistoryBoundary();
+  // skipHistory: 選択ブロックの一括削除(deleteSelectedRows)からは行ごとに呼ばれるため、
+  // 呼び出し側で1回だけscheduleNoteSave()+commitHistoryBoundary()する（1操作=1取り消し単位）。
+  if (!skipHistory) { scheduleNoteSave(); commitHistoryBoundary(); }
   return true;
 }
 
@@ -1907,10 +2153,26 @@ function createRow(focus, latex = '', position = null, insertIndex = rows.length
   remove.addEventListener('click', (event) => { event.preventDefault(); event.stopPropagation(); removeEmptyRow(row, { requireEmpty: false }); });
   wrap.appendChild(remove);
 
+  // canvasでのブロックdrag移動。event.target===wrapのときだけ、つまり数式欄・
+  // 削除ボタン・変換パネルなど「wrapの子要素自身」がクリックされた場合を除く、
+  // wrap自身の余白（左の番号ラベル・右上の削除ボタン周りの空きなど）を掴んだ
+  // ときだけ開始する。これによりキャレット位置決め・削除ボタン・候補選択などの
+  // 既存操作を一切奪わずに、blockそのものを掴む操作を追加できる。
+  wrap.addEventListener('pointerdown', (event) => {
+    if (layoutMode !== 'canvas' || event.target !== wrap) return;
+    if (event.pointerType !== 'touch' && event.button !== 0) return;
+    event.preventDefault();
+    event.stopPropagation();
+    startBlockDrag(row, event);
+  });
+
   mf.addEventListener('pointerdown', () => {
     // 直前の行ではなく、ユーザーが直接クリックした行を優先する。
     rowFocusClaim += 1;
     protectedFocusRow = null;
+    // 矩形選択の直後でも、行を直接クリックした時点で「選択のままDelete/Backspace」の
+    // 判定は終わり。以降のDelete/Backspaceはこの行の通常編集として扱う。
+    selectionFocusOverride = false;
     const currentIndex = rows.indexOf(row);
     if (currentIndex >= 0) activeRowIndex = currentIndex;
   });
@@ -2311,6 +2573,14 @@ document.addEventListener('keydown', (e) => {
     return;
   }
 
+  // Escape: canvasで矩形選択済みのブロックがあれば、パレット開閉より先に選択解除を優先する。
+  if (e.code === 'Escape' && selectedRows.size > 0) {
+    e.preventDefault(); e.stopPropagation(); e.stopImmediatePropagation();
+    flashSpecial('Escape');
+    clearSelection();
+    return;
+  }
+
   // Escape: パレットの開閉（常時捕捉）
   if (e.code === 'Escape') {
     e.preventDefault(); e.stopPropagation(); e.stopImmediatePropagation();
@@ -2345,6 +2615,45 @@ document.addEventListener('keydown', (e) => {
       e.preventDefault(); e.stopPropagation(); e.stopImmediatePropagation();
       if (e.code === 'KeyY' || (e.code === 'KeyZ' && e.shiftKey)) performRedo(); else performUndo();
       return;
+    }
+  }
+
+  // 選択ブロックの一括削除（Delete / Backspace）。行にフォーカスが無い状態
+  // （矩形選択でブロックを選んだ直後など）だけを対象にする。行編集中の
+  // Backspace（既存の再変換・通常削除）はwithinRow側の後続処理にそのまま任せる。
+  // withinRowだけで判定しないのは、矩形選択の直前まで編集していた行のMathLive内部
+  // sinkが、選択後もdocument.activeElementへ残る（MathLive自身が非同期に再focusする
+  // ため、blur()だけでは確実に外せない。実測で確認済み）ため。selectionFocusOverrideは
+  // 「直近の操作が矩形選択の確定だった」ことだけを見るので、この場合でも正しく
+  // まとめて削除へ倒す。
+  if ((!withinRow || selectionFocusOverride) && layoutMode === 'canvas' && selectedRows.size > 0 && (e.code === 'Delete' || e.code === 'Backspace')) {
+    e.preventDefault(); e.stopPropagation(); e.stopImmediatePropagation();
+    deleteSelectedRows();
+    return;
+  }
+
+  // ブロックのコピー・貼り付け（Ctrl+C / Ctrl+V）。
+  // 数式編集面のCtrl+Cはこれまで割り当てが無く、末尾の一括preventDefault()に
+  // 握りつぶされて何も起きていなかった（\text{}内の文章だけがブラウザ標準の
+  // 文字コピーを持つ）。よってブロック単位のコピーは既存挙動の上書きではなく
+  // 新規追加であり、\text{}内と外部input/textarea/select（nativeEditable）だけを
+  // 対象外にすれば安全に割り当てられる。
+  if (e.ctrlKey && !e.altKey && !e.metaKey && (e.code === 'KeyC' || e.code === 'KeyV')) {
+    const target = document.activeElement;
+    const nativeEditable = !withinRow && (target instanceof HTMLInputElement || target instanceof HTMLTextAreaElement
+      || target instanceof HTMLSelectElement || (target instanceof HTMLElement && target.isContentEditable));
+    const inNativeText = withinRow && isNativeTextContext(activeRow());
+    if (!nativeEditable && !inNativeText) {
+      if (e.code === 'KeyC') {
+        if (copyBlocksToClipboard()) { e.preventDefault(); e.stopPropagation(); e.stopImmediatePropagation(); return; }
+      } else if (blockClipboard) {
+        e.preventDefault(); e.stopPropagation(); e.stopImmediatePropagation();
+        pasteBlockClipboard();
+        return;
+      }
+      // Ctrl+VでblockClipboardが空のときはここでは何もしない。ブロックコピーを
+      // 一度も使っていない利用者には、下の既存Ctrl+V（Unicode文字貼り付け）を
+      // そのまま通し、従来の挙動を保つ。
     }
   }
 
@@ -3981,6 +4290,11 @@ function updateCloudStatus(state = cloudAccount.state) {
   }[state] ?? 'この端末に保存';
   if (status) status.textContent = copy;
   if (detail) detail.textContent = cloudAccount.userId ? copy : '';
+  // 狭幅では#sync-statusを視覚的に隠す（ヘッダーに置き場が無いため）。ただし
+  // 「保存中/保存済み」自体は消えたことにせず、account-toggleへ小さな点で
+  // 出す（3. 保存された感、狭幅版）。対象はローカル未ログイン時の2状態だけに
+  // 絞り、ログイン時のクラウド表示は既存どおり変更しない。
+  document.body.dataset.localSaveHint = (state === 'local-saving' || state === 'local-saved') ? state : '';
   updateConversionDictionaryStorageStatus(state);
 }
 
@@ -4724,4 +5038,7 @@ window.__neoApp = {
   undo: performUndo,
   redo: performRedo,
   getHistoryState: () => ({ index: historyIndex, length: historyStack.length, dirty: historyDirty }),
+  // 段階2（矩形選択・ブロックdrag・ブロックコピー貼り付け）のE2E回帰用。
+  getSelectedRowIds: () => [...selectedRows].map((row) => row.id),
+  getBlockClipboard: () => (blockClipboard ? structuredClone(blockClipboard) : null),
 };
