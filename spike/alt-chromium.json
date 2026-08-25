@@ -1,0 +1,1097 @@
+BROWSER_VERSION 151.0.7922.34
+MODE headful
+FAILURES []
+FULL {
+  "a": {
+    "reached": true,
+    "logEntries": 2,
+    "letterEvent": {
+      "tag": "alt-target",
+      "type": "keydown",
+      "key": "A",
+      "code": "KeyA",
+      "alt": true,
+      "ctrl": false,
+      "shift": false,
+      "meta": false,
+      "defaultPrevented": false,
+      "target": "DIV"
+    },
+    "fullLog": [
+      {
+        "tag": "alt-target",
+        "type": "keydown",
+        "key": "Alt",
+        "code": "AltLeft",
+        "alt": true,
+        "ctrl": false,
+        "shift": false,
+        "meta": false,
+        "defaultPrevented": false,
+        "target": "DIV"
+      },
+      {
+        "tag": "alt-target",
+        "type": "keydown",
+        "key": "A",
+        "code": "KeyA",
+        "alt": true,
+        "ctrl": false,
+        "shift": false,
+        "meta": false,
+        "defaultPrevented": false,
+        "target": "DIV"
+      }
+    ]
+  },
+  "b": {
+    "reached": true,
+    "logEntries": 2,
+    "letterEvent": {
+      "tag": "alt-target",
+      "type": "keydown",
+      "key": "B",
+      "code": "KeyB",
+      "alt": true,
+      "ctrl": false,
+      "shift": false,
+      "meta": false,
+      "defaultPrevented": false,
+      "target": "DIV"
+    },
+    "fullLog": [
+      {
+        "tag": "alt-target",
+        "type": "keydown",
+        "key": "Alt",
+        "code": "AltLeft",
+        "alt": true,
+        "ctrl": false,
+        "shift": false,
+        "meta": false,
+        "defaultPrevented": false,
+        "target": "DIV"
+      },
+      {
+        "tag": "alt-target",
+        "type": "keydown",
+        "key": "B",
+        "code": "KeyB",
+        "alt": true,
+        "ctrl": false,
+        "shift": false,
+        "meta": false,
+        "defaultPrevented": false,
+        "target": "DIV"
+      }
+    ]
+  },
+  "c": {
+    "reached": true,
+    "logEntries": 2,
+    "letterEvent": {
+      "tag": "alt-target",
+      "type": "keydown",
+      "key": "C",
+      "code": "KeyC",
+      "alt": true,
+      "ctrl": false,
+      "shift": false,
+      "meta": false,
+      "defaultPrevented": false,
+      "target": "DIV"
+    },
+    "fullLog": [
+      {
+        "tag": "alt-target",
+        "type": "keydown",
+        "key": "Alt",
+        "code": "AltLeft",
+        "alt": true,
+        "ctrl": false,
+        "shift": false,
+        "meta": false,
+        "defaultPrevented": false,
+        "target": "DIV"
+      },
+      {
+        "tag": "alt-target",
+        "type": "keydown",
+        "key": "C",
+        "code": "KeyC",
+        "alt": true,
+        "ctrl": false,
+        "shift": false,
+        "meta": false,
+        "defaultPrevented": false,
+        "target": "DIV"
+      }
+    ]
+  },
+  "d": {
+    "reached": true,
+    "logEntries": 2,
+    "letterEvent": {
+      "tag": "alt-target",
+      "type": "keydown",
+      "key": "D",
+      "code": "KeyD",
+      "alt": true,
+      "ctrl": false,
+      "shift": false,
+      "meta": false,
+      "defaultPrevented": false,
+      "target": "DIV"
+    },
+    "fullLog": [
+      {
+        "tag": "alt-target",
+        "type": "keydown",
+        "key": "Alt",
+        "code": "AltLeft",
+        "alt": true,
+        "ctrl": false,
+        "shift": false,
+        "meta": false,
+        "defaultPrevented": false,
+        "target": "DIV"
+      },
+      {
+        "tag": "alt-target",
+        "type": "keydown",
+        "key": "D",
+        "code": "KeyD",
+        "alt": true,
+        "ctrl": false,
+        "shift": false,
+        "meta": false,
+        "defaultPrevented": false,
+        "target": "DIV"
+      }
+    ]
+  },
+  "e": {
+    "reached": true,
+    "logEntries": 2,
+    "letterEvent": {
+      "tag": "alt-target",
+      "type": "keydown",
+      "key": "E",
+      "code": "KeyE",
+      "alt": true,
+      "ctrl": false,
+      "shift": false,
+      "meta": false,
+      "defaultPrevented": false,
+      "target": "DIV"
+    },
+    "fullLog": [
+      {
+        "tag": "alt-target",
+        "type": "keydown",
+        "key": "Alt",
+        "code": "AltLeft",
+        "alt": true,
+        "ctrl": false,
+        "shift": false,
+        "meta": false,
+        "defaultPrevented": false,
+        "target": "DIV"
+      },
+      {
+        "tag": "alt-target",
+        "type": "keydown",
+        "key": "E",
+        "code": "KeyE",
+        "alt": true,
+        "ctrl": false,
+        "shift": false,
+        "meta": false,
+        "defaultPrevented": false,
+        "target": "DIV"
+      }
+    ]
+  },
+  "f": {
+    "reached": true,
+    "logEntries": 2,
+    "letterEvent": {
+      "tag": "alt-target",
+      "type": "keydown",
+      "key": "F",
+      "code": "KeyF",
+      "alt": true,
+      "ctrl": false,
+      "shift": false,
+      "meta": false,
+      "defaultPrevented": false,
+      "target": "DIV"
+    },
+    "fullLog": [
+      {
+        "tag": "alt-target",
+        "type": "keydown",
+        "key": "Alt",
+        "code": "AltLeft",
+        "alt": true,
+        "ctrl": false,
+        "shift": false,
+        "meta": false,
+        "defaultPrevented": false,
+        "target": "DIV"
+      },
+      {
+        "tag": "alt-target",
+        "type": "keydown",
+        "key": "F",
+        "code": "KeyF",
+        "alt": true,
+        "ctrl": false,
+        "shift": false,
+        "meta": false,
+        "defaultPrevented": false,
+        "target": "DIV"
+      }
+    ]
+  },
+  "g": {
+    "reached": true,
+    "logEntries": 2,
+    "letterEvent": {
+      "tag": "alt-target",
+      "type": "keydown",
+      "key": "G",
+      "code": "KeyG",
+      "alt": true,
+      "ctrl": false,
+      "shift": false,
+      "meta": false,
+      "defaultPrevented": false,
+      "target": "DIV"
+    },
+    "fullLog": [
+      {
+        "tag": "alt-target",
+        "type": "keydown",
+        "key": "Alt",
+        "code": "AltLeft",
+        "alt": true,
+        "ctrl": false,
+        "shift": false,
+        "meta": false,
+        "defaultPrevented": false,
+        "target": "DIV"
+      },
+      {
+        "tag": "alt-target",
+        "type": "keydown",
+        "key": "G",
+        "code": "KeyG",
+        "alt": true,
+        "ctrl": false,
+        "shift": false,
+        "meta": false,
+        "defaultPrevented": false,
+        "target": "DIV"
+      }
+    ]
+  },
+  "h": {
+    "reached": true,
+    "logEntries": 2,
+    "letterEvent": {
+      "tag": "alt-target",
+      "type": "keydown",
+      "key": "H",
+      "code": "KeyH",
+      "alt": true,
+      "ctrl": false,
+      "shift": false,
+      "meta": false,
+      "defaultPrevented": false,
+      "target": "DIV"
+    },
+    "fullLog": [
+      {
+        "tag": "alt-target",
+        "type": "keydown",
+        "key": "Alt",
+        "code": "AltLeft",
+        "alt": true,
+        "ctrl": false,
+        "shift": false,
+        "meta": false,
+        "defaultPrevented": false,
+        "target": "DIV"
+      },
+      {
+        "tag": "alt-target",
+        "type": "keydown",
+        "key": "H",
+        "code": "KeyH",
+        "alt": true,
+        "ctrl": false,
+        "shift": false,
+        "meta": false,
+        "defaultPrevented": false,
+        "target": "DIV"
+      }
+    ]
+  },
+  "i": {
+    "reached": true,
+    "logEntries": 2,
+    "letterEvent": {
+      "tag": "alt-target",
+      "type": "keydown",
+      "key": "I",
+      "code": "KeyI",
+      "alt": true,
+      "ctrl": false,
+      "shift": false,
+      "meta": false,
+      "defaultPrevented": false,
+      "target": "DIV"
+    },
+    "fullLog": [
+      {
+        "tag": "alt-target",
+        "type": "keydown",
+        "key": "Alt",
+        "code": "AltLeft",
+        "alt": true,
+        "ctrl": false,
+        "shift": false,
+        "meta": false,
+        "defaultPrevented": false,
+        "target": "DIV"
+      },
+      {
+        "tag": "alt-target",
+        "type": "keydown",
+        "key": "I",
+        "code": "KeyI",
+        "alt": true,
+        "ctrl": false,
+        "shift": false,
+        "meta": false,
+        "defaultPrevented": false,
+        "target": "DIV"
+      }
+    ]
+  },
+  "j": {
+    "reached": true,
+    "logEntries": 2,
+    "letterEvent": {
+      "tag": "alt-target",
+      "type": "keydown",
+      "key": "J",
+      "code": "KeyJ",
+      "alt": true,
+      "ctrl": false,
+      "shift": false,
+      "meta": false,
+      "defaultPrevented": false,
+      "target": "DIV"
+    },
+    "fullLog": [
+      {
+        "tag": "alt-target",
+        "type": "keydown",
+        "key": "Alt",
+        "code": "AltLeft",
+        "alt": true,
+        "ctrl": false,
+        "shift": false,
+        "meta": false,
+        "defaultPrevented": false,
+        "target": "DIV"
+      },
+      {
+        "tag": "alt-target",
+        "type": "keydown",
+        "key": "J",
+        "code": "KeyJ",
+        "alt": true,
+        "ctrl": false,
+        "shift": false,
+        "meta": false,
+        "defaultPrevented": false,
+        "target": "DIV"
+      }
+    ]
+  },
+  "k": {
+    "reached": true,
+    "logEntries": 2,
+    "letterEvent": {
+      "tag": "alt-target",
+      "type": "keydown",
+      "key": "K",
+      "code": "KeyK",
+      "alt": true,
+      "ctrl": false,
+      "shift": false,
+      "meta": false,
+      "defaultPrevented": false,
+      "target": "DIV"
+    },
+    "fullLog": [
+      {
+        "tag": "alt-target",
+        "type": "keydown",
+        "key": "Alt",
+        "code": "AltLeft",
+        "alt": true,
+        "ctrl": false,
+        "shift": false,
+        "meta": false,
+        "defaultPrevented": false,
+        "target": "DIV"
+      },
+      {
+        "tag": "alt-target",
+        "type": "keydown",
+        "key": "K",
+        "code": "KeyK",
+        "alt": true,
+        "ctrl": false,
+        "shift": false,
+        "meta": false,
+        "defaultPrevented": false,
+        "target": "DIV"
+      }
+    ]
+  },
+  "l": {
+    "reached": true,
+    "logEntries": 2,
+    "letterEvent": {
+      "tag": "alt-target",
+      "type": "keydown",
+      "key": "L",
+      "code": "KeyL",
+      "alt": true,
+      "ctrl": false,
+      "shift": false,
+      "meta": false,
+      "defaultPrevented": false,
+      "target": "DIV"
+    },
+    "fullLog": [
+      {
+        "tag": "alt-target",
+        "type": "keydown",
+        "key": "Alt",
+        "code": "AltLeft",
+        "alt": true,
+        "ctrl": false,
+        "shift": false,
+        "meta": false,
+        "defaultPrevented": false,
+        "target": "DIV"
+      },
+      {
+        "tag": "alt-target",
+        "type": "keydown",
+        "key": "L",
+        "code": "KeyL",
+        "alt": true,
+        "ctrl": false,
+        "shift": false,
+        "meta": false,
+        "defaultPrevented": false,
+        "target": "DIV"
+      }
+    ]
+  },
+  "m": {
+    "reached": true,
+    "logEntries": 2,
+    "letterEvent": {
+      "tag": "alt-target",
+      "type": "keydown",
+      "key": "M",
+      "code": "KeyM",
+      "alt": true,
+      "ctrl": false,
+      "shift": false,
+      "meta": false,
+      "defaultPrevented": false,
+      "target": "DIV"
+    },
+    "fullLog": [
+      {
+        "tag": "alt-target",
+        "type": "keydown",
+        "key": "Alt",
+        "code": "AltLeft",
+        "alt": true,
+        "ctrl": false,
+        "shift": false,
+        "meta": false,
+        "defaultPrevented": false,
+        "target": "DIV"
+      },
+      {
+        "tag": "alt-target",
+        "type": "keydown",
+        "key": "M",
+        "code": "KeyM",
+        "alt": true,
+        "ctrl": false,
+        "shift": false,
+        "meta": false,
+        "defaultPrevented": false,
+        "target": "DIV"
+      }
+    ]
+  },
+  "n": {
+    "reached": true,
+    "logEntries": 2,
+    "letterEvent": {
+      "tag": "alt-target",
+      "type": "keydown",
+      "key": "N",
+      "code": "KeyN",
+      "alt": true,
+      "ctrl": false,
+      "shift": false,
+      "meta": false,
+      "defaultPrevented": false,
+      "target": "DIV"
+    },
+    "fullLog": [
+      {
+        "tag": "alt-target",
+        "type": "keydown",
+        "key": "Alt",
+        "code": "AltLeft",
+        "alt": true,
+        "ctrl": false,
+        "shift": false,
+        "meta": false,
+        "defaultPrevented": false,
+        "target": "DIV"
+      },
+      {
+        "tag": "alt-target",
+        "type": "keydown",
+        "key": "N",
+        "code": "KeyN",
+        "alt": true,
+        "ctrl": false,
+        "shift": false,
+        "meta": false,
+        "defaultPrevented": false,
+        "target": "DIV"
+      }
+    ]
+  },
+  "o": {
+    "reached": true,
+    "logEntries": 2,
+    "letterEvent": {
+      "tag": "alt-target",
+      "type": "keydown",
+      "key": "O",
+      "code": "KeyO",
+      "alt": true,
+      "ctrl": false,
+      "shift": false,
+      "meta": false,
+      "defaultPrevented": false,
+      "target": "DIV"
+    },
+    "fullLog": [
+      {
+        "tag": "alt-target",
+        "type": "keydown",
+        "key": "Alt",
+        "code": "AltLeft",
+        "alt": true,
+        "ctrl": false,
+        "shift": false,
+        "meta": false,
+        "defaultPrevented": false,
+        "target": "DIV"
+      },
+      {
+        "tag": "alt-target",
+        "type": "keydown",
+        "key": "O",
+        "code": "KeyO",
+        "alt": true,
+        "ctrl": false,
+        "shift": false,
+        "meta": false,
+        "defaultPrevented": false,
+        "target": "DIV"
+      }
+    ]
+  },
+  "p": {
+    "reached": true,
+    "logEntries": 2,
+    "letterEvent": {
+      "tag": "alt-target",
+      "type": "keydown",
+      "key": "P",
+      "code": "KeyP",
+      "alt": true,
+      "ctrl": false,
+      "shift": false,
+      "meta": false,
+      "defaultPrevented": false,
+      "target": "DIV"
+    },
+    "fullLog": [
+      {
+        "tag": "alt-target",
+        "type": "keydown",
+        "key": "Alt",
+        "code": "AltLeft",
+        "alt": true,
+        "ctrl": false,
+        "shift": false,
+        "meta": false,
+        "defaultPrevented": false,
+        "target": "DIV"
+      },
+      {
+        "tag": "alt-target",
+        "type": "keydown",
+        "key": "P",
+        "code": "KeyP",
+        "alt": true,
+        "ctrl": false,
+        "shift": false,
+        "meta": false,
+        "defaultPrevented": false,
+        "target": "DIV"
+      }
+    ]
+  },
+  "q": {
+    "reached": true,
+    "logEntries": 2,
+    "letterEvent": {
+      "tag": "alt-target",
+      "type": "keydown",
+      "key": "Q",
+      "code": "KeyQ",
+      "alt": true,
+      "ctrl": false,
+      "shift": false,
+      "meta": false,
+      "defaultPrevented": false,
+      "target": "DIV"
+    },
+    "fullLog": [
+      {
+        "tag": "alt-target",
+        "type": "keydown",
+        "key": "Alt",
+        "code": "AltLeft",
+        "alt": true,
+        "ctrl": false,
+        "shift": false,
+        "meta": false,
+        "defaultPrevented": false,
+        "target": "DIV"
+      },
+      {
+        "tag": "alt-target",
+        "type": "keydown",
+        "key": "Q",
+        "code": "KeyQ",
+        "alt": true,
+        "ctrl": false,
+        "shift": false,
+        "meta": false,
+        "defaultPrevented": false,
+        "target": "DIV"
+      }
+    ]
+  },
+  "r": {
+    "reached": true,
+    "logEntries": 2,
+    "letterEvent": {
+      "tag": "alt-target",
+      "type": "keydown",
+      "key": "R",
+      "code": "KeyR",
+      "alt": true,
+      "ctrl": false,
+      "shift": false,
+      "meta": false,
+      "defaultPrevented": false,
+      "target": "DIV"
+    },
+    "fullLog": [
+      {
+        "tag": "alt-target",
+        "type": "keydown",
+        "key": "Alt",
+        "code": "AltLeft",
+        "alt": true,
+        "ctrl": false,
+        "shift": false,
+        "meta": false,
+        "defaultPrevented": false,
+        "target": "DIV"
+      },
+      {
+        "tag": "alt-target",
+        "type": "keydown",
+        "key": "R",
+        "code": "KeyR",
+        "alt": true,
+        "ctrl": false,
+        "shift": false,
+        "meta": false,
+        "defaultPrevented": false,
+        "target": "DIV"
+      }
+    ]
+  },
+  "s": {
+    "reached": true,
+    "logEntries": 2,
+    "letterEvent": {
+      "tag": "alt-target",
+      "type": "keydown",
+      "key": "S",
+      "code": "KeyS",
+      "alt": true,
+      "ctrl": false,
+      "shift": false,
+      "meta": false,
+      "defaultPrevented": false,
+      "target": "DIV"
+    },
+    "fullLog": [
+      {
+        "tag": "alt-target",
+        "type": "keydown",
+        "key": "Alt",
+        "code": "AltLeft",
+        "alt": true,
+        "ctrl": false,
+        "shift": false,
+        "meta": false,
+        "defaultPrevented": false,
+        "target": "DIV"
+      },
+      {
+        "tag": "alt-target",
+        "type": "keydown",
+        "key": "S",
+        "code": "KeyS",
+        "alt": true,
+        "ctrl": false,
+        "shift": false,
+        "meta": false,
+        "defaultPrevented": false,
+        "target": "DIV"
+      }
+    ]
+  },
+  "t": {
+    "reached": true,
+    "logEntries": 2,
+    "letterEvent": {
+      "tag": "alt-target",
+      "type": "keydown",
+      "key": "T",
+      "code": "KeyT",
+      "alt": true,
+      "ctrl": false,
+      "shift": false,
+      "meta": false,
+      "defaultPrevented": false,
+      "target": "DIV"
+    },
+    "fullLog": [
+      {
+        "tag": "alt-target",
+        "type": "keydown",
+        "key": "Alt",
+        "code": "AltLeft",
+        "alt": true,
+        "ctrl": false,
+        "shift": false,
+        "meta": false,
+        "defaultPrevented": false,
+        "target": "DIV"
+      },
+      {
+        "tag": "alt-target",
+        "type": "keydown",
+        "key": "T",
+        "code": "KeyT",
+        "alt": true,
+        "ctrl": false,
+        "shift": false,
+        "meta": false,
+        "defaultPrevented": false,
+        "target": "DIV"
+      }
+    ]
+  },
+  "u": {
+    "reached": true,
+    "logEntries": 2,
+    "letterEvent": {
+      "tag": "alt-target",
+      "type": "keydown",
+      "key": "U",
+      "code": "KeyU",
+      "alt": true,
+      "ctrl": false,
+      "shift": false,
+      "meta": false,
+      "defaultPrevented": false,
+      "target": "DIV"
+    },
+    "fullLog": [
+      {
+        "tag": "alt-target",
+        "type": "keydown",
+        "key": "Alt",
+        "code": "AltLeft",
+        "alt": true,
+        "ctrl": false,
+        "shift": false,
+        "meta": false,
+        "defaultPrevented": false,
+        "target": "DIV"
+      },
+      {
+        "tag": "alt-target",
+        "type": "keydown",
+        "key": "U",
+        "code": "KeyU",
+        "alt": true,
+        "ctrl": false,
+        "shift": false,
+        "meta": false,
+        "defaultPrevented": false,
+        "target": "DIV"
+      }
+    ]
+  },
+  "v": {
+    "reached": true,
+    "logEntries": 2,
+    "letterEvent": {
+      "tag": "alt-target",
+      "type": "keydown",
+      "key": "V",
+      "code": "KeyV",
+      "alt": true,
+      "ctrl": false,
+      "shift": false,
+      "meta": false,
+      "defaultPrevented": false,
+      "target": "DIV"
+    },
+    "fullLog": [
+      {
+        "tag": "alt-target",
+        "type": "keydown",
+        "key": "Alt",
+        "code": "AltLeft",
+        "alt": true,
+        "ctrl": false,
+        "shift": false,
+        "meta": false,
+        "defaultPrevented": false,
+        "target": "DIV"
+      },
+      {
+        "tag": "alt-target",
+        "type": "keydown",
+        "key": "V",
+        "code": "KeyV",
+        "alt": true,
+        "ctrl": false,
+        "shift": false,
+        "meta": false,
+        "defaultPrevented": false,
+        "target": "DIV"
+      }
+    ]
+  },
+  "w": {
+    "reached": true,
+    "logEntries": 2,
+    "letterEvent": {
+      "tag": "alt-target",
+      "type": "keydown",
+      "key": "W",
+      "code": "KeyW",
+      "alt": true,
+      "ctrl": false,
+      "shift": false,
+      "meta": false,
+      "defaultPrevented": false,
+      "target": "DIV"
+    },
+    "fullLog": [
+      {
+        "tag": "alt-target",
+        "type": "keydown",
+        "key": "Alt",
+        "code": "AltLeft",
+        "alt": true,
+        "ctrl": false,
+        "shift": false,
+        "meta": false,
+        "defaultPrevented": false,
+        "target": "DIV"
+      },
+      {
+        "tag": "alt-target",
+        "type": "keydown",
+        "key": "W",
+        "code": "KeyW",
+        "alt": true,
+        "ctrl": false,
+        "shift": false,
+        "meta": false,
+        "defaultPrevented": false,
+        "target": "DIV"
+      }
+    ]
+  },
+  "x": {
+    "reached": true,
+    "logEntries": 2,
+    "letterEvent": {
+      "tag": "alt-target",
+      "type": "keydown",
+      "key": "X",
+      "code": "KeyX",
+      "alt": true,
+      "ctrl": false,
+      "shift": false,
+      "meta": false,
+      "defaultPrevented": false,
+      "target": "DIV"
+    },
+    "fullLog": [
+      {
+        "tag": "alt-target",
+        "type": "keydown",
+        "key": "Alt",
+        "code": "AltLeft",
+        "alt": true,
+        "ctrl": false,
+        "shift": false,
+        "meta": false,
+        "defaultPrevented": false,
+        "target": "DIV"
+      },
+      {
+        "tag": "alt-target",
+        "type": "keydown",
+        "key": "X",
+        "code": "KeyX",
+        "alt": true,
+        "ctrl": false,
+        "shift": false,
+        "meta": false,
+        "defaultPrevented": false,
+        "target": "DIV"
+      }
+    ]
+  },
+  "y": {
+    "reached": true,
+    "logEntries": 2,
+    "letterEvent": {
+      "tag": "alt-target",
+      "type": "keydown",
+      "key": "Y",
+      "code": "KeyY",
+      "alt": true,
+      "ctrl": false,
+      "shift": false,
+      "meta": false,
+      "defaultPrevented": false,
+      "target": "DIV"
+    },
+    "fullLog": [
+      {
+        "tag": "alt-target",
+        "type": "keydown",
+        "key": "Alt",
+        "code": "AltLeft",
+        "alt": true,
+        "ctrl": false,
+        "shift": false,
+        "meta": false,
+        "defaultPrevented": false,
+        "target": "DIV"
+      },
+      {
+        "tag": "alt-target",
+        "type": "keydown",
+        "key": "Y",
+        "code": "KeyY",
+        "alt": true,
+        "ctrl": false,
+        "shift": false,
+        "meta": false,
+        "defaultPrevented": false,
+        "target": "DIV"
+      }
+    ]
+  },
+  "z": {
+    "reached": true,
+    "logEntries": 2,
+    "letterEvent": {
+      "tag": "alt-target",
+      "type": "keydown",
+      "key": "Z",
+      "code": "KeyZ",
+      "alt": true,
+      "ctrl": false,
+      "shift": false,
+      "meta": false,
+      "defaultPrevented": false,
+      "target": "DIV"
+    },
+    "fullLog": [
+      {
+        "tag": "alt-target",
+        "type": "keydown",
+        "key": "Alt",
+        "code": "AltLeft",
+        "alt": true,
+        "ctrl": false,
+        "shift": false,
+        "meta": false,
+        "defaultPrevented": false,
+        "target": "DIV"
+      },
+      {
+        "tag": "alt-target",
+        "type": "keydown",
+        "key": "Z",
+        "code": "KeyZ",
+        "alt": true,
+        "ctrl": false,
+        "shift": false,
+        "meta": false,
+        "defaultPrevented": false,
+        "target": "DIV"
+      }
+    ]
+  }
+}

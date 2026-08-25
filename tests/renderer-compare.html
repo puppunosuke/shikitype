@@ -1,0 +1,57 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<title>描画エンジン比較: MathLive vs KaTeX</title>
+<link rel="stylesheet" href="/vendor/katex/katex.min.css">
+<script src="/vendor/katex/katex.min.js"></script>
+<script type="module" src="/vendor/mathlive.min.mjs"></script>
+<style>
+  body { font-family: "Segoe UI", "Yu Gothic UI", sans-serif; margin: 0; padding: 28px 36px; background: #fff; }
+  h1 { font-size: 18px; margin: 0 0 18px; }
+  table { border-collapse: collapse; }
+  th { font-size: 11px; color: #888; text-align: left; padding: 6px 14px; font-weight: 600; }
+  td { padding: 10px 14px; border-top: 1px solid #eee; vertical-align: middle; }
+  td.src { font-family: Consolas, monospace; font-size: 11px; color: #666; width: 190px; }
+  .cell { font-size: 34px; }
+  math-field { font-size: 34px; border: none; background: transparent; }
+  math-field::part(virtual-keyboard-toggle), math-field::part(menu-toggle) { display: none; }
+  .katex { font-size: 34px; }
+</style>
+</head>
+<body>
+<h1>描画エンジン比較 — 同じLaTeXを MathLive と KaTeX で描く</h1>
+<table id="t">
+  <tr><th>LaTeX</th><th>MathLive（いま使っているもの）</th><th>KaTeX（displayMode）</th></tr>
+</table>
+<script type="module">
+const CASES = [
+  String.raw`\int\tan xdx`,
+  String.raw`\int\tan x\,dx`,
+  String.raw`\int_0^1x^2dx`,
+  String.raw`\int\nolimits_0^1x^2dx`,
+  String.raw`\lim_{n\to\infty}\left(1+\dfrac{1}{n}\right)^{n}`,
+  String.raw`\sum_{k=1}^{n}k^2`,
+  String.raw`\sqrt{\dfrac{a+b}{c}}`,
+];
+const t = document.getElementById('t');
+for (const src of CASES) {
+  const tr = document.createElement('tr');
+  const c1 = document.createElement('td'); c1.className = 'src'; c1.textContent = src;
+  const c2 = document.createElement('td');
+  const mf = document.createElement('math-field');
+  mf.setAttribute('read-only', '');
+  c2.appendChild(mf);
+  const c3 = document.createElement('td'); c3.className = 'cell';
+  tr.append(c1, c2, c3); t.appendChild(tr);
+  mf.value = src;
+  try {
+    katex.render(src, c3, { throwOnError: false, displayMode: true });
+  } catch (e) {
+    c3.textContent = 'KaTeX error: ' + e.message;
+  }
+}
+window.__ready = true;
+</script>
+</body>
+</html>

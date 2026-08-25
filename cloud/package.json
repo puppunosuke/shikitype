@@ -1,0 +1,22 @@
+{
+  "name": "shikitype-cloud",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "assets": "node scripts/build-assets.mjs",
+    "types": "wrangler types",
+    "test": "npm run assets && vitest run",
+    "smoke:local": "node test/local-ui-smoke.mjs",
+    "smoke:session-restore:local": "node test/local-session-restore-smoke.mjs",
+    "check": "npm run assets && npm run types && tsc --noEmit && npm test",
+    "dev": "npm run assets && wrangler dev --local",
+    "dry-run": "npm run assets && wrangler deploy --dry-run"
+  },
+  "devDependencies": {
+    "@cloudflare/vitest-pool-workers": "^0.22.0",
+    "@types/node": "^26.2.0",
+    "typescript": "^5.9.2",
+    "vitest": "^4.1.0",
+    "wrangler": "^4.113.0"
+  }
+}

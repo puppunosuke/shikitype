@@ -1,0 +1,303 @@
+[
+  {
+    "label": "after 1 tab",
+    "id": null,
+    "cls": null,
+    "tag": "MATH-FIELD",
+    "text": ""
+  },
+  {
+    "label": "focused sidebar-toggle programmatically (start point)",
+    "id": "sidebar-toggle",
+    "cls": null,
+    "tag": "BUTTON",
+    "text": "⌘キー設定"
+  },
+  {
+    "label": "after Enter on sidebar-toggle (drawer should open)",
+    "id": "sidebar-close",
+    "cls": null,
+    "tag": "BUTTON",
+    "text": "×"
+  },
+  {
+    "label": "tab 1",
+    "id": null,
+    "cls": "theme-choice compact-theme",
+    "tag": "BUTTON",
+    "text": "06数学誌"
+  },
+  {
+    "label": "tab 2",
+    "id": null,
+    "cls": "theme-choice compact-theme",
+    "tag": "BUTTON",
+    "text": "08文庫"
+  },
+  {
+    "label": "tab 3",
+    "id": null,
+    "cls": "theme-choice compact-theme",
+    "tag": "BUTTON",
+    "text": "09光学台"
+  },
+  {
+    "label": "tab 4",
+    "id": null,
+    "cls": "theme-choice compact-theme",
+    "tag": "BUTTON",
+    "text": "13資料室"
+  },
+  {
+    "label": "tab 5",
+    "id": null,
+    "cls": "theme-choice compact-theme",
+    "tag": "BUTTON",
+    "text": "18美術館"
+  },
+  {
+    "label": "tab 6",
+    "id": null,
+    "cls": "method-choice",
+    "tag": "BUTTON",
+    "text": "標準トグルTabで層を固定切替標準"
+  },
+  {
+    "label": "tab 7",
+    "id": null,
+    "cls": "method-choice",
+    "tag": "BUTTON",
+    "text": "数式常駐頻出記号をいつでも直接入力往復を削減"
+  },
+  {
+    "label": "tab 8",
+    "id": null,
+    "cls": "method-choice",
+    "tag": "BUTTON",
+    "text": "一時＋固定Tabは1入力、固定で連続入力切替を使い分け"
+  },
+  {
+    "label": "tab 9",
+    "id": null,
+    "cls": "method-choice",
+    "tag": "BUTTON",
+    "text": "長押し短押しは文字、長押しは記号省スペース"
+  },
+  {
+    "label": "tab 10",
+    "id": null,
+    "cls": "active",
+    "tag": "BUTTON",
+    "text": "入力＋画面操作（推奨）"
+  },
+  {
+    "label": "tab 11",
+    "id": null,
+    "cls": null,
+    "tag": "BUTTON",
+    "text": "数式優先（旧動作）"
+  },
+  {
+    "label": "tab 12",
+    "id": null,
+    "cls": "active",
+    "tag": "BUTTON",
+    "text": "記号"
+  },
+  {
+    "label": "tab 13",
+    "id": null,
+    "cls": null,
+    "tag": "BUTTON",
+    "text": "英字"
+  },
+  {
+    "label": "tab 14",
+    "id": null,
+    "cls": null,
+    "tag": "BUTTON",
+    "text": "ギリシャ"
+  },
+  {
+    "label": "tab 15",
+    "id": null,
+    "cls": "key-cap selectable",
+    "tag": "BUTTON",
+    "text": "dxQ"
+  },
+  {
+    "label": "tab 16",
+    "id": null,
+    "cls": "key-cap selectable",
+    "tag": "BUTTON",
+    "text": "d/dxW"
+  },
+  {
+    "label": "tab 17",
+    "id": null,
+    "cls": "key-cap selectable",
+    "tag": "BUTTON",
+    "text": "eE"
+  },
+  {
+    "label": "tab 18",
+    "id": null,
+    "cls": "key-cap selectable",
+    "tag": "BUTTON",
+    "text": "→R"
+  },
+  {
+    "label": "tab 19",
+    "id": null,
+    "cls": "key-cap selectable",
+    "tag": "BUTTON",
+    "text": "·T"
+  },
+  {
+    "label": "tab 20",
+    "id": null,
+    "cls": "key-cap selectable",
+    "tag": "BUTTON",
+    "text": "limY"
+  },
+  {
+    "label": "tab 21",
+    "id": null,
+    "cls": "key-cap selectable",
+    "tag": "BUTTON",
+    "text": "∫U"
+  },
+  {
+    "label": "tab 22",
+    "id": null,
+    "cls": "key-cap selectable",
+    "tag": "BUTTON",
+    "text": "iI"
+  },
+  {
+    "label": "tab 23",
+    "id": null,
+    "cls": "key-cap selectable",
+    "tag": "BUTTON",
+    "text": "ΣO"
+  },
+  {
+    "label": "tab 24",
+    "id": null,
+    "cls": "key-cap selectable",
+    "tag": "BUTTON",
+    "text": "πP"
+  },
+  {
+    "label": "tab 25",
+    "id": null,
+    "cls": "key-cap selectable",
+    "tag": "BUTTON",
+    "text": "√A"
+  },
+  {
+    "label": "tab 26",
+    "id": null,
+    "cls": "key-cap selectable",
+    "tag": "BUTTON",
+    "text": "=S"
+  },
+  {
+    "label": "tab 27",
+    "id": null,
+    "cls": "key-cap selectable",
+    "tag": "BUTTON",
+    "text": "^D"
+  },
+  {
+    "label": "tab 28",
+    "id": null,
+    "cls": "key-cap selectable",
+    "tag": "BUTTON",
+    "text": "(…)F"
+  },
+  {
+    "label": "tab 29",
+    "id": null,
+    "cls": "key-cap selectable",
+    "tag": "BUTTON",
+    "text": "+G"
+  },
+  {
+    "label": "tab 30",
+    "id": null,
+    "cls": "key-cap selectable",
+    "tag": "BUTTON",
+    "text": "-H"
+  },
+  {
+    "label": "tab 31",
+    "id": null,
+    "cls": "key-cap selectable",
+    "tag": "BUTTON",
+    "text": "α/nJ"
+  },
+  {
+    "label": "tab 32",
+    "id": null,
+    "cls": "key-cap selectable",
+    "tag": "BUTTON",
+    "text": "_K"
+  },
+  {
+    "label": "tab 33",
+    "id": null,
+    "cls": "key-cap selectable",
+    "tag": "BUTTON",
+    "text": "n/αL"
+  },
+  {
+    "label": "tab 34",
+    "id": null,
+    "cls": "key-cap selectable",
+    "tag": "BUTTON",
+    "text": "|…|;"
+  },
+  {
+    "label": "tab 35",
+    "id": null,
+    "cls": "key-cap selectable",
+    "tag": "BUTTON",
+    "text": "≦Z"
+  },
+  {
+    "label": "tab 36",
+    "id": null,
+    "cls": "key-cap selectable",
+    "tag": "BUTTON",
+    "text": "≧X"
+  },
+  {
+    "label": "tab 37",
+    "id": null,
+    "cls": "key-cap selectable",
+    "tag": "BUTTON",
+    "text": "≠C"
+  },
+  {
+    "label": "tab 38",
+    "id": null,
+    "cls": "key-cap selectable",
+    "tag": "BUTTON",
+    "text": "sinV"
+  },
+  {
+    "label": "tab 39",
+    "id": null,
+    "cls": "key-cap selectable",
+    "tag": "BUTTON",
+    "text": "cosB"
+  },
+  {
+    "label": "tab 40",
+    "id": null,
+    "cls": "key-cap selectable",
+    "tag": "BUTTON",
+    "text": "tanN"
+  }
+]

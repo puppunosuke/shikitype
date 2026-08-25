@@ -1,0 +1,287 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>SHIKITYPE</title>
+<link rel="stylesheet" href="/vendor/ui-fonts/fonts.css" />
+<link rel="stylesheet" href="/vendor/mathlive-static.css" />
+<link rel="stylesheet" href="/vendor/mathlive-fonts.css" />
+<link rel="stylesheet" href="/styles.css?v=20260824-key-guide-contrast" />
+</head>
+<body data-theme="09">
+  <div id="app-shell">
+    <aside id="theme-sidebar" aria-label="SHIKITYPEの操作">
+      <div id="product-mark" aria-label="SHIKITYPE">
+        <span class="mark-sigil">S</span>
+        <span class="mark-name">SHIKI<br />TYPE</span>
+      </div>
+      <nav id="note-actions" aria-label="ノート">
+        <button type="button" id="new-note"><span aria-hidden="true">＋</span><span>新しいノート</span></button>
+        <button type="button" id="notes-toggle" aria-label="過去のノートを開く" aria-expanded="false" aria-controls="notes-list"><span aria-hidden="true">▤</span><span>過去のノート</span></button>
+        <div id="notes-list" hidden aria-label="過去のノート一覧"></div>
+        <button type="button" id="account-toggle" aria-label="ログインまたはアカウント作成" aria-haspopup="dialog"><span aria-hidden="true">◉</span><span>ログイン</span></button>
+        <div id="sync-status" role="status" aria-live="polite">この端末に保存</div>
+      </nav>
+      <button type="button" id="sidebar-toggle" aria-label="設定" aria-expanded="false" aria-controls="sidebar">
+        <span aria-hidden="true">⌘</span><span>設定</span>
+      </button>
+    </aside>
+    <button type="button" id="theme-rail-collapse" aria-label="デザインバーを畳む" aria-expanded="true" aria-controls="theme-sidebar">‹</button>
+
+    <section id="app-stage">
+      <header id="top-bar">
+        <div id="course-label"><span>数III</span>極限・微分積分</div>
+        <div id="stats">
+          <span>打鍵 <b id="stat-keystrokes">0</b></span>
+          <span>経過 <b id="stat-elapsed">0.0s</b></span>
+        </div>
+        <div id="capture-hint" aria-hidden="true">F2 設定 / F4 ガイド / F8・F9 テーマ</div>
+      </header>
+
+      <div id="work-surface">
+        <div id="scene-decor" aria-hidden="true">
+          <i class="decor decor-a"></i><i class="decor decor-b"></i><i class="decor decor-c"></i>
+        </div>
+        <main id="editor-sheet">
+          <div id="canvas-viewport" aria-label="数式の編集面">
+            <div id="block"></div>
+          </div>
+        </main>
+      </div>
+
+      <footer id="key-guide">
+        <div id="key-guide-header">
+          <div>
+            <span id="key-guide-title">数III キーガイド</span>
+            <span id="input-method-badge">標準</span>
+            <span id="key-guide-layer" aria-live="polite">素キー</span>
+          </div>
+          <button type="button" id="key-guide-toggle">畳む</button>
+        </div>
+        <div id="key-guide-body">
+          <div id="guide-modifiers" aria-label="文字の切り替え">
+            <button type="button" class="modifier-key" data-modifier="shift" aria-pressed="false"><span>Shift</span><small>大文字</small></button>
+            <button type="button" class="modifier-key layer-key" data-special="Tab"><span>Tab</span><small>次: 英字</small></button>
+            <button type="button" class="modifier-key lock-key" id="layer-lock" aria-pressed="false"><span>固定</span><small>現在の層</small></button>
+          </div>
+          <div id="guide-center">
+            <div id="resident-symbols" aria-label="常駐する頻出記号"></div>
+            <div id="key-guide-board" aria-label="記号キー"></div>
+          </div>
+          <div id="guide-actions" aria-label="編集キー">
+            <button type="button" class="action-key action-space" data-special="Space"><span>Space</span><small>1段閉じる</small></button>
+            <button type="button" class="action-key" data-special="Text"><span>文</span><small>文章を書く</small></button>
+            <button type="button" class="action-key" data-special="Enter"><span>Enter</span><small>次の行</small></button>
+            <button type="button" class="action-key" data-special="Escape"><span>Esc</span><small>記号</small></button>
+          </div>
+        </div>
+      </footer>
+    </section>
+  </div>
+
+  <dialog id="sidebar" aria-labelledby="settings-title">
+    <div id="sidebar-head">
+      <h2 id="settings-title">設定</h2>
+      <button type="button" id="sidebar-close" aria-label="設定を閉じる">×</button>
+    </div>
+    <div class="settings-layout">
+      <nav id="settings-nav" aria-label="設定カテゴリ">
+        <label class="settings-search-label" for="settings-search">設定を検索</label>
+        <input id="settings-search" type="search" placeholder="設定を検索…" autocomplete="off" />
+        <div id="settings-search-results" role="listbox" aria-label="設定の検索結果" hidden></div>
+        <div class="settings-nav-list" role="list">
+          <button type="button" class="settings-nav-item" data-settings-category="basic" aria-current="page" aria-controls="settings-panel-basic">基本</button>
+          <button type="button" class="settings-nav-item" data-settings-category="input" aria-current="false" aria-controls="settings-panel-input">入力</button>
+          <button type="button" class="settings-nav-item" data-settings-category="conversion" aria-current="false" aria-controls="settings-panel-conversion">変換</button>
+          <button type="button" class="settings-nav-item" data-settings-category="keys" aria-current="false" aria-controls="settings-panel-keys">キー割当</button>
+          <button type="button" class="settings-nav-item" data-settings-category="appearance" aria-current="false" aria-controls="settings-panel-appearance">外観</button>
+        </div>
+      </nav>
+      <div id="settings-content" tabindex="-1">
+        <section class="settings-panel" id="settings-panel-basic" data-settings-category="basic" aria-labelledby="settings-basic-title">
+          <h3 id="settings-basic-title">基本</h3>
+
+    <section class="side-section" id="input-system-section">
+      <h3>入力系統</h3>
+      <div id="input-system-choice" class="side-choice" role="list" aria-label="入力系統の選択">
+        <button type="button" class="input-system-choice" data-input-system="legacy" aria-pressed="true">従来方式</button>
+        <button type="button" class="input-system-choice" data-input-system="conversion" aria-pressed="false">SHIKITYPE変換方式</button>
+      </div>
+    </section>
+
+    <section class="side-section" id="layout-mode-section">
+      <h3>編集面</h3>
+      <div id="layout-mode-choice" class="side-choice" role="list" aria-label="編集面の選択">
+        <button type="button" class="layout-mode-choice" data-layout-mode="rows" aria-pressed="true">行で書く</button>
+        <button type="button" class="layout-mode-choice" data-layout-mode="canvas" aria-pressed="false">キャンバス</button>
+      </div>
+    </section>
+
+        </section>
+        <section class="settings-panel" id="settings-panel-input" data-settings-category="input" aria-labelledby="settings-input-title" hidden>
+          <h3 id="settings-input-title">入力</h3>
+    <section class="side-section" id="legacy-input-method-section">
+      <h3>従来方式の入力方法</h3>
+      <div id="input-method-choice" role="list" aria-label="入力方式の選択">
+        <button type="button" class="method-choice" data-input-method="toggle" aria-pressed="true">
+          <span><b>標準トグル</b><small>Tabで層を固定切替</small></span><em>標準</em>
+        </button>
+        <button type="button" class="method-choice" data-input-method="math" aria-pressed="false">
+          <span><b>数式常駐</b><small>頻出記号をいつでも直接入力</small></span><em>往復を削減</em>
+        </button>
+        <button type="button" class="method-choice" data-input-method="hybrid" aria-pressed="false">
+          <span><b>一時＋固定</b><small>Tabは1入力、固定で連続入力</small></span><em>切替を使い分け</em>
+        </button>
+        <button type="button" class="method-choice" data-input-method="hold" aria-pressed="false">
+          <span><b>長押し</b><small>短押しは文字、長押しは記号</small></span><em>省スペース</em>
+        </button>
+      </div>
+    </section>
+
+    <section class="side-section" id="conversion-layer-method-section">
+      <h3>変換方式の層ごとの切替方法</h3>
+      <div id="layer-method-list">
+        <div class="method-base-row"><span class="method-base-label">変換</span><div id="layer-method-conversion" class="side-choice wrap"></div></div>
+        <div class="method-base-row"><span class="method-base-label">英字</span><div id="layer-method-latin" class="side-choice wrap"></div></div>
+        <div class="method-base-row"><span class="method-base-label">ギリシャ</span><div id="layer-method-greek" class="side-choice wrap"></div></div>
+      </div>
+    </section>
+
+        </section>
+        <section class="settings-panel" id="settings-panel-conversion" data-settings-category="conversion" aria-labelledby="settings-conversion-title" hidden>
+          <h3 id="settings-conversion-title">変換</h3>
+    <section class="side-section" id="conversion-priority-section">
+      <h3>変換候補の優先順位</h3>
+      <input type="search" id="conversion-priority-search" placeholder="記号または読みを検索" aria-label="変換候補を検索" autocomplete="off" />
+      <div id="conversion-priority-list" aria-label="変換候補の優先順位"></div>
+      <button type="button" id="conversion-priority-reset">手動の優先順位をリセット</button>
+    </section>
+
+    <section class="side-section" id="conversion-dictionary-section">
+      <h3>読み辞書（CSV）</h3>
+      <label class="dictionary-file-label" for="conversion-dictionary-file">CSVファイル</label>
+      <input id="conversion-dictionary-file" type="file" accept=".csv,text/csv" aria-describedby="conversion-dictionary-status" />
+      <div class="dictionary-actions">
+        <button type="button" id="conversion-dictionary-import">差分を反映</button>
+        <button type="button" id="conversion-dictionary-replace">ユーザー変更を置換</button>
+        <button type="button" id="conversion-dictionary-export">CSVを書き出す</button>
+      </div>
+      <p class="side-note" id="conversion-dictionary-storage" role="status" aria-live="polite">保存先：この端末（未ログイン）</p>
+      <p class="side-note" id="conversion-dictionary-status" role="status" aria-live="polite"></p>
+    </section>
+
+    <section class="side-section" id="legacy-method-base-section">
+      <h3>方式ごとの基底層</h3>
+      <div id="method-base-list">
+        <div class="method-base-row"><span class="method-base-label">標準トグル</span><div id="method-base-toggle" class="side-choice"></div></div>
+        <div class="method-base-row"><span class="method-base-label">数式常駐</span><div id="method-base-math" class="side-choice"></div></div>
+        <div class="method-base-row"><span class="method-base-label">一時＋固定</span><div id="method-base-hybrid" class="side-choice"></div></div>
+        <div class="method-base-row"><span class="method-base-label">長押し</span><div id="method-base-hold" class="side-choice"></div></div>
+      </div>
+    </section>
+
+    <section class="side-section">
+      <h3>単元プリセット</h3>
+      <div id="unit-subject-choice" class="side-choice wrap" role="list" aria-label="科目の選択"></div>
+      <div id="unit-choice" class="side-choice wrap unit-choice" role="list" aria-label="単元の選択"></div>
+    </section>
+
+    <section class="side-section">
+      <h3>キー操作モード</h3>
+      <div id="capture-choice" class="side-choice"></div>
+    </section>
+
+        </section>
+        <section class="settings-panel" id="settings-panel-keys" data-settings-category="keys" aria-labelledby="settings-keys-title" hidden>
+          <h3 id="settings-keys-title">キー割当</h3>
+          <div class="keys-workbench">
+            <div class="keys-workbench-keyboard">
+    <section class="side-section">
+      <h3>編集する層</h3>
+      <div id="layer-choice" class="side-choice"></div>
+    </section>
+
+    <section class="side-section">
+      <h3>割り当て</h3>
+      <div id="config-keys"></div>
+    </section>
+
+            </div>
+    <section class="side-section" id="assign-section" hidden>
+      <h3 id="assign-title">割り当て先</h3>
+      <div id="assign-grid"></div>
+      <button type="button" id="assign-reset">このキーを叩き台へ戻す</button>
+    </section>
+
+    <section class="side-section">
+      <button type="button" id="reset-all">すべての変更を破棄</button>
+      <p class="side-note" id="override-count"></p>
+    </section>
+          </div>
+        </section>
+        <section class="settings-panel" id="settings-panel-appearance" data-settings-category="appearance" aria-labelledby="settings-appearance-title" hidden>
+          <h3 id="settings-appearance-title">外観</h3>
+          <section class="side-section">
+            <h3>デザイン</h3>
+            <div id="sidebar-theme-choice" class="theme-grid" role="list" aria-label="デザインの選択">
+              <button type="button" class="theme-choice compact-theme" data-theme="06" aria-pressed="false"><span class="theme-number">06</span><span class="theme-title">数学誌</span></button>
+              <button type="button" class="theme-choice compact-theme" data-theme="08" aria-pressed="false"><span class="theme-number">08</span><span class="theme-title">文庫</span></button>
+              <button type="button" class="theme-choice compact-theme" data-theme="09" aria-pressed="true"><span class="theme-number">09</span><span class="theme-title">光学台</span></button>
+              <button type="button" class="theme-choice compact-theme" data-theme="13" aria-pressed="false"><span class="theme-number">13</span><span class="theme-title">資料室</span></button>
+              <button type="button" class="theme-choice compact-theme" data-theme="18" aria-pressed="false"><span class="theme-number">18</span><span class="theme-title">美術館</span></button>
+            </div>
+          </section>
+        </section>
+      </div>
+    </div>
+  </dialog>
+
+  <div id="palette">
+    <div id="palette-header">パレット（ギリシャ文字・低頻度記号 / Escで開閉）</div>
+    <div id="palette-grid"></div>
+  </div>
+
+  <dialog id="account-dialog" aria-labelledby="account-dialog-title">
+    <form id="account-dialog-shell" novalidate>
+      <div class="account-dialog-head"><h2 id="account-dialog-title">ノートを同期</h2><button type="button" class="account-close" aria-label="閉じる">×</button></div>
+      <p id="account-dialog-copy">ログインすると、保存したノートを別の端末でも開けます。</p>
+      <div id="account-tabs" role="tablist" aria-label="アカウント操作">
+        <button type="button" class="account-tab" id="account-tab-login" data-account-panel="login" role="tab" aria-controls="account-panel-login" aria-selected="true" tabindex="0">ログイン</button>
+        <button type="button" class="account-tab" id="account-tab-signup" data-account-panel="signup" role="tab" aria-controls="account-panel-signup" aria-selected="false" tabindex="-1">アカウント作成</button>
+        <button type="button" class="account-tab" id="account-tab-recover" data-account-panel="recover" role="tab" aria-controls="account-panel-recover" aria-selected="false" tabindex="-1">回復</button>
+      </div>
+      <p id="account-message" role="status" aria-live="polite"></p>
+      <section class="account-panel" id="account-panel-login" data-panel="login" role="tabpanel" aria-labelledby="account-tab-login">
+        <label>ログインID<input id="login-id" autocomplete="username" minlength="3" maxlength="32" required /></label>
+        <label>パスワード<input id="login-password" type="password" autocomplete="current-password" minlength="12" maxlength="128" required /></label>
+        <button type="submit" id="login-submit" class="account-submit">ログイン</button>
+      </section>
+      <section class="account-panel" id="account-panel-signup" data-panel="signup" role="tabpanel" aria-labelledby="account-tab-signup" hidden>
+        <label>ログインID<input id="signup-id" autocomplete="username" minlength="3" maxlength="32" pattern="[A-Za-z0-9_\-]+" required /></label>
+        <label>パスワード（12文字以上）<input id="signup-password" type="password" autocomplete="new-password" minlength="12" maxlength="128" required /></label>
+        <button type="submit" id="signup-submit" class="account-submit">アカウントを作成</button>
+      </section>
+      <section class="account-panel" id="account-panel-recover" data-panel="recover" role="tabpanel" aria-labelledby="account-tab-recover" hidden>
+        <label>ログインID<input id="recover-id" autocomplete="username" minlength="3" maxlength="32" required /></label>
+        <label>回復コード<input id="recover-code" autocomplete="one-time-code" maxlength="160" required /></label>
+        <label>新しいパスワード（12文字以上）<input id="recover-password" type="password" autocomplete="new-password" minlength="12" maxlength="128" required /></label>
+        <button type="submit" id="recover-submit" class="account-submit">パスワードを再設定</button>
+      </section>
+      <section id="account-signed-in" hidden>
+        <p><b id="account-user-id"></b> としてログイン中</p>
+        <p id="account-sync-detail"></p>
+        <button type="button" id="logout-submit" class="account-submit">ログアウト</button>
+      </section>
+      <section id="recovery-code-panel" hidden>
+        <h3>回復コード</h3>
+        <p>このコードは今だけ表示されます。安全な場所へ保管してください。</p>
+        <output id="recovery-code"></output>
+        <button type="button" id="recovery-code-done" class="account-submit">保管した</button>
+      </section>
+    </form>
+  </dialog>
+
+<script type="module" src="/app.js?v=20260824-cloud-notes"></script>
+</body>
+</html>

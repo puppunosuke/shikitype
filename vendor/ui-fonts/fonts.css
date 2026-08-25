@@ -1,0 +1,14 @@
+/* 共通フォント（マスター）— design決定のフォントをローカル同梱で使う。CDN依存なし。
+   和文＝Zen Kaku Gothic New（絶対）／欧文＝Inter。Fontsource(jsDelivr)の woff2 を同梱。
+   各プロダクトは vendor/fonts/ に必要な woff2 をコピーし、この @font-face 定義を流用する。
+   本文の font-family は "Inter","Zen Kaku Gothic New" 順にして、欧文=Inter・和文=Zen Kaku をグリフ単位で解決する。 */
+
+/* --- Inter（欧文・latin） --- */
+@font-face{ font-family:"Inter"; font-style:normal; font-weight:400; font-display:swap; src:url("inter-400.woff2") format("woff2"); }
+@font-face{ font-family:"Inter"; font-style:normal; font-weight:500; font-display:swap; src:url("inter-500.woff2") format("woff2"); }
+@font-face{ font-family:"Inter"; font-style:normal; font-weight:700; font-display:swap; src:url("inter-700.woff2") format("woff2"); }
+
+/* --- Zen Kaku Gothic New（和文・japanese） --- */
+@font-face{ font-family:"Zen Kaku Gothic New"; font-style:normal; font-weight:400; font-display:swap; src:url("zenkaku-400.woff2") format("woff2"); }
+@font-face{ font-family:"Zen Kaku Gothic New"; font-style:normal; font-weight:500; font-display:swap; src:url("zenkaku-500.woff2") format("woff2"); }
+@font-face{ font-family:"Zen Kaku Gothic New"; font-style:normal; font-weight:700; font-display:swap; src:url("zenkaku-700.woff2") format("woff2"); }

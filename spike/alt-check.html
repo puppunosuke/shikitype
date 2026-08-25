@@ -1,0 +1,115 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<title>Alt+英字 26通り チェック（Vivaldi実機用）</title>
+<style>
+  body { font-family: "Segoe UI", "Yu Gothic UI", sans-serif; background:#fff; color:#111;
+         margin:0; padding:32px 40px; }
+  h1 { font-size:22px; margin:0 0 4px; letter-spacing:.02em; }
+  .lead { color:#555; font-size:14px; margin:0 0 24px; line-height:1.7; }
+  .lead b { color:#111; }
+  .grid { display:grid; grid-template-columns:repeat(13, 1fr); gap:8px; max-width:900px; }
+  .cell { aspect-ratio:1; display:flex; align-items:center; justify-content:center;
+          font-size:20px; font-weight:600; border:2px solid #ddd; border-radius:8px;
+          background:#fafafa; color:#999; transition:none; }
+  .cell.ok  { background:#1b6b3a; border-color:#1b6b3a; color:#fff; }
+  .cell.ng  { background:#c0392b; border-color:#c0392b; color:#fff; }
+  .status { margin:24px 0 8px; font-size:15px; }
+  .status b { font-size:20px; }
+  .ngbox { margin-top:16px; padding:14px 16px; border-left:4px solid #c0392b;
+           background:#fdf0ee; font-size:14px; display:none; }
+  .ngbox.show { display:block; }
+  button { font:inherit; padding:8px 16px; border:2px solid #111; background:#fff;
+           border-radius:6px; cursor:pointer; margin-right:8px; }
+  button:hover { background:#111; color:#fff; }
+  .hint { color:#777; font-size:13px; margin-top:20px; line-height:1.8; }
+  code { background:#f0f0f0; padding:1px 5px; border-radius:3px; }
+</style>
+</head>
+<body>
+<h1>Alt+英字 26通り チェック</h1>
+<p class="lead">
+  <b>Vivaldiでこのページを開いて、Alt を押しながら a 〜 z を順に押してね。</b><br>
+  ページ側で受け取れたキーが<b>緑</b>になります。<br>
+  何回押しても緑にならないキーがあれば、それは<b>Vivaldi かWindowsに奪われている</b>キー。<br>
+  ＝ 大文字をそのキーに割り当てられない、ということが分かります。
+</p>
+
+<div class="grid" id="grid"></div>
+
+<p class="status">到達: <b id="count">0</b> / 26</p>
+<button id="reset">やり直す</button>
+<button id="copy">結果をコピー</button>
+
+<div class="ngbox" id="ngbox"></div>
+
+<p class="hint">
+  ・押しても緑にならないとき、画面上部にメニューが出たりフォーカスが飛んだりしたら、それが「奪われた」状態だよ。<br>
+  ・<code>Alt+F4</code> などOSが取るものは英字じゃないので、今回は関係なし。<br>
+  ・全部緑なら、キーマップ 6C19 の Alt層（大文字）はそのまま使えます。
+</p>
+
+<script>
+const letters = "abcdefghijklmnopqrstuvwxyz".split("");
+const hit = new Set();
+const grid = document.getElementById("grid");
+const cells = {};
+for (const ch of letters) {
+  const d = document.createElement("div");
+  d.className = "cell";
+  d.textContent = ch.toUpperCase();
+  grid.appendChild(d);
+  cells[ch] = d;
+}
+
+// 実アプリと同じ条件で受ける: capture フェーズ + 既定動作の抑止
+document.addEventListener("keydown", (e) => {
+  if (!e.altKey) return;
+  const ch = (e.key || "").toLowerCase();
+  // Alt単体の keydown（e.key === "Alt"）は数えない。文字キー自体が届いたかだけを見る
+  if (!letters.includes(ch)) return;
+  e.preventDefault();
+  e.stopPropagation();
+  e.stopImmediatePropagation();
+  hit.add(ch);
+  cells[ch].classList.add("ok");
+  render();
+}, true);
+
+function render() {
+  document.getElementById("count").textContent = hit.size;
+  const ng = letters.filter(c => !hit.has(c));
+  const box = document.getElementById("ngbox");
+  if (hit.size === 26) {
+    box.className = "ngbox show";
+    box.style.borderLeftColor = "#1b6b3a";
+    box.style.background = "#eef7f1";
+    box.textContent = "26/26 到達。Alt層はこのブラウザで問題なく使えます。";
+  } else if (hit.size > 0) {
+    box.className = "ngbox show";
+    box.style.borderLeftColor = "#c0392b";
+    box.style.background = "#fdf0ee";
+    box.textContent = "まだ届いていないキー: " + ng.map(c => "Alt+" + c).join(" / ");
+  } else {
+    box.className = "ngbox";
+  }
+}
+
+document.getElementById("reset").onclick = () => {
+  hit.clear();
+  for (const ch of letters) cells[ch].className = "cell";
+  render();
+};
+document.getElementById("copy").onclick = async () => {
+  const ng = letters.filter(c => !hit.has(c));
+  const txt = "Alt+英字チェック結果: " + hit.size + "/26 到達"
+    + (ng.length ? " / 未到達: " + ng.join(",") : " / 未到達なし")
+    + " / UA: " + navigator.userAgent;
+  await navigator.clipboard.writeText(txt);
+  alert("コピーしたよ。そのまま貼り付けて教えてね。");
+};
+render();
+</script>
+</body>
+</html>

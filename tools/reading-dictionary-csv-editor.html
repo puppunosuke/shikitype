@@ -1,0 +1,386 @@
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>SHIKITYPE 読み辞書 CSVエディタ</title>
+  <style>
+    :root { --ink:#151515; --paper:#faf9f4; --line:#151515; --muted:#666; --red:#df3d2e; --blue:#2556d8; --yellow:#f5c542; --green:#0e7c66; --error:#b82020; --soft:#eceae2; }
+    * { box-sizing:border-box; }
+    html,body { max-width:100%; overflow-x:hidden; }
+    body { margin:0; min-width:320px; color:var(--ink); background:var(--paper); font-family:"Zen Kaku Gothic New","Noto Sans JP",system-ui,sans-serif; }
+    button,input,select { font:inherit; }
+    button { min-height:38px; border:1.5px solid var(--line); border-radius:0; background:#fff; color:var(--ink); cursor:pointer; font-weight:700; }
+    button:hover:not(:disabled) { background:var(--yellow); }
+    button:focus-visible,input:focus-visible,select:focus-visible,.file-button:focus-visible { outline:3px solid var(--blue); outline-offset:2px; }
+    button:disabled { cursor:not-allowed; color:#888; border-color:#aaa; background:#eee; }
+    .app { min-width:0; max-width:100%; min-height:100vh; display:grid; grid-template-rows:auto auto minmax(0,1fr) auto; }
+    .masthead { position:relative; overflow:hidden; padding:18px clamp(16px,4vw,48px); border-bottom:1.5px solid var(--line); background:#fff; }
+    .masthead::after { content:""; position:absolute; width:160px; height:80px; right:4%; top:-28px; border-radius:50% 40% 60% 45%; background:radial-gradient(circle,rgba(21,21,21,.15) 1px,transparent 1.5px) 0 0/7px 7px,var(--red); transform:rotate(-13deg); pointer-events:none; }
+    h1 { position:relative; z-index:1; margin:0; font-size:clamp(22px,4vw,36px); line-height:1.15; letter-spacing:-.04em; }
+    .masthead p { position:relative; z-index:1; max-width:760px; margin:7px 0 0; font-size:13px; line-height:1.6; }
+    .toolbar { min-width:0; max-width:100%; display:grid; grid-template-columns:auto minmax(180px,1fr) auto auto auto auto; gap:8px; align-items:center; padding:10px clamp(16px,4vw,48px); border-bottom:1.5px solid var(--line); background:var(--paper); }
+    .toolbar > * { min-width:0; }
+    .file-button { display:inline-grid; place-items:center; min-height:38px; padding:0 12px; border:1.5px solid var(--line); background:#fff; font-size:14px; font-weight:700; cursor:pointer; }
+    .file-button:hover { background:var(--yellow); }
+    #file-input { position:absolute; width:1px; height:1px; overflow:hidden; clip:rect(0 0 0 0); }
+    #search { width:100%; min-height:38px; padding:7px 10px; border:1.5px solid var(--line); border-radius:0; background:#fff; }
+    .secondary { font-size:13px; }
+    .danger:hover:not(:disabled) { background:#ffd5d0; }
+    .workspace { min-width:0; max-width:100%; min-height:0; display:grid; grid-template-columns:minmax(0,1fr) minmax(0,268px); align-items:start; }
+    .table-panel { min-width:0; max-width:100%; min-height:0; padding:16px clamp(16px,4vw,48px); }
+    .table-meta { display:flex; justify-content:space-between; gap:16px; align-items:baseline; margin-bottom:8px; font-size:13px; }
+    #summary { font-weight:700; }
+    .table-grid { min-width:0; display:grid; grid-template-columns:minmax(0,1fr) 148px; align-items:start; }
+    .table-wrap { width:100%; min-width:0; max-width:100%; max-height:calc(100vh - 210px); overflow:auto; overscroll-behavior:contain; -webkit-overflow-scrolling:touch; border:1.5px solid var(--line); border-right:0; background:#fff; }
+    table { border-collapse:collapse; width:100%; min-width:1000px; table-layout:fixed; }
+    th { position:sticky; top:0; z-index:2; height:35px; padding:8px 6px; border-right:1px solid var(--line); border-bottom:1.5px solid var(--line); background:var(--ink); color:#fff; font-size:11px; text-align:left; white-space:nowrap; }
+    th:last-child { border-right:0; }
+    td { height:45px; padding:4px; border-right:1px solid #aaa; border-bottom:1px solid #bbb; vertical-align:middle; }
+    tr:last-child td { border-bottom:0; }
+    td:last-child { border-right:0; }
+    .row-number { width:52px; color:var(--muted); text-align:right; font-size:12px; font-variant-numeric:tabular-nums; }
+    .row-input { width:100%; min-height:30px; padding:3px 5px; border:1px solid transparent; border-radius:0; background:transparent; font-size:13px; }
+    .row-input:hover { border-color:#888; }
+    .row-input.invalid { border-color:var(--error); background:#fff0ef; }
+    select.row-input { cursor:pointer; }
+    .delete-rail { min-width:0; display:flex; flex-direction:column; overflow:hidden; border:1.5px solid var(--line); background:#fff; }
+    .delete-rail[hidden] { display:none; }
+    .delete-rail-header { flex:0 0 35px; display:grid; place-items:center; padding:0 3px; border-bottom:1.5px solid var(--line); background:var(--ink); color:#fff; font-size:11px; font-weight:700; white-space:nowrap; }
+    .delete-rail-viewport { min-height:0; flex:1 1 auto; overflow:hidden; }
+    .delete-rail-body { will-change:transform; }
+    .delete-rail-row { height:45px; display:grid; grid-template-columns:minmax(0,1fr) minmax(0,1fr); gap:4px; place-items:center; padding:4px; border-bottom:1px solid #bbb; background:#fff; }
+    .delete-row,.insert-reading-row { min-height:30px; width:100%; padding:0 3px; font-size:12px; line-height:1; white-space:nowrap; }
+    .empty { padding:40px 20px; text-align:center; color:var(--muted); }
+    .pager { display:flex; justify-content:center; align-items:center; gap:8px; padding:10px; border:1.5px solid var(--line); border-top:0; background:#fff; font-size:13px; }
+    .pager button { min-height:32px; padding:0 10px; }
+    .side { min-width:0; max-width:100%; position:sticky; top:0; align-self:stretch; min-height:calc(100vh - 160px); padding:16px; border-left:1.5px solid var(--line); background:#fff; }
+    .side h2 { margin:0 0 8px; font-size:15px; }
+    .side p,.side li { font-size:12px; line-height:1.65; }
+    .dropzone { display:grid; place-items:center; min-height:112px; margin:14px 0; padding:12px; border:1.5px dashed var(--line); background:#fffdf3; text-align:center; font-size:13px; font-weight:700; }
+    .dropzone.dragover { background:var(--yellow); border-style:solid; }
+    .hint { color:var(--muted); }
+    .status { min-height:70px; padding:10px; border-left:4px solid var(--blue); background:#f0f4ff; font-size:12px; line-height:1.6; white-space:pre-wrap; }
+    .status.error { border-color:var(--error); background:#fff0ef; }
+    .status.ok { border-color:var(--green); background:#ecf8f3; }
+    .legend { margin:16px 0 0; padding:12px 0 0; border-top:1px solid #aaa; }
+    .legend ul { margin:7px 0; padding-left:18px; }
+    footer { display:flex; justify-content:space-between; gap:12px; padding:8px clamp(16px,4vw,48px); border-top:1.5px solid var(--line); background:#fff; font-size:11px; color:var(--muted); }
+    @media (max-width:800px) { .toolbar { grid-template-columns:minmax(0,1fr) minmax(0,1fr); } #search { grid-column:1 / -1; order:-1; } .workspace { display:block; } .side { position:static; min-height:0; border:0; border-top:1.5px solid var(--line); } .table-wrap { max-height:min(58vh,520px); } footer { display:block; } footer span { display:block; margin:2px 0; } }
+    @media (max-width:420px) { .toolbar { padding:10px 12px; gap:6px; } .toolbar button,.file-button { font-size:12px; padding:0 8px; } .table-panel { padding:12px; } .masthead { padding:16px 12px; } }
+  </style>
+</head>
+<body>
+  <main class="app">
+    <header class="masthead">
+      <h1>SHIKITYPE 読み辞書 CSVエディタ</h1>
+      <p>読み・記号・数式入力を、CSVのまま安全に整える小さな編集画面。ブラウザ内だけで動き、データは保存されません。</p>
+    </header>
+    <section class="toolbar" aria-label="編集操作">
+      <label id="file-open" class="file-button" for="file-input" tabindex="0" role="button" aria-controls="file-input">CSVを開く</label>
+      <input id="file-input" type="file" accept=".csv,text/csv">
+      <input id="search" type="search" placeholder="読み・記号・候補IDを検索" autocomplete="off">
+      <button id="sample" class="secondary" type="button">サンプルを開く</button>
+      <button id="add-row" type="button">行を追加</button>
+      <button id="export" type="button">CSVを書き出す</button>
+      <button id="clear" class="secondary danger" type="button">空にする</button>
+    </section>
+    <section class="workspace">
+      <section class="table-panel" aria-label="読み辞書の表">
+        <div class="table-meta"><span id="summary">0 行</span><span id="filter-summary"></span></div>
+        <div class="table-grid">
+          <div id="table-wrap" class="table-wrap">
+            <table>
+              <colgroup><col style="width:52px"><col style="width:76px"><col style="width:90px"><col style="width:160px"><col style="width:92px"><col style="width:215px"><col style="width:180px"><col style="width:100px"></colgroup>
+              <thead><tr><th>#</th><th>version</th><th>operation</th><th>candidate_id</th><th>symbol</th><th>latex</th><th>reading</th><th>base_priority</th></tr></thead>
+              <tbody id="rows"></tbody>
+            </table>
+            <div id="empty" class="empty">CSVを開くか、「行を追加」から始めてください。</div>
+          </div>
+          <aside id="delete-rail" class="delete-rail" aria-label="行ごとの操作">
+            <div class="delete-rail-header">行の操作</div>
+            <div class="delete-rail-viewport"><div id="delete-rail-body" class="delete-rail-body"></div></div>
+          </aside>
+        </div>
+        <nav class="pager" aria-label="表示ページ"><button id="previous-page" type="button">前へ</button><span id="page-label">1 / 1</span><button id="next-page" type="button">次へ</button></nav>
+      </section>
+      <aside class="side">
+        <h2>CSVを読み込む</h2>
+        <div id="dropzone" class="dropzone" tabindex="0">ここへCSVをドラッグ&amp;ドロップ<br><span class="hint">または上の「CSVを開く」</span></div>
+        <div id="status" class="status" role="status">編集前のCSVを読み込んでください。</div>
+        <section class="legend">
+          <h2>入力ルール</h2>
+          <ul>
+            <li><code>upsert</code>は、記号・数式・読み・優先度が必須です。</li>
+            <li><code>delete</code>は候補IDだけで無効化できます。読みを入れると、その読みだけを無効化します。</li>
+            <li>行末の「読みを追加」は、その行を直下へコピーして読みだけを空欄にします。新しい読みを続けて入力できます。</li>
+            <li>行末の「行を消す」はCSVからその行を取り除きます。辞書の読み・候補を無効化する操作ではありません。</li>
+            <li>既存の読み・候補を無効化したいときは、行を残して <code>operation=delete</code> を選びます。</li>
+            <li>候補IDは英小文字で始まる2〜64文字です。</li>
+            <li>読みは80文字以内、優先度は -1000〜1000 の整数です。</li>
+          </ul>
+          <p class="hint">CSVは最大128KiB・2000データ行。CSV内の数式開始記号は、書き出すとき安全に保護され、次回の読み込みで元へ戻ります。</p>
+        </section>
+      </aside>
+    </section>
+    <footer><span>形式: SHIKITYPE 読み辞書 CSV v1</span><span>UTF-8 BOM / CRLF / RFC4180 対応</span></footer>
+  </main>
+  <script>
+  (() => {
+    'use strict';
+    const VERSION = '1';
+    const LIMITS = Object.freeze({ maxBytes:128 * 1024, maxRows:2000, maxLabelLength:32, maxLatexLength:160, maxReadingLength:80, minPriority:-1000, maxPriority:1000, pageSize:100 });
+    const FIELDS = ['version','operation','candidate_id','symbol','latex','reading','base_priority'];
+    const HEADER_NAMES = Object.freeze({ version:['version','バージョン','形式'], operation:['operation','操作','operation_type'], candidate_id:['candidate_id','candidateid','id','候補id','候補_id'], symbol:['symbol','label','記号','表示'], latex:['latex','tex','数式'], reading:['reading','alias','読み','よみ'], base_priority:['base_priority','basepriority','priority','基本優先度','優先度'] });
+    const candidateIdPattern = /^[a-z][a-z0-9-]{1,63}$/;
+    const safeLatexPattern = /^[A-Za-z0-9\\{}[\]()_^+\-*/=<>|.,:;!?#% \t]+$/;
+    const unsafeLatexCommand = /\\(?:html|class|style|href|url|includegraphics)\b/i;
+    let rows = [];
+    let baseline = '[]';
+    let page = 1;
+    let search = '';
+    let unknownHeaders = [];
+    // 読みを空にした直後の複製は、検索語が読みだけに一致していた場合でも編集できるよう一時的に表示する。
+    const pinnedVisibleKeys = new Set();
+
+    const $ = (id) => document.getElementById(id);
+    const els = { rows:$('rows'), empty:$('empty'), summary:$('summary'), filterSummary:$('filter-summary'), status:$('status'), pageLabel:$('page-label'), previous:$('previous-page'), next:$('next-page'), search:$('search'), file:$('file-input'), dropzone:$('dropzone'), export:$('export'), tableWrap:$('table-wrap'), deleteRail:$('delete-rail'), deleteRailBody:$('delete-rail-body') };
+    const normalizeHeader = (value) => String(value ?? '').normalize('NFKC').trim().toLowerCase().replace(/[ _-]/g, '');
+    const unprotectCell = (value) => { const text = String(value ?? ''); return /^'[=+\-@]/.test(text) ? text.slice(1) : text; };
+    const protectCell = (value) => { let text = String(value ?? ''); if (/^[=+\-@]/.test(text)) text = "'" + text; return /[",\r\n]/.test(text) ? '"' + text.replace(/"/g, '""') + '"' : text; };
+    const cleanText = (value, max) => { const text = String(value ?? '').normalize('NFKC').trim(); return text && text.length <= max && !/[\u0000-\u001f\u007f]/.test(text) ? text : null; };
+    const cleanLatex = (value) => { const text = String(value ?? '').trim(); return text && text.length <= LIMITS.maxLatexLength && safeLatexPattern.test(text) && !unsafeLatexCommand.test(text) ? text : null; };
+    const cleanPriority = (value) => { const number = Number(String(value ?? '').trim()); return Number.isInteger(number) && number >= LIMITS.minPriority && number <= LIMITS.maxPriority ? number : null; };
+    const normalizeOperation = (value) => { const text = String(value ?? '').normalize('NFKC').trim().toLowerCase(); if (['upsert','add','update','追加','更新'].includes(text)) return 'upsert'; if (['delete','remove','削除','無効化'].includes(text)) return 'delete'; return null; };
+    const freshRow = () => ({ key:crypto.randomUUID ? crypto.randomUUID() : String(Date.now() + Math.random()), version:VERSION, operation:'upsert', candidate_id:'', symbol:'', latex:'', reading:'', base_priority:'0', unknown:unknownHeaders.map(() => '') });
+    const canonicalSnapshot = () => JSON.stringify(rows.map(({key,...row}) => row));
+
+    function parseCsv(text) {
+      const source = String(text ?? '').replace(/^\uFEFF/, '');
+      if (new TextEncoder().encode(source).byteLength > LIMITS.maxBytes) return { rows:[], errors:[{ line:1, reason:'CSVは128KiB以内にしてください' }] };
+      const output = []; let row = []; let cell = ''; let quoted = false; let afterQuote = false; let line = 1; let rowStart = 1;
+      const pushCell = () => { row.push(cell); cell = ''; afterQuote = false; };
+      const pushRow = () => { pushCell(); output.push({ line:rowStart, cells:row }); row = []; };
+      for (let index = 0; index < source.length; index += 1) {
+        const char = source[index];
+        if (quoted) { if (char === '"') { if (source[index + 1] === '"') { cell += '"'; index += 1; } else { quoted = false; afterQuote = true; } } else { cell += char; if (char === '\n') line += 1; } continue; }
+        if (afterQuote && char !== ',' && char !== '\r' && char !== '\n') return { rows:[], errors:[{ line, reason:'引用符の後にはカンマか改行だけを置けます' }] };
+        if (char === '"') { if (cell) return { rows:[], errors:[{ line, reason:'引用符はセルの先頭で開始してください' }] }; quoted = true; }
+        else if (char === ',') pushCell();
+        else if (char === '\r' || char === '\n') { if (char === '\r' && source[index + 1] === '\n') index += 1; pushRow(); line += 1; rowStart = line; }
+        else cell += char;
+      }
+      if (quoted) return { rows:[], errors:[{ line, reason:'引用符が閉じていません' }] };
+      if (cell || row.length) pushRow();
+      if (output.length > LIMITS.maxRows + 1) return { rows:[], errors:[{ line:1, reason:'CSVは2000行以内にしてください' }] };
+      return { rows:output, errors:[] };
+    }
+    function headerColumns(header) {
+      const map = {};
+      for (const [field, aliases] of Object.entries(HEADER_NAMES)) { const index = header.findIndex((cell) => aliases.some((alias) => normalizeHeader(alias) === normalizeHeader(cell))); if (index >= 0) map[field] = index; }
+      return map;
+    }
+    function valueOf(cells, columns, field) { const index = columns[field]; return index === undefined ? '' : unprotectCell(cells[index] ?? '').trim(); }
+    function rowErrors(row) {
+      const errors = {};
+      if (row.version && String(row.version).trim() !== VERSION) errors.version = 'versionは1だけ使えます';
+      const operation = normalizeOperation(row.operation); if (!operation) errors.operation = 'upsert または delete を選んでください';
+      const id = String(row.candidate_id ?? '').trim().toLowerCase(); if (!candidateIdPattern.test(id)) errors.candidate_id = '英小文字で始まる2〜64文字（英数字とハイフン）にしてください';
+      if (operation === 'upsert') {
+        if (!cleanText(row.symbol, LIMITS.maxLabelLength)) errors.symbol = '記号は1〜32文字、改行なしにしてください';
+        if (!cleanLatex(row.latex)) errors.latex = '数式は1〜160文字。安全でない命令や改行は使えません';
+        if (!cleanText(row.reading, LIMITS.maxReadingLength)) errors.reading = '読みは1〜80文字、改行なしにしてください';
+        if (cleanPriority(row.base_priority) === null) errors.base_priority = '−1000〜1000の整数にしてください';
+      }
+      return errors;
+    }
+    function validateRows(sourceRows) {
+      const errors = sourceRows.map(rowErrors);
+      // SHIKITYPE本体と同じく、同じ候補IDのupsertは定義を揃える。読みだけを複数行にできる。
+      const definitions = new Map();
+      sourceRows.forEach((row, index) => {
+        if (normalizeOperation(row.operation) !== 'upsert' || !candidateIdPattern.test(String(row.candidate_id ?? '').trim().toLowerCase())) return;
+        const symbol = cleanText(row.symbol, LIMITS.maxLabelLength); const latex = cleanLatex(row.latex); const priority = cleanPriority(row.base_priority);
+        if (!symbol || !latex || priority === null) return;
+        const id = String(row.candidate_id).trim().toLowerCase(); const definition = JSON.stringify([symbol, latex, priority]);
+        const group = definitions.get(id) ?? []; group.push({ index, definition }); definitions.set(id, group);
+      });
+      for (const group of definitions.values()) {
+        if (new Set(group.map((item) => item.definition)).size < 2) continue;
+        for (const { index } of group) {
+          const message = '同じcandidate_idのsymbol・latex・base_priorityは全行で一致させてください';
+          errors[index].symbol = message; errors[index].latex = message; errors[index].base_priority = message;
+        }
+      }
+      return errors;
+    }
+    function allErrors() { return validateRows(rows); }
+    function filterIndexes(sourceRows, query) { const normalizedQuery = String(query ?? '').normalize('NFKC').trim().toLowerCase(); if (!normalizedQuery) return sourceRows.map((_, index) => index); return sourceRows.flatMap((row, index) => [...FIELDS.map((field) => row[field]), ...(row.unknown ?? [])].some((value) => String(value ?? '').normalize('NFKC').toLowerCase().includes(normalizedQuery)) ? [index] : []); }
+    function filteredIndexes() {
+      const matches = new Set(filterIndexes(rows, search));
+      if (!pinnedVisibleKeys.size) return [...matches];
+      return rows.flatMap((row, index) => matches.has(index) || pinnedVisibleKeys.has(row.key) ? [index] : []);
+    }
+    function setStatus(message, tone = '') { els.status.textContent = message; els.status.className = 'status' + (tone ? ' ' + tone : ''); }
+    function displayValue(row, field) { return field === 'operation' ? (normalizeOperation(row[field]) ?? row[field]) : row[field]; }
+    function updateSummary() {
+      const invalid = allErrors().filter((errors) => Object.keys(errors).length).length;
+      const changes = canonicalSnapshot() === baseline ? 0 : countChanges();
+      els.summary.textContent = `${rows.length} 行${invalid ? ` / ${invalid} 行に入力エラー` : ''}${changes ? ` / ${changes} 件の変更` : ''}${unknownHeaders.length ? ` / 未知の列 ${unknownHeaders.length} 列を保持中` : ''}`;
+      const matching = filteredIndexes().length; els.filterSummary.textContent = search ? `${matching} 行を表示` : '';
+      els.export.disabled = Boolean(invalid) || !rows.length;
+    }
+    function updateValidationClasses() {
+      const errors = allErrors();
+      els.rows.querySelectorAll('.row-input').forEach((control) => {
+        const index = Number(control.dataset.index); const field = control.dataset.field; const message = errors[index]?.[field] ?? '';
+        control.classList.toggle('invalid', Boolean(message)); control.title = message;
+      });
+      updateSummary();
+    }
+    function countChanges() {
+      const original = JSON.parse(baseline); const max = Math.max(original.length, rows.length); let count = 0;
+      for (let index = 0; index < max; index += 1) if (JSON.stringify(original[index] ?? null) !== JSON.stringify(rows[index] ? stripKey(rows[index]) : null)) count += 1;
+      return count;
+    }
+    function stripKey(row) { const {key,...data} = row; return data; }
+    function syncDeleteRail() {
+      if (els.deleteRail.hidden) return;
+      els.deleteRail.style.height = `${els.tableWrap.offsetHeight}px`;
+      els.deleteRailBody.style.transform = `translateY(${-els.tableWrap.scrollTop}px)`;
+    }
+    function clampScrollPosition(position, scrollSize, viewportSize) {
+      return Math.max(0, Math.min(position, Math.max(0, scrollSize - viewportSize)));
+    }
+    function restoreTableScroll(snapshot) {
+      // 行を作り直しても、削除前に見ていた位置を保つ。末尾を消して範囲外になった時だけ自然に詰める。
+      requestAnimationFrame(() => {
+        els.tableWrap.scrollTop = clampScrollPosition(snapshot.top, els.tableWrap.scrollHeight, els.tableWrap.clientHeight);
+        els.tableWrap.scrollLeft = clampScrollPosition(snapshot.left, els.tableWrap.scrollWidth, els.tableWrap.clientWidth);
+        syncDeleteRail();
+      });
+    }
+    function cloneForReading(row) {
+      const copy = normalizeRow(row, row.unknown ?? []);
+      copy.reading = '';
+      return copy;
+    }
+    function focusInsertedReading(key, snapshot) {
+      requestAnimationFrame(() => {
+        els.tableWrap.scrollTop = clampScrollPosition(snapshot.top, els.tableWrap.scrollHeight, els.tableWrap.clientHeight);
+        els.tableWrap.scrollLeft = clampScrollPosition(snapshot.left, els.tableWrap.scrollWidth, els.tableWrap.clientWidth);
+        syncDeleteRail();
+        const control = els.rows.querySelector(`[data-key="${key}"][data-field="reading"]`);
+        if (!control) return;
+        // `focus()` がブラウザ任せに表を先頭へ送らないようにし、表示外の時だけ必要最小限を動かす。
+        control.focus({ preventScroll:true });
+        const wrapRect = els.tableWrap.getBoundingClientRect(); const controlRect = control.getBoundingClientRect();
+        const headerHeight = 35;
+        if (controlRect.top < wrapRect.top + headerHeight) els.tableWrap.scrollTop += controlRect.top - (wrapRect.top + headerHeight);
+        else if (controlRect.bottom > wrapRect.bottom) els.tableWrap.scrollTop += controlRect.bottom - wrapRect.bottom;
+        syncDeleteRail();
+      });
+    }
+    function render() {
+        const indexes = filteredIndexes(); const totalPages = Math.max(1, Math.ceil(indexes.length / LIMITS.pageSize)); page = Math.min(Math.max(1, page), totalPages); const start = (page - 1) * LIMITS.pageSize; const shown = indexes.slice(start, start + LIMITS.pageSize); const errors = allErrors();
+      els.rows.replaceChildren(); els.deleteRailBody.replaceChildren(); els.empty.hidden = Boolean(rows.length); els.deleteRail.hidden = !shown.length;
+      for (const index of shown) {
+        const row = rows[index]; const tr = document.createElement('tr');
+        const number = document.createElement('td'); number.className = 'row-number'; number.textContent = String(index + 1); tr.append(number);
+        for (const field of FIELDS) {
+          const td = document.createElement('td'); const control = field === 'operation' ? document.createElement('select') : document.createElement('input'); control.className = 'row-input' + (errors[index][field] ? ' invalid' : ''); control.dataset.index = index; control.dataset.field = field; control.title = errors[index][field] || '';
+          if (field === 'operation') { for (const optionValue of ['upsert','delete']) { const option = document.createElement('option'); option.value = optionValue; option.textContent = optionValue; control.append(option); } control.value = displayValue(row, field) || 'upsert'; }
+          else { control.type = field === 'base_priority' ? 'text' : 'text'; control.value = displayValue(row, field) ?? ''; control.spellcheck = false; }
+          control.dataset.key = row.key;
+          td.append(control); tr.append(td);
+        }
+        els.rows.append(tr);
+        const railRow = document.createElement('div'); railRow.className = 'delete-rail-row';
+        const insert = document.createElement('button'); insert.type = 'button'; insert.className = 'insert-reading-row'; insert.dataset.insertReading = index; insert.title = 'この行を直下へコピーし、読みだけを空欄にして追加する'; insert.setAttribute('aria-label', `CSVの ${index + 1} 行目を直下へコピーして、読みだけを空欄にする`); insert.textContent = '読みを追加';
+        const remove = document.createElement('button'); remove.type = 'button'; remove.className = 'delete-row danger'; remove.dataset.remove = index; remove.title = 'CSVからこの行を消す（辞書の無効化ではありません。無効化はoperation=deleteを使用）'; remove.setAttribute('aria-label', `CSVの ${index + 1} 行目を消す。辞書の無効化ではありません`); remove.textContent = '消す'; railRow.append(insert, remove); els.deleteRailBody.append(railRow);
+      }
+      els.pageLabel.textContent = `${page} / ${totalPages}`; els.previous.disabled = page <= 1; els.next.disabled = page >= totalPages; updateSummary(); requestAnimationFrame(syncDeleteRail);
+    }
+    function normalizeRow(row, unknown = []) {
+      // 未知の列はこの画面では意味付けせず、数式保護記号も含めてセル値をそのまま引き継ぐ。
+      return { key:crypto.randomUUID ? crypto.randomUUID() : String(Date.now() + Math.random()), version:String(row.version ?? '').trim(), operation:normalizeOperation(row.operation) ?? String(row.operation ?? '').trim(), candidate_id:String(row.candidate_id ?? '').trim().toLowerCase(), symbol:String(row.symbol ?? '').trim(), latex:String(row.latex ?? '').trim(), reading:String(row.reading ?? '').trim(), base_priority:String(row.base_priority ?? '').trim(), unknown:unknown.map((value) => String(value ?? '')) };
+    }
+    function importText(text, label = 'CSV') {
+      const parsed = parseCsv(text);
+      if (parsed.errors.length) { setStatus(`${label}を読み込めませんでした。\n${parsed.errors.map((error) => `${error.line}行目: ${error.reason}`).join('\n')}`, 'error'); return; }
+      if (!parsed.rows.length) { setStatus('ヘッダー行がありません。', 'error'); return; }
+      const columns = headerColumns(parsed.rows[0].cells); const missing = ['operation','candidate_id'].filter((field) => columns[field] === undefined);
+      if (missing.length) { setStatus(`必須列がありません: ${missing.join(', ')}`, 'error'); return; }
+      const knownIndexes = new Set(Object.values(columns)); unknownHeaders = parsed.rows[0].cells.flatMap((name, index) => knownIndexes.has(index) ? [] : [{ name:String(name ?? '').trim() || `unknown_${index + 1}`, index }]);
+      const next = [];
+      for (const record of parsed.rows.slice(1)) { if (record.cells.every((cell) => !String(cell).trim())) continue; next.push(normalizeRow(Object.fromEntries(FIELDS.map((field) => [field, valueOf(record.cells, columns, field)])), unknownHeaders.map(({index}) => record.cells[index] ?? ''))); }
+      rows = next; pinnedVisibleKeys.clear(); baseline = canonicalSnapshot(); page = 1; render(); const invalid = allErrors().filter((errors) => Object.keys(errors).length).length;
+      setStatus(`${label}を読み込みました。${rows.length} 行${invalid ? `（${invalid} 行は修正が必要です）` : '。書き出せます。'}${unknownHeaders.length ? `\n未知の列 ${unknownHeaders.length} 列は、編集せずに書き出しへ保持します。` : ''}`, invalid ? 'error' : 'ok');
+    }
+    function exportCsv() {
+      const invalid = allErrors().filter((errors) => Object.keys(errors).length); if (invalid.length) { setStatus(`${invalid.length} 行の入力を直してから書き出してください。`, 'error'); return; }
+      const csv = '\uFEFF' + [[...FIELDS, ...unknownHeaders.map(({name}) => name)], ...rows.map((row) => [...FIELDS.map((field) => row[field] ?? ''), ...(row.unknown ?? [])])].map((record) => record.map(protectCell).join(',')).join('\r\n') + '\r\n';
+      const blob = new Blob([csv], { type:'text/csv;charset=utf-8' }); const url = URL.createObjectURL(blob); const link = document.createElement('a'); link.href = url; link.download = 'shikitype-reading-dictionary.csv'; document.body.append(link); link.click(); link.remove(); setTimeout(() => URL.revokeObjectURL(url), 1000); baseline = canonicalSnapshot(); render(); setStatus(`${rows.length} 行を書き出しました。Excelで開いても数式として実行されない形です。`, 'ok');
+    }
+    function runLogicTests() {
+      const results = []; const ok = (name, value) => results.push({ name, pass:Boolean(value) });
+      const parsed = parseCsv('\uFEFFversion,operation,candidate_id,symbol,latex,reading,base_priority\r\n1,upsert,custom-comma,"x,y",\\mathrm{xy},"よみ,べつめい",210\r\n');
+      ok('BOM・CRLF・引用符付きセルを読む', !parsed.errors.length && parsed.rows.length === 2 && parsed.rows[1].cells[3] === 'x,y');
+      const value = protectCell('=SUM(A1:A2)'); ok('数式開始セルを保護する', value === "'=SUM(A1:A2)" && unprotectCell(value) === '=SUM(A1:A2)');
+      ok('危険なLaTex命令を拒否する', cleanLatex('\\html{bad}') === null && cleanLatex('\\frac{a}{b}') === '\\frac{a}{b}');
+      ok('候補IDと優先度の範囲を検証する', candidateIdPattern.test('custom-delta') && !candidateIdPattern.test('Bad id') && cleanPriority('-1001') === null && cleanPriority('360') === 360);
+      const bad = parseCsv('version,operation\n1,"upsert'); ok('閉じていない引用符を行番号付きで拒否する', bad.errors[0]?.line === 2);
+      const mismatch = validateRows([{ version:'1', operation:'upsert', candidate_id:'custom-delta', symbol:'Δ', latex:'\\Delta', reading:'でるた', base_priority:'360' }, { version:'1', operation:'upsert', candidate_id:'custom-delta', symbol:'Δ', latex:'\\Delta', reading:'差分', base_priority:'361' }]);
+      ok('同じ候補IDの定義不一致を両行で止める', Boolean(mismatch[0].base_priority) && Boolean(mismatch[1].base_priority));
+      const searchedRows = [{ candidate_id:'first-row', reading:'つうじょう' }, { candidate_id:'target-row', reading:'けんさくたいしょう' }, { candidate_id:'last-row', reading:'つうじょう' }];
+      const sourceIndex = filterIndexes(searchedRows, 'けんさくたいしょう')[0]; searchedRows.splice(sourceIndex, 1);
+      ok('検索結果から消しても元の行だけを消す', sourceIndex === 1 && searchedRows.map((row) => row.candidate_id).join(',') === 'first-row,last-row');
+      const pagedRows = Array.from({ length:101 }, (_, index) => ({ candidate_id:`page-row-${index}` })); const secondPageIndex = filterIndexes(pagedRows, '').slice(LIMITS.pageSize)[0]; pagedRows.splice(secondPageIndex, 1);
+      ok('100行目の次ページからも元の行だけを消す', secondPageIndex === 100 && pagedRows.length === 100 && pagedRows[99].candidate_id === 'page-row-99');
+      ok('削除後の表示位置は末尾だけクランプする', clampScrollPosition(180, 600, 300) === 180 && clampScrollPosition(480, 600, 300) === 300 && clampScrollPosition(-10, 600, 300) === 0);
+      const originalRow = { key:'old-key', version:'1', operation:'upsert', candidate_id:'greek-sigma', symbol:'Σ', latex:'\\Sigma', reading:'しぐま', base_priority:'300', unknown:['外部列'] };
+      const copiedRow = cloneForReading(originalRow);
+      ok('読み追加は直下コピーで読みだけを空欄にし、未知列と定義を保つ', copiedRow.key !== originalRow.key && copiedRow.reading === '' && copiedRow.candidate_id === 'greek-sigma' && copiedRow.symbol === 'Σ' && copiedRow.latex === '\\Sigma' && copiedRow.base_priority === '300' && copiedRow.unknown[0] === '外部列');
+      return results;
+    }
+    $('add-row').addEventListener('click', () => { rows.push(freshRow()); search = ''; els.search.value = ''; page = Math.max(1, Math.ceil(rows.length / LIMITS.pageSize)); render(); const target = els.rows.querySelector(`[data-index="${rows.length - 1}"][data-field="candidate_id"]`); target?.focus(); });
+    $('sample').addEventListener('click', () => importText('version,operation,candidate_id,symbol,latex,reading,base_priority\r\n1,upsert,custom-delta,Δ,\\Delta,でるた,360\r\n1,upsert,custom-delta,Δ,\\Delta,さぶん,360\r\n1,upsert,greek-sigma,Σ,\\Sigma,ごうけい,300\r\n', 'サンプル'));
+    // 毎打鍵で表を作り直すとフォーカスとキャレットが消えるため、入力中は状態と検証表示だけを更新する。
+    const updateCell = (event) => { const control = event.target; const index = Number(control.dataset.index); const field = control.dataset.field; if (!Number.isInteger(index) || !field) return; rows[index][field] = control.value; updateValidationClasses(); };
+    els.rows.addEventListener('input', updateCell);
+    els.rows.addEventListener('change', updateCell);
+    els.deleteRail.addEventListener('click', (event) => {
+      const insertButton = event.target.closest('[data-insert-reading]');
+      if (insertButton) {
+        const index = Number(insertButton.dataset.insertReading); if (!Number.isInteger(index) || index < 0 || index >= rows.length) return;
+        const scrollSnapshot = { top:els.tableWrap.scrollTop, left:els.tableWrap.scrollLeft };
+        const copy = cloneForReading(rows[index]); rows.splice(index + 1, 0, copy); pinnedVisibleKeys.add(copy.key);
+        const visibleIndex = filteredIndexes().indexOf(index + 1); page = visibleIndex >= 0 ? Math.floor(visibleIndex / LIMITS.pageSize) + 1 : page;
+        render(); focusInsertedReading(copy.key, scrollSnapshot); return;
+      }
+      const button = event.target.closest('[data-remove]'); if (!button) return;
+      const index = Number(button.dataset.remove); if (!Number.isInteger(index) || index < 0 || index >= rows.length) return;
+      const scrollSnapshot = { top:els.tableWrap.scrollTop, left:els.tableWrap.scrollLeft };
+      pinnedVisibleKeys.delete(rows[index].key); rows.splice(index, 1); render(); restoreTableScroll(scrollSnapshot);
+      // 消したボタンの次（末尾なら直前）へ戻し、キーボード操作も途切れさせない。
+      requestAnimationFrame(() => els.deleteRailBody.querySelector(`[data-remove="${Math.min(index, rows.length - 1)}"]`)?.focus({ preventScroll:true }));
+    });
+    els.tableWrap.addEventListener('scroll', syncDeleteRail);
+    els.deleteRail.addEventListener('wheel', (event) => { event.preventDefault(); els.tableWrap.scrollTop += event.deltaY; els.tableWrap.scrollLeft += event.deltaX; }, { passive:false });
+    els.search.addEventListener('input', () => { search = els.search.value; pinnedVisibleKeys.clear(); page = 1; render(); });
+    els.previous.addEventListener('click', () => { page -= 1; render(); }); els.next.addEventListener('click', () => { page += 1; render(); });
+    els.file.addEventListener('change', () => { const file = els.file.files?.[0]; if (!file) return; if (file.size > LIMITS.maxBytes) { setStatus('CSVは128KiB以内にしてください。', 'error'); return; } file.text().then((text) => importText(text, file.name)).catch(() => setStatus('CSVを読めませんでした。', 'error')); els.file.value = ''; });
+    $('file-open').addEventListener('keydown', (event) => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); els.file.click(); } });
+    for (const eventName of ['dragenter','dragover']) els.dropzone.addEventListener(eventName, (event) => { event.preventDefault(); els.dropzone.classList.add('dragover'); });
+    for (const eventName of ['dragleave','drop']) els.dropzone.addEventListener(eventName, (event) => { event.preventDefault(); els.dropzone.classList.remove('dragover'); });
+    els.dropzone.addEventListener('drop', (event) => { const file = [...(event.dataTransfer?.files ?? [])].find((item) => item.name.toLowerCase().endsWith('.csv') || item.type === 'text/csv'); if (!file) { setStatus('CSVファイルを選んでください。', 'error'); return; } if (file.size > LIMITS.maxBytes) { setStatus('CSVは128KiB以内にしてください。', 'error'); return; } file.text().then((text) => importText(text, file.name)).catch(() => setStatus('CSVを読めませんでした。', 'error')); });
+    els.dropzone.addEventListener('keydown', (event) => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); els.file.click(); } });
+    $('export').addEventListener('click', exportCsv);
+    $('clear').addEventListener('click', () => { if (!rows.length || confirm('表の内容を空にします。書き出していない変更は失われます。')) { rows = []; pinnedVisibleKeys.clear(); unknownHeaders = []; baseline = '[]'; page = 1; render(); setStatus('表を空にしました。', 'ok'); } });
+    window.addEventListener('beforeunload', (event) => { if (canonicalSnapshot() === baseline) return; event.preventDefault(); event.returnValue = ''; });
+    window.SHIKITYPE_CSV_EDITOR = Object.freeze({ parseCsv, protectCell, unprotectCell, rowErrors, validateRows, runLogicTests });
+    render();
+  })();
+  </script>
+</body>
+</html>

@@ -1,0 +1,104 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="utf-8" />
+<title>NEO Math Solution — Editor Spike (3F7B)</title>
+<link rel="stylesheet" href="../vendor/mathlive-static.css" />
+<link rel="stylesheet" href="../vendor/mathlive-fonts.css" />
+<style>
+  body { font-family: sans-serif; padding: 16px; }
+  math-field { font-size: 24px; border: 1px solid #ccc; padding: 8px; display: block; margin: 8px 0; width: 480px; }
+  #many-container math-field { display: inline-block; width: 140px; font-size: 14px; margin: 2px; }
+  section { margin-bottom: 24px; border-top: 1px solid #eee; padding-top: 8px; }
+  #log { white-space: pre-wrap; font-family: monospace; font-size: 11px; max-height: 200px; overflow: auto; border: 1px solid #ccc; }
+</style>
+</head>
+<body>
+<h1>3F7B spike harness</h1>
+
+<section id="sec-main">
+  <h2>Item 1/2/3/4/5: primary field</h2>
+  <math-field id="mf1"></math-field>
+</section>
+
+<section id="sec-many">
+  <h2>Item 6: many instances</h2>
+  <div id="many-container"></div>
+</section>
+
+<section id="sec-alt">
+  <h2>Item 7: alt-key target (plain page, no mathfield)</h2>
+  <div id="alt-target" tabindex="0">alt target</div>
+</section>
+
+<div id="log"></div>
+
+<script type="module">
+  import '/vendor/mathlive.min.mjs';
+
+  window.__ready = true;
+  window.__log = [];
+
+  function logEvt(e, tag) {
+    window.__log.push({
+      tag,
+      type: e.type,
+      key: e.key,
+      code: e.code,
+      alt: e.altKey,
+      ctrl: e.ctrlKey,
+      shift: e.shiftKey,
+      meta: e.metaKey,
+      defaultPrevented: e.defaultPrevented,
+      target: e.target && e.target.tagName
+    });
+  }
+
+  // ---- item 1: total capture test ----
+  window.__captureActive = false;
+  window.__captureHandler = function (e) {
+    logEvt(e, 'capture-doc');
+    e.preventDefault();
+    e.stopPropagation();
+    e.stopImmediatePropagation();
+  };
+  window.enableCapture = function () {
+    if (window.__captureActive) return;
+    document.addEventListener('keydown', window.__captureHandler, true);
+    window.__captureActive = true;
+  };
+  window.disableCapture = function () {
+    document.removeEventListener('keydown', window.__captureHandler, true);
+    window.__captureActive = false;
+  };
+  window.clearLog = function () { window.__log = []; };
+  window.getLog = function () { return window.__log; };
+
+  // ---- item 6: instance builder ----
+  window.buildInstances = function (n) {
+    const c = document.getElementById('many-container');
+    c.innerHTML = '';
+    const t0 = performance.now();
+    for (let i = 0; i < n; i++) {
+      const mf = document.createElement('math-field');
+      mf.value = 'x^{2}+\\frac{1}{n}';
+      c.appendChild(mf);
+    }
+    const t1 = performance.now();
+    return t1 - t0;
+  };
+
+  // ---- item 7: alt log ----
+  document.getElementById('alt-target').addEventListener('keydown', (e) => {
+    logEvt(e, 'alt-target');
+  });
+
+  // expose mf1 directly
+  window.addEventListener('DOMContentLoaded', () => {
+    window.mf1 = document.getElementById('mf1');
+  });
+  // module scripts run after parse, element already in DOM
+  window.mf1 = document.getElementById('mf1');
+</script>
+</body>
+</html>

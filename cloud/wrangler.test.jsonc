@@ -1,0 +1,10 @@
+{
+  "$schema": "./node_modules/wrangler/config-schema.json",
+  "name": "shikitype-test",
+  "main": "src/index.ts",
+  "compatibility_date": "2026-08-22",
+  "compatibility_flags": ["nodejs_compat"],
+  "vars": { "ENVIRONMENT": "test", "AUTH_PEPPER": "test-only-pepper-not-for-production" },
+  "assets": { "directory": "./public", "binding": "ASSETS", "run_worker_first": true },
+  "d1_databases": [{ "binding": "DB", "database_name": "shikitype-test", "database_id": "local-test", "migrations_dir": "./migrations" }]
+}

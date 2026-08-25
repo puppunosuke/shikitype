@@ -1,0 +1,20 @@
+# 作業中に出る検証サーバのログ・PID
+.*-server.log
+.*-server.err.log
+.*.stderr.log
+.*.stdout.log
+server.pid
+
+# レビュー/スモークの一時状態とスクリーンショット
+.iroha-review-state*/
+.kaguya-review-state*/
+.smoke-*/
+.conversion-inline-preview.png
+tests/out-*.png
+tests/*.png
+
+node_modules/
+
+# ローカル検証用の一時ワークスペース（miniflare等）
+cloud/.tmp/
+.wrangler/
