@@ -93,7 +93,13 @@ button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
   left: 8px;
   width: min(296px, calc(100vw - 24px));
   max-height: min(55vh, 430px);
-  overflow-y: auto;
+  /* ノート件数が増えても検索欄とゴミ箱を埋もれさせない。
+     スクロールは#notes-list-items（と開いた時の#notes-trash-list）だけが
+     個別に持ち、検索欄・ゴミ箱トグルはこのflex列の中で常に定位置に残す
+     （デザイン原則「長い一覧は独立した面にする」の適用）。 */
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
   padding: 7px;
   border: 1px solid #111;
   background: #f7f6f2;
@@ -102,9 +108,9 @@ button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 }
 #notes-list[hidden] { display: none; }
 /* 設定モーダルの検索(#settings-search)と操作感を揃える（同じ余白・枠線・角丸なし）。 */
-.notes-search-label { display: block; margin-bottom: 4px; color: #666; font-size: 10px; font-weight: 700; }
-#notes-search { width: 100%; min-height: 32px; margin-bottom: 7px; padding: 6px 8px; border: 1px solid #d2d0ca; border-radius: 0; background: #fff; color: #111; font: inherit; font-size: 12px; }
-#notes-list-items { display: grid; gap: 5px; }
+.notes-search-label { display: block; flex: 0 0 auto; margin-bottom: 4px; color: #666; font-size: 10px; font-weight: 700; }
+#notes-search { flex: 0 0 auto; width: 100%; min-height: 32px; margin-bottom: 7px; padding: 6px 8px; border: 1px solid #d2d0ca; border-radius: 0; background: #fff; color: #111; font: inherit; font-size: 12px; }
+#notes-list-items { flex: 1 1 auto; min-height: 44px; overflow-y: auto; display: grid; align-content: start; gap: 5px; }
 .note-list-empty { margin: 5px; color: #666; font-size: 11px; }
 .note-list-item {
   position: relative;
@@ -138,19 +144,31 @@ button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 .note-list-item-trash { cursor: default; padding-bottom: 34px; }
 .note-list-item-trash:hover { border-color: #d2d0ca; background: #fff; }
 #notes-trash-toggle {
+  flex: 0 0 auto;
   width: 100%;
   margin-top: 7px;
   padding: 6px 8px;
   border: 1px solid #d2d0ca;
   border-radius: 0;
-  background: transparent;
+  background: #f7f6f2;
   color: #555;
   font: 500 10px/1 var(--font-en), var(--font-jp);
   letter-spacing: .04em;
   cursor: pointer;
 }
 #notes-trash-toggle:hover { border-color: #111; color: #111; }
-#notes-trash-list { display: grid; gap: 5px; margin-top: 7px; padding-top: 7px; border-top: 1px solid #d2d0ca; }
+/* ゴミ箱の中身は件数が伸びうるので、これ自体も独立スクロールにして
+   #notes-list全体を無制限に伸ばさない（notes-list-itemsと同じ理由）。 */
+#notes-trash-list {
+  flex: 0 1 auto;
+  max-height: 160px;
+  overflow-y: auto;
+  display: grid;
+  gap: 5px;
+  margin-top: 7px;
+  padding-top: 7px;
+  border-top: 1px solid #d2d0ca;
+}
 #notes-trash-list[hidden] { display: none; }
 /* 書き出しメニュー。#notes-listと同じpopoverの見た目に揃える。 */
 #export-note-menu {
@@ -533,10 +551,16 @@ body[data-key-capture="original"] #capture-hint { display: none; }
 }
 #editor-sheet.canvas-mode .row-delete:hover,
 #editor-sheet.canvas-mode .row-delete:focus-visible { border-color: var(--accent); color: var(--accent); outline: none; }
-/* canvasモードでは丸い削除ボタン(top:4/right:4, 44x44)の左どなりへ寄せる。 */
+/* canvasモードの式は幅580pxの固定blockより長くなると、MathLive側で折り返さず
+   右へそのままはみ出して描画される（block自体の既存の性質）。左どなりに
+   TeXボタンを並べると、はみ出した文字の描画域がボタン2つぶん(88px超)まで
+   広がり、実際に上付き文字がTeXボタンの下へ隠れることを実測で確認した
+   （段階2までは削除ボタン1つぶん=44pxの被り幅だった）。そのため段階3の
+   追加ぶんは横に並べず、削除ボタンの真下へ縦積みして、被る横幅を
+   段階2以前と同じ44pxのまま増やさない。 */
 #editor-sheet.canvas-mode .row-copy-latex {
-  top: 4px;
-  right: 52px;
+  top: 52px;
+  right: 4px;
   border-color: var(--line);
   background: var(--sheet);
   padding: 4px 8px;
