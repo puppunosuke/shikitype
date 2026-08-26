@@ -5,7 +5,7 @@ import { fileURLToPath } from 'node:url';
 const here = dirname(fileURLToPath(import.meta.url));
 const source = join(here, '..', '..');
 const destination = join(here, '..', 'public');
-const files = ['app.html', 'app.js', 'styles.css', 'keymap.js', 'unicode-latex.js', 'conversion.js'];
+const files = ['app.html', 'app.js', 'styles.css', 'keymap.js', 'unicode-latex.js', 'conversion.js', 'dictionary-table.js'];
 
 await rm(destination, { recursive: true, force: true });
 await mkdir(destination, { recursive: true });

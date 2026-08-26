@@ -23,6 +23,7 @@ import {
   emptyConversionDictionaryState, sanitizeConversionDictionaryState, effectiveConversionCandidates,
   importConversionDictionaryCsv, exportConversionDictionaryCsv,
 } from '/conversion.js';
+import { createDictionaryTablePanel } from '/dictionary-table.js';
 
 // ---------------------------------------------------------------------------
 // セッション統計（51D3 の速度実測用: 打鍵数と経過時間）
@@ -2024,6 +2025,8 @@ function renameNote(id, rawTitle) {
   note.title = sanitizeNoteTitle(rawTitle);
   persistNotesStore();
   renderNotesList();
+  // 段階4: 名前もクラウド同期に乗せる（サーバは0005マイグレーションでtitle列を持つ）。
+  queueCloudSave(note);
 }
 
 // 削除＝即物理削除ではなくdeletedAtを立てるソフトデリート。ゴミ箱から復元・
@@ -2033,6 +2036,8 @@ function deleteNote(id) {
   if (!note || note.deletedAt) return;
   note.deletedAt = new Date().toISOString();
   persistNotesStore();
+  // 段階4: ソフトデリートもクラウド同期に乗せる。他端末でも消えた状態のまま復活しない。
+  queueCloudSave(note);
   if (notesStore.activeId === id) {
     // 表示中のノートを消した場合、削除済みノートをそのまま編集面に残さない。
     // 直近の生存ノートへ切り替えるか、無ければ新規ノートを開く。
@@ -2053,6 +2058,8 @@ function restoreNote(id) {
   note.deletedAt = null;
   persistNotesStore();
   renderNotesList();
+  // 段階4: 復元もクラウド同期に乗せる。
+  queueCloudSave(note);
 }
 
 // ゴミ箱からの完全削除。これだけは本当に取り消せないため、実行前に確認を挟む
@@ -4090,9 +4097,44 @@ function renderConversionPriorityControls() {
   }
 }
 
+// 段階4-6: 画面下のキーガイドは「どの物理キーがどの記号を出すか」のライブ表示に留まる
+// （記号の割当はそれで足りている、と拓男から指摘済み）。ここは「操作」専用の一覧。
+// Tabの説明だけは設定で変わる（入力方法・層ごとの切替方法）ため、固定文字列にせず
+// 現在の割当を都度読んで表示する。他の操作（Ctrl+Z等・キャンバスの修飾キー）は
+// このアプリでは割当変更の余地がないため、固定の説明でよい。
+function renderOperationsGuide() {
+  const list = document.getElementById('operations-guide-list');
+  if (!list) return;
+  const tabMethod = INPUT_METHODS[inputMethodForLayer(activeInputLayer())];
+  const entries = [
+    ['Tab', tabMethod?.note ?? 'レイヤーを切り替える、または変換候補をトグルする。'],
+    ['Enter', '変換候補を確定する。文（\\text{}）の中では文を閉じる。'],
+    ['矢印キー', '数式内でカーソルを移動する。候補一覧を出しているときは候補間を移動する。'],
+    ['Escape', '記号層へ戻す。パレット（ギリシャ文字・低頻度記号）を開閉する。'],
+    ['Backspace', '通常は1文字戻す。確定した直後だけは、確定結果を読みへ戻して打ち直せる（段階2で追加）。'],
+    ['Ctrl+Z / Ctrl+Shift+Z / Ctrl+Y', '取り消し / やり直し。'],
+    ['Ctrl+C / Ctrl+V', '選択中のブロック（キャンバスで複数選択時はまとめて）をコピー・貼り付けする。'],
+    ['キャンバス: 空白を左ドラッグ', 'カメラ（表示位置）を動かす。'],
+    ['キャンバス: ブロックの余白をドラッグ', 'ブロックを移動する。'],
+    ['キャンバス: Alt+ドラッグ', 'つかんだブロックを複製し、複製のほうを動かす（元は残る）。'],
+    ['キャンバス: Shift+ドラッグ（空白）', '矩形選択でブロックをまとめて選ぶ。'],
+    ['キャンバス: 選択中のDelete/Backspace', '選択したブロックをまとめて削除する。'],
+    ['「文」キー', '文章ブロック（\\text{}）の出入り。開いている文の上でもう一度押すと閉じる。'],
+  ];
+  list.replaceChildren();
+  for (const [key, description] of entries) {
+    const dt = document.createElement('dt');
+    dt.textContent = key;
+    const dd = document.createElement('dd');
+    dd.textContent = description;
+    list.append(dt, dd);
+  }
+}
+
 function renderSidebar() {
   const sidebar = document.getElementById('sidebar');
   if (!sidebar?.open) return;
+  renderOperationsGuide();
 
   // 再描画しても、利用者が押していた設定側のコントロールを操作の中心に保つ。
   const activeElement = document.activeElement;
@@ -4290,6 +4332,7 @@ const SETTINGS_SEARCH_ITEMS = [
   ['basic', '入力系統', '従来方式 変換方式', 'input-system-section'], ['basic', '編集面', '行 キャンバス', 'layout-mode-section'], ['basic', '単元プリセット', '科目 単元', 'unit-subject-choice'], ['basic', 'キー操作モード', 'キー捕捉', 'capture-choice'],
   ['input', '従来方式の入力方法', '標準トグル 数式常駐 一時 固定 長押し', 'legacy-input-method-section'], ['input', '変換方式の層ごとの切替方法', '変換 英字 ギリシャ', 'conversion-layer-method-section'], ['input', '方式ごとの基底層', '記号 英字', 'legacy-method-base-section'],
   ['conversion', '変換候補の優先順位', '候補 読み 優先', 'conversion-priority-section'], ['conversion', '読み辞書 CSV', 'インポート エクスポート', 'conversion-dictionary-section'],
+  ['keys', '操作', 'Tab Enter Escape Backspace Ctrl 取り消し コピー 貼り付け キャンバス 複製 矩形選択 文章', 'operations-guide-section'],
   ['keys', '編集する層', 'キー 割当', 'layer-choice'], ['keys', '割り当て先', '物理キーボード', 'assign-section'], ['appearance', 'デザイン', 'テーマ 外観', 'sidebar-theme-choice'],
 ];
 
@@ -4456,7 +4499,11 @@ async function importConversionDictionaryFromFile(mode) {
   const details = result.rejected.slice(0, 3).map((item) => `${item.line}行目: ${item.reason}`);
   const resultCopy = `${result.accepted}行を反映${result.rejected.length ? `、${result.rejected.length}行を拒否` : ''}しました。`;
   setConversionDictionaryStatus(details.length ? `${resultCopy} ${details.join(' / ')}` : resultCopy, Boolean(result.rejected.length));
-  if (result.accepted) renderSidebar();
+  if (result.accepted) {
+    renderSidebar();
+    // CSVファイル経由の反映も、開いていれば表エディタへ映す（未保存編集があるときは壊さない）。
+    dictionaryTablePanel?.refresh();
+  }
 }
 
 function exportConversionDictionary() {
@@ -4474,6 +4521,25 @@ function exportConversionDictionary() {
 document.getElementById('conversion-dictionary-import')?.addEventListener('click', () => { void importConversionDictionaryFromFile('merge'); });
 document.getElementById('conversion-dictionary-replace')?.addEventListener('click', () => { void importConversionDictionaryFromFile('replace'); });
 document.getElementById('conversion-dictionary-export')?.addEventListener('click', exportConversionDictionary);
+
+// 設定モーダル内で読み辞書を直接編集する（単体HTML tools/reading-dictionary-csv-editor.htmlと
+// 往復せずに済ませるための組み込み版。単体HTML自体は変更しておらず、引き続き単体でも使える）。
+let dictionaryTablePanel = null;
+function mountDictionaryTablePanel() {
+  const root = document.getElementById('dictionary-editor-panel');
+  if (!root || dictionaryTablePanel) return;
+  dictionaryTablePanel = createDictionaryTablePanel(root, {
+    getDictionary: () => exportConversionDictionaryCsv(conversionDictionary),
+    applyReplace: (csvText) => {
+      const result = importConversionDictionaryCsv(csvText, conversionDictionary, { mode: 'replace' });
+      applyConversionDictionary(result.state);
+      queueConversionProfileSave();
+      return result;
+    },
+    onStatus: (message, isError) => setConversionDictionaryStatus(message, isError),
+  });
+}
+mountDictionaryTablePanel();
 
 // ---------------------------------------------------------------------------
 // 5つのデザイン方向。入力DOMは一切作り直さず、bodyのテーマだけを差し替える。
@@ -4675,6 +4741,8 @@ function renderConversionProfileAfterLoad() {
   for (const row of rows) if (row.conversion) renderConversionCandidates(row);
   renderConversionPriorityControls();
   if (!document.getElementById('sidebar')?.hidden) renderSidebar();
+  // ログイン・ログアウトでアカウント別の辞書へ切り替わったら、開いていれば表エディタも合わせる。
+  dictionaryTablePanel?.refresh();
 }
 
 function applyCloudConversionProfile(profile, { preserveLearning = true, clean = true } = {}) {
@@ -4809,6 +4877,10 @@ function serializableNote(note) {
       ? layout
       : { mode: 'rows', camera: layout.camera, blocks: [] },
     revision: Number.isSafeInteger(note.revision) ? note.revision : 0,
+    // 段階4: 名前・ソフトデリートもクラウドへ送る（0005_note_title_deleted.sqlでサーバに列を追加済み）。
+    // サーバ側もクライアントと同じ丸め方（sanitizeNoteTitle/sanitizeNoteDeletedAt相当）で受ける。
+    title: sanitizeNoteTitle(note.title),
+    deletedAt: sanitizeNoteDeletedAt(note.deletedAt),
   };
 }
 
@@ -4915,7 +4987,9 @@ async function drainCloudQueue(queue, epoch) {
         const current = notesStore.notes.find((entry) => entry.id === snapshot.id);
         if (current && current._cloudGeneration === generation && saved.note) {
           current.revision = saved.note.revision;
-          current.updatedAt = saved.note.updatedAt;
+          // updatedAtはサーバの時計で上書きしない。名前変更・削除・復元はローカルで
+          // 意図的にupdatedAtを動かさない操作（一覧の並び順を崩さないため）なので、
+          // 遅延して届くこの成功応答で並び順を後から変えてしまわないようにする。
           queue.dirty.delete(snapshot.id);
           persistNotesStore();
         }

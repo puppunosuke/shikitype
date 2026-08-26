@@ -14,11 +14,11 @@ const RATE_LIMIT = 8;
 
 type UserRow = { id: string; login_id: string; password_hash: string; password_salt: string; recovery_hash: string };
 type SessionRow = { user_id: string; expires_at: string };
-type NoteRow = { id: string; created_at: string; updated_at: string; unit_id: string; rows_json: string; layout_json: string; revision: number };
+type NoteRow = { id: string; created_at: string; updated_at: string; unit_id: string; rows_json: string; layout_json: string; revision: number; title: string | null; deleted_at: string | null };
 type ImportRow = { fingerprint: string; response_json: string };
 type CanvasBlock = { latex: string; x: number; y: number };
 type NoteLayout = { mode: 'rows' | 'canvas'; camera: { x: number; y: number; zoom: number }; blocks: CanvasBlock[] };
-type PublicNote = { id: string; createdAt: string; updatedAt: string; unitId: string; rows: string[]; layout: NoteLayout; revision: number };
+type PublicNote = { id: string; createdAt: string; updatedAt: string; unitId: string; rows: string[]; layout: NoteLayout; revision: number; title: string | null; deletedAt: string | null };
 type DictionaryEntry = { id: string; label: string; latex: string; basePriority: number; aliases: string[] };
 type DictionaryState = { version: 1; additions: Record<string, DictionaryEntry>; addedAliases: Record<string, string[]>; deletedAliases: Record<string, string[]>; deletedCandidates: string[] };
 type ManualPriorityState = { version: 1; priorities: Record<string, number> };
@@ -247,9 +247,27 @@ function noteFromUnknown(value: unknown): PublicNote {
   const rows = item.rows as string[];
   const layout = noteLayoutFromUnknown(item.layout, rows);
   const revision = typeof item.revision === 'number' && Number.isSafeInteger(item.revision) && item.revision >= 0 ? item.revision : 0;
-  const note = { id, createdAt, updatedAt, unitId, rows, layout, revision };
+  const title = noteTitleFromUnknown(item.title);
+  const deletedAt = noteDeletedAtFromUnknown(item.deletedAt);
+  const note = { id, createdAt, updatedAt, unitId, rows, layout, revision, title, deletedAt };
   if (encoder.encode(JSON.stringify(note)).byteLength > MAX_NOTE_BYTES) throw new ApiError(413, 'note_too_large');
   return note;
+}
+
+// クライアント（sanitizeNoteTitle）と同じ丸め方: 空白だけ・80文字超はnull扱いにする。
+// nullを許すのは「名前なし」を表す既存の意味と一致させるため。
+function noteTitleFromUnknown(value: unknown): string | null {
+  if (value === null || value === undefined) return null;
+  if (typeof value !== 'string') throw new ApiError(400, 'invalid_note');
+  const trimmed = value.replace(/\s+/g, ' ').trim().slice(0, 80);
+  return trimmed || null;
+}
+
+// クライアント（sanitizeNoteDeletedAt）と同じ丸め方: 解釈できない値はnull（未削除）扱いにする。
+function noteDeletedAtFromUnknown(value: unknown): string | null {
+  if (value === null || value === undefined) return null;
+  if (typeof value !== 'string' || Number.isNaN(Date.parse(value))) throw new ApiError(400, 'invalid_note');
+  return value;
 }
 
 function isEmptyNote(note: PublicNote): boolean {
@@ -294,7 +312,9 @@ function toPublicNote(row: NoteRow): PublicNote {
   let layout: NoteLayout;
   try { layout = noteLayoutFromUnknown(JSON.parse(row.layout_json || 'null'), safeRows); }
   catch { layout = noteLayoutFromUnknown(null, safeRows); }
-  return { id: row.id, createdAt: row.created_at, updatedAt: row.updated_at, unitId: row.unit_id, rows: safeRows, layout, revision: row.revision };
+  // title/deleted_atは0005で追加した列。旧行はNULLのままで、
+  // 「名前なし・未削除」という従来の実質状態とそのまま一致する。
+  return { id: row.id, createdAt: row.created_at, updatedAt: row.updated_at, unitId: row.unit_id, rows: safeRows, layout, revision: row.revision, title: row.title ?? null, deletedAt: row.deleted_at ?? null };
 }
 
 async function rateLimit(request: Request, env: Env, action: string): Promise<void> {
@@ -397,32 +417,32 @@ async function recover(request: Request, env: Env): Promise<Response> {
 
 async function listNotes(request: Request, env: Env): Promise<Response> {
   const userId = await authenticatedUser(request, env);
-  const result = await env.DB.prepare('SELECT id, created_at, updated_at, unit_id, rows_json, layout_json, revision FROM notes WHERE user_id = ? ORDER BY updated_at DESC LIMIT ?').bind(userId, MAX_NOTES).all<NoteRow>();
+  const result = await env.DB.prepare('SELECT id, created_at, updated_at, unit_id, rows_json, layout_json, revision, title, deleted_at FROM notes WHERE user_id = ? ORDER BY updated_at DESC LIMIT ?').bind(userId, MAX_NOTES).all<NoteRow>();
   return json({ notes: result.results.map(toPublicNote) });
 }
 
 async function putNote(request: Request, env: Env, id: string): Promise<Response> {
   validateOrigin(request); const userId = await authenticatedUser(request, env); const note = noteFromUnknown(await boundedJson(request));
   if (note.id !== id) throw new ApiError(400, 'invalid_note');
-  const existing = await env.DB.prepare('SELECT id, created_at, updated_at, unit_id, rows_json, layout_json, revision FROM notes WHERE user_id = ? AND id = ?').bind(userId, id).first<NoteRow>();
+  const existing = await env.DB.prepare('SELECT id, created_at, updated_at, unit_id, rows_json, layout_json, revision, title, deleted_at FROM notes WHERE user_id = ? AND id = ?').bind(userId, id).first<NoteRow>();
   // 新規の完全な空ノートは従来どおり作らない。一方、既存ノートを空に戻すのは
   // 正規の編集結果なので、行の最後の空block／canvasの0 blockとも更新を許可する。
   if (isEmptyNote(note) && !existing) throw new ApiError(400, 'invalid_note');
   if (existing && existing.revision !== note.revision) return json({ error: 'conflict', note: toPublicNote(existing) }, 409);
   const revision = (existing?.revision || 0) + 1; const updatedAt = new Date().toISOString();
   if (existing) {
-    const changed = await env.DB.prepare('UPDATE notes SET updated_at = ?, unit_id = ?, rows_json = ?, layout_json = ?, revision = ? WHERE user_id = ? AND id = ? AND revision = ?').bind(updatedAt, note.unitId, JSON.stringify(note.rows), JSON.stringify(note.layout), revision, userId, id, note.revision).run();
+    const changed = await env.DB.prepare('UPDATE notes SET updated_at = ?, unit_id = ?, rows_json = ?, layout_json = ?, revision = ?, title = ?, deleted_at = ? WHERE user_id = ? AND id = ? AND revision = ?').bind(updatedAt, note.unitId, JSON.stringify(note.rows), JSON.stringify(note.layout), revision, note.title, note.deletedAt, userId, id, note.revision).run();
     if (changed.meta.changes !== 1) {
-      const fresh = await env.DB.prepare('SELECT id, created_at, updated_at, unit_id, rows_json, layout_json, revision FROM notes WHERE user_id = ? AND id = ?').bind(userId, id).first<NoteRow>();
+      const fresh = await env.DB.prepare('SELECT id, created_at, updated_at, unit_id, rows_json, layout_json, revision, title, deleted_at FROM notes WHERE user_id = ? AND id = ?').bind(userId, id).first<NoteRow>();
       return json({ error: 'conflict', note: fresh ? toPublicNote(fresh) : null }, 409);
     }
   } else {
     // 上限判定をDB文の条件に含める。並列の101件目も保存済みに見せない。
     const inserted = await env.DB.prepare(`
-      INSERT INTO notes (id, user_id, created_at, updated_at, unit_id, rows_json, layout_json, revision)
-      SELECT ?, ?, ?, ?, ?, ?, ?, ?
+      INSERT INTO notes (id, user_id, created_at, updated_at, unit_id, rows_json, layout_json, revision, title, deleted_at)
+      SELECT ?, ?, ?, ?, ?, ?, ?, ?, ?, ?
       WHERE (SELECT COUNT(*) FROM notes WHERE user_id = ?) < ?
-    `).bind(id, userId, note.createdAt, updatedAt, note.unitId, JSON.stringify(note.rows), JSON.stringify(note.layout), revision, userId, MAX_NOTES).run();
+    `).bind(id, userId, note.createdAt, updatedAt, note.unitId, JSON.stringify(note.rows), JSON.stringify(note.layout), revision, note.title, note.deletedAt, userId, MAX_NOTES).run();
     if (inserted.meta.changes !== 1) throw new ApiError(409, 'note_limit');
   }
   return json({ note: { ...note, updatedAt, revision } });
@@ -446,7 +466,7 @@ async function importNotes(request: Request, env: Env): Promise<Response> {
     return json(JSON.parse(previous.response_json));
   }
 
-  const existingResults = await env.DB.batch(parsedNotes.map((note) => env.DB.prepare('SELECT id, created_at, updated_at, unit_id, rows_json, layout_json, revision FROM notes WHERE user_id = ? AND id = ?').bind(userId, note.id)));
+  const existingResults = await env.DB.batch(parsedNotes.map((note) => env.DB.prepare('SELECT id, created_at, updated_at, unit_id, rows_json, layout_json, revision, title, deleted_at FROM notes WHERE user_id = ? AND id = ?').bind(userId, note.id)));
   // 空の新規noteはimportでも作らない。既存IDの空更新だけを残すことで、通信失敗後に
   // 再ログインしても「全部消した」編集結果が古い本文で復活しない。
   const existingById = new Map(parsedNotes.map((note, index) => [note.id, existingResults[index].results[0] as NoteRow | undefined]));
@@ -456,15 +476,16 @@ async function importNotes(request: Request, env: Env): Promise<Response> {
   for (let index = 0; index < notes.length; index += 1) {
     const note = notes[index];
     const existing = existingById.get(note.id);
-    const same = existing && existing.rows_json === JSON.stringify(note.rows) && existing.layout_json === JSON.stringify(note.layout) && existing.unit_id === note.unitId;
+    const same = existing && existing.rows_json === JSON.stringify(note.rows) && existing.layout_json === JSON.stringify(note.layout)
+      && existing.unit_id === note.unitId && (existing.title ?? null) === note.title && (existing.deleted_at ?? null) === note.deletedAt;
     if (same) continue;
     const targetId = existing ? `note-${(await sha256(`${note.id}\u0000${fingerprint}`)).slice(0, 36)}-conflict` : note.id;
     if (existing) conflicts += 1; else imported += 1;
     writes.push(env.DB.prepare(`
-      INSERT INTO notes (id, user_id, created_at, updated_at, unit_id, rows_json, layout_json, revision)
-      VALUES (?, ?, ?, ?, ?, ?, ?, 1)
+      INSERT INTO notes (id, user_id, created_at, updated_at, unit_id, rows_json, layout_json, revision, title, deleted_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, 1, ?, ?)
       ON CONFLICT(user_id, id) DO NOTHING
-    `).bind(targetId, userId, note.createdAt, note.updatedAt, note.unitId, JSON.stringify(note.rows), JSON.stringify(note.layout)));
+    `).bind(targetId, userId, note.createdAt, note.updatedAt, note.unitId, JSON.stringify(note.rows), JSON.stringify(note.layout), note.title, note.deletedAt));
   }
   const count = await env.DB.prepare('SELECT COUNT(*) AS count FROM notes WHERE user_id = ?').bind(userId).first<{ count: number }>();
   if ((count?.count || 0) + writes.length > MAX_NOTES) throw new ApiError(409, 'note_limit');

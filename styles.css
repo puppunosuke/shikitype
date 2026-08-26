@@ -1303,6 +1303,47 @@ body[data-input-system="conversion"] #legacy-method-base-section { display: none
 .dictionary-actions button { min-height: 30px; padding: 4px; border: 1px solid #888; border-radius: 0; background: #fff; color: #111; cursor: pointer; font-size: 10px; line-height: 1.25; }
 .dictionary-actions button:hover { border-color: var(--accent); color: var(--accent); }
 
+/* ---------- 読み辞書エディタ（設定モーダル組み込み版。tools/reading-dictionary-csv-editor.html
+   の行編集エンジンを移植。境界を折れ線で明示し、独立スクロールにして設定パネル全体の
+   高さを支配しない（レイアウト原則: コレクションをページの背骨にしない）。 ---------- */
+.dictionary-editor-heading { margin: 18px 0 2px; font-size: 12px; font-weight: 700; }
+.dictionary-editor { margin-top: 8px; border: 1px solid var(--line); background: #fff; }
+.dictionary-editor-toolbar { display: grid; grid-template-columns: minmax(120px, 1fr) auto auto; gap: 6px; align-items: center; padding: 8px; border-bottom: 1px solid var(--line); }
+.dictionary-editor-search { min-height: 30px; padding: 5px 8px; border: 1px solid var(--line); border-radius: 0; background: #fff; font-size: 11px; }
+.dictionary-editor-summary { font-size: 10px; color: var(--muted); white-space: nowrap; }
+.dictionary-editor-add { min-height: 30px; padding: 0 10px; border: 1px solid var(--line); border-radius: 0; background: #fff; font-size: 11px; font-weight: 700; cursor: pointer; }
+.dictionary-editor-add:hover { border-color: var(--accent); color: var(--accent); }
+.dictionary-editor-grid { display: grid; grid-template-columns: minmax(0, 1fr) 108px; align-items: start; }
+.dictionary-editor-table-wrap { min-width: 0; max-height: 260px; overflow: auto; overscroll-behavior: contain; border-right: 1px solid var(--line); }
+.dictionary-editor-table-wrap table { border-collapse: collapse; width: 100%; table-layout: fixed; }
+.dictionary-editor-table-wrap th { position: sticky; top: 0; z-index: 1; padding: 5px 4px; background: var(--ink); color: #fff; font-size: 9px; text-align: left; white-space: nowrap; }
+.dictionary-editor-table-wrap td { padding: 2px; border-bottom: 1px solid #ddd; vertical-align: middle; }
+.dictionary-editor-input { width: 100%; min-height: 26px; padding: 2px 4px; border: 1px solid transparent; border-radius: 0; background: transparent; font-size: 11px; }
+.dictionary-editor-input:hover, .dictionary-editor-input:focus-visible { border-color: #999; }
+.dictionary-editor-input.is-invalid { border-color: #c0392b; background: #fff0ef; }
+.dictionary-editor-empty { padding: 18px; margin: 0; text-align: center; color: var(--muted); font-size: 11px; }
+.dictionary-editor-rail { display: flex; flex-direction: column; overflow: hidden; border-left: 1px solid var(--line); }
+.dictionary-editor-rail[hidden] { display: none; }
+.dictionary-editor-rail-row { display: grid; grid-template-columns: 1fr 1fr; gap: 3px; padding: 3px; height: 31px; }
+.dictionary-editor-rail-btn { min-height: 25px; padding: 0 2px; border: 1px solid #999; border-radius: 0; background: #fff; font-size: 9px; cursor: pointer; }
+.dictionary-editor-rail-btn:hover { border-color: var(--accent); color: var(--accent); }
+.dictionary-editor-rail-danger:hover { border-color: #c0392b; color: #c0392b; }
+.dictionary-editor-pager { display: flex; justify-content: center; align-items: center; gap: 8px; padding: 6px; border-bottom: 1px solid var(--line); font-size: 11px; }
+.dictionary-editor-pager button { min-height: 26px; padding: 0 8px; border: 1px solid var(--line); border-radius: 0; background: #fff; cursor: pointer; font-size: 11px; }
+.dictionary-editor-actions { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; padding: 8px; }
+.dictionary-editor-actions button { min-height: 30px; border: 1px solid var(--line); border-radius: 0; background: #fff; font-size: 11px; font-weight: 700; cursor: pointer; }
+.dictionary-editor-actions button:disabled { color: #999; border-color: #ccc; cursor: not-allowed; }
+.dictionary-editor-actions button:not(:disabled):hover { border-color: var(--accent); color: var(--accent); }
+
+/* ---------- 操作の一覧（設定＞キー割当）。記号の割当は画面下のキーガイドで足りているため、
+   ここは「操作」だけに絞る。件数が増えても、独立スクロールにして設定パネル全体を
+   長くしすぎない（レイアウト原則）。 ---------- */
+.operations-guide-list { display: grid; grid-template-columns: minmax(150px, 220px) 1fr; gap: 4px 12px; max-height: 320px; overflow: auto; margin: 8px 0 0; padding-right: 4px; }
+.operations-guide-list dt { margin: 0; padding: 6px 0; font-size: 11px; font-weight: 700; font-family: var(--font-en, inherit); border-top: 1px solid #e2e0d8; }
+.operations-guide-list dd { margin: 0; padding: 6px 0; font-size: 11px; line-height: 1.5; color: var(--muted); border-top: 1px solid #e2e0d8; }
+.operations-guide-list dt:first-of-type, .operations-guide-list dd:first-of-type { border-top: 0; }
+@media (max-width: 640px) { .operations-guide-list { grid-template-columns: 1fr; } .operations-guide-list dd { padding-top: 0; } }
+
 /* ---------- パレット: 単元でよく使う記号を先頭で目立たせる ---------- */
 .palette-btn.featured { border-color: var(--accent); box-shadow: inset 0 -3px 0 var(--accent); }
 

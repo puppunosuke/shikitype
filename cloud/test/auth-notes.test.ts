@@ -9,7 +9,7 @@ beforeAll(async () => {
   await env.DB.exec(`
     CREATE TABLE users (id TEXT PRIMARY KEY, login_id TEXT NOT NULL UNIQUE COLLATE NOCASE, password_hash TEXT NOT NULL, password_salt TEXT NOT NULL, recovery_hash TEXT NOT NULL, created_at TEXT NOT NULL, updated_at TEXT NOT NULL);
     CREATE TABLE sessions (id TEXT PRIMARY KEY, user_id TEXT NOT NULL, token_hash TEXT NOT NULL UNIQUE, expires_at TEXT NOT NULL, created_at TEXT NOT NULL);
-    CREATE TABLE notes (id TEXT NOT NULL, user_id TEXT NOT NULL, created_at TEXT NOT NULL, updated_at TEXT NOT NULL, unit_id TEXT NOT NULL, rows_json TEXT NOT NULL, layout_json TEXT NOT NULL DEFAULT '{}', revision INTEGER NOT NULL DEFAULT 1, PRIMARY KEY (user_id, id));
+    CREATE TABLE notes (id TEXT NOT NULL, user_id TEXT NOT NULL, created_at TEXT NOT NULL, updated_at TEXT NOT NULL, unit_id TEXT NOT NULL, rows_json TEXT NOT NULL, layout_json TEXT NOT NULL DEFAULT '{}', revision INTEGER NOT NULL DEFAULT 1, title TEXT, deleted_at TEXT, PRIMARY KEY (user_id, id));
     CREATE TABLE auth_rate_limits (bucket_key TEXT PRIMARY KEY, count INTEGER NOT NULL, reset_at TEXT NOT NULL);
     CREATE TABLE note_imports (user_id TEXT NOT NULL, idempotency_key TEXT NOT NULL, fingerprint TEXT NOT NULL, response_json TEXT NOT NULL, created_at TEXT NOT NULL, PRIMARY KEY (user_id, idempotency_key));
     CREATE TABLE conversion_profiles (user_id TEXT PRIMARY KEY, dictionary_json TEXT NOT NULL, manual_json TEXT NOT NULL, revision INTEGER NOT NULL DEFAULT 1, updated_at TEXT NOT NULL);
@@ -111,6 +111,41 @@ describe('SHIKITYPE auth and notes', () => {
     expect(refreshed.notes.find((entry) => entry.id === rowsId)?.layout).toEqual(expect.objectContaining({ mode: 'rows', blocks: [] }));
     const unsafe = { ...canvasNote(`note-${crypto.randomUUID()}`), layout: { ...canvasNote(`note-${crypto.randomUUID()}`).layout, blocks: [{ latex: 'x', x: 99_999, y: 1 }] } };
     expect((await call(`/api/notes/${unsafe.id}`, { method: 'PUT', body: JSON.stringify(unsafe) }, account.cookie)).status).toBe(400);
+  });
+
+  it('syncs note title and soft-delete across devices, and treats old rows lacking them as name-less and not deleted', async () => {
+    const account = await signup('titledelete');
+    const id = `note-${crypto.randomUUID()}`;
+    // 段階3まではtitle/deletedAtを送らないクライアントがあった。未指定はnullとして通る。
+    expect((await call(`/api/notes/${id}`, { method: 'PUT', body: JSON.stringify(note(id)) }, account.cookie)).status).toBe(200);
+    let listed = await (await call('/api/notes', {}, account.cookie)).json<{ notes: Array<{ id: string; title: string | null; deletedAt: string | null }> }>();
+    expect(listed.notes.find((entry) => entry.id === id)).toEqual(expect.objectContaining({ title: null, deletedAt: null }));
+
+    // 名前を付けると別端末（同じアカウントの再取得）でもそのまま見える。
+    const named = { ...note(id, 1), title: '積分のメモ' };
+    expect((await call(`/api/notes/${id}`, { method: 'PUT', body: JSON.stringify(named) }, account.cookie)).status).toBe(200);
+    listed = await (await call('/api/notes', {}, account.cookie)).json();
+    expect(listed.notes.find((entry) => entry.id === id)).toEqual(expect.objectContaining({ title: '積分のメモ' }));
+
+    // ソフトデリート（deletedAt）も同期し、再ログインのマージで復活しない。
+    const deletedAt = new Date().toISOString();
+    const trashed = { ...note(id, 2), title: '積分のメモ', deletedAt };
+    expect((await call(`/api/notes/${id}`, { method: 'PUT', body: JSON.stringify(trashed) }, account.cookie)).status).toBe(200);
+    listed = await (await call('/api/notes', {}, account.cookie)).json();
+    expect(listed.notes.find((entry) => entry.id === id)).toEqual(expect.objectContaining({ title: '積分のメモ', deletedAt }));
+
+    // 復元（deletedAt=null）も同期する。
+    const restored = { ...note(id, 3), title: '積分のメモ', deletedAt: null };
+    expect((await call(`/api/notes/${id}`, { method: 'PUT', body: JSON.stringify(restored) }, account.cookie)).status).toBe(200);
+    listed = await (await call('/api/notes', {}, account.cookie)).json();
+    expect(listed.notes.find((entry) => entry.id === id)).toEqual(expect.objectContaining({ title: '積分のメモ', deletedAt: null }));
+
+    // 壊れた値は拒否する（同期の穴からXSS/巨大値を持ち込まない）。
+    expect((await call(`/api/notes/${id}`, { method: 'PUT', body: JSON.stringify({ ...note(id, 4), title: 'x'.repeat(500) }) }, account.cookie)).status).toBe(200);
+    listed = await (await call('/api/notes', {}, account.cookie)).json();
+    // 80文字で丸められる（クライアントのsanitizeNoteTitleと同じ丸め）。
+    expect(listed.notes.find((entry) => entry.id === id)?.title?.length).toBe(80);
+    expect((await call(`/api/notes/${id}`, { method: 'PUT', body: JSON.stringify({ ...note(id, 5), deletedAt: 'not-a-date' }) }, account.cookie)).status).toBe(400);
   });
 
   it('keeps an existing canvas note after its final block is removed without creating fresh blank notes', async () => {
