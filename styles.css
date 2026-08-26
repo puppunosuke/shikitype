@@ -1308,9 +1308,14 @@ body[data-input-system="conversion"] #legacy-method-base-section { display: none
    高さを支配しない（レイアウト原則: コレクションをページの背骨にしない）。 ---------- */
 .dictionary-editor-heading { margin: 18px 0 2px; font-size: 12px; font-weight: 700; }
 .dictionary-editor { margin-top: 8px; border: 1px solid var(--line); background: #fff; }
-.dictionary-editor-toolbar { display: grid; grid-template-columns: minmax(120px, 1fr) auto auto; gap: 6px; align-items: center; padding: 8px; border-bottom: 1px solid var(--line); }
+/* summaryは「N行 / N行に入力エラー / 未保存の変更あり」まで伸びる可変長ステータスのため、
+   auto トラックのまま white-space:nowrap にすると、grid item既定の min-width:auto が
+   テキストの全幅を最小サイズとして要求し、狭幅でツールバー全体、ひいては設定パネル全体を
+   横スクロールさせてしまう（実測で発見）。トラックを minmax(0, auto) にしてテキスト側の
+   nowrap を外し、必要なら折り返させる。 */
+.dictionary-editor-toolbar { display: grid; grid-template-columns: minmax(120px, 1fr) minmax(0, auto) auto; gap: 6px; align-items: center; padding: 8px; border-bottom: 1px solid var(--line); }
 .dictionary-editor-search { min-height: 30px; padding: 5px 8px; border: 1px solid var(--line); border-radius: 0; background: #fff; font-size: 11px; }
-.dictionary-editor-summary { font-size: 10px; color: var(--muted); white-space: nowrap; }
+.dictionary-editor-summary { font-size: 10px; color: var(--muted); overflow-wrap: anywhere; }
 .dictionary-editor-add { min-height: 30px; padding: 0 10px; border: 1px solid var(--line); border-radius: 0; background: #fff; font-size: 11px; font-weight: 700; cursor: pointer; }
 .dictionary-editor-add:hover { border-color: var(--accent); color: var(--accent); }
 .dictionary-editor-grid { display: grid; grid-template-columns: minmax(0, 1fr) 108px; align-items: start; }
@@ -1338,7 +1343,11 @@ body[data-input-system="conversion"] #legacy-method-base-section { display: none
 /* ---------- 操作の一覧（設定＞キー割当）。記号の割当は画面下のキーガイドで足りているため、
    ここは「操作」だけに絞る。件数が増えても、独立スクロールにして設定パネル全体を
    長くしすぎない（レイアウト原則）。 ---------- */
-.operations-guide-list { display: grid; grid-template-columns: minmax(150px, 220px) 1fr; gap: 4px 12px; max-height: 320px; overflow: auto; margin: 8px 0 0; padding-right: 4px; }
+/* 13件（実測440px前後）が入れ子スクロールなしで収まる高さ。設定パネル自体は既に
+   独立スクロールを持つため、ここでの内側スクロールは「増えたときの保険」に留め、
+   現行件数では発生させない（実測で320pxだと常に111px分だけ余分な内側スクロールが
+   必要になっていたのを解消）。 */
+.operations-guide-list { display: grid; grid-template-columns: minmax(150px, 220px) 1fr; gap: 4px 12px; max-height: 460px; overflow: auto; margin: 8px 0 0; padding-right: 4px; }
 .operations-guide-list dt { margin: 0; padding: 6px 0; font-size: 11px; font-weight: 700; font-family: var(--font-en, inherit); border-top: 1px solid #e2e0d8; }
 .operations-guide-list dd { margin: 0; padding: 6px 0; font-size: 11px; line-height: 1.5; color: var(--muted); border-top: 1px solid #e2e0d8; }
 .operations-guide-list dt:first-of-type, .operations-guide-list dd:first-of-type { border-top: 0; }

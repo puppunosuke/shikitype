@@ -174,7 +174,12 @@ export function createDictionaryTablePanel(root, { getDictionary, applyReplace, 
     <div class="dictionary-editor-grid">
       <div class="dictionary-editor-table-wrap">
         <table>
-          <colgroup><col style="width:64px"><col style="width:120px"><col style="width:72px"><col style="width:34%"><col style="width:26%"><col style="width:64px"></colgroup>
+          <!-- 数式・読みを%指定にすると、table-layout:fixedの表がwrap幅より狭い場合
+               （例: 360px幅ではwrap自体が約180px）、固定px列(64+120+72+64=320px)の合計だけで
+               表の全幅が決まってしまい、%列に残る幅が0になって入力欄が実測10px（事実上見えず
+               操作不能）まで潰れる事故を実測で確認した。全列を固定pxにし、コンテナが狭いときは
+               wrapの横スクロールへ委ねる（列を潰さず、常に打てる最小幅を保証する）。 -->
+          <colgroup><col style="width:64px"><col style="width:120px"><col style="width:72px"><col style="width:180px"><col style="width:140px"><col style="width:64px"></colgroup>
           <thead><tr><th>操作</th><th>候補ID</th><th>記号</th><th>数式</th><th>読み</th><th>優先度</th></tr></thead>
           <tbody></tbody>
         </table>
@@ -377,9 +382,15 @@ export function createDictionaryTablePanel(root, { getDictionary, applyReplace, 
 
   els.tableWrap.addEventListener('scroll', syncRailHeight);
   els.rail.addEventListener('wheel', (event) => { event.preventDefault(); els.tableWrap.scrollTop += event.deltaY; }, { passive: false });
-  els.search.addEventListener('input', () => { search = els.search.value; pinnedVisibleKeys.clear(); page = 1; render(); });
-  els.prev.addEventListener('click', () => { page -= 1; render(); });
-  els.next.addEventListener('click', () => { page += 1; render(); });
+  // ページ・検索の切り替えは「別の行集合を新しく見せる」操作であり、削除・読み追加のような
+  // 「同じ行集合内での位置維持」とは意味が違う。旧ページの`scrollTop`を持ち越すと、新ページの
+  // 行数がそのオフセットに満たない場合にブラウザが自動クランプし、先頭行（と行操作レール）が
+  // 表示領域の外へ隠れて操作できなくなる（実測: page-changeでscrollTopを戻さないと
+  // 二重で操作不能に陥ることをPlaywrightで確認）。ページ・検索を変えたら必ず先頭へ戻す。
+  function resetScrollToTop() { els.tableWrap.scrollTop = 0; els.tableWrap.scrollLeft = 0; syncRailHeight(); }
+  els.search.addEventListener('input', () => { search = els.search.value; pinnedVisibleKeys.clear(); page = 1; render(); resetScrollToTop(); });
+  els.prev.addEventListener('click', () => { page -= 1; render(); resetScrollToTop(); });
+  els.next.addEventListener('click', () => { page += 1; render(); resetScrollToTop(); });
   els.add.addEventListener('click', () => {
     rows.push(freshRow());
     search = ''; els.search.value = '';
