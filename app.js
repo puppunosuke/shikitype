@@ -1823,6 +1823,59 @@ function notesStorageKey() {
   return cloudAccount.userId ? `${NOTE_STORAGE_KEY}.user.${cloudAccount.userId}` : NOTE_STORAGE_KEY;
 }
 
+// 「完全に削除」でサーバ側にも物理削除を要求した記録。notesStoreとは別の小さな
+// journalにする（notesStore内に混ぜると、ログイン直後の再構築処理がpendingDeletesを
+// 一緒に上書き・消失させてしまいやすいため）。アカウントごとに分け、ログアウト中は
+// 追跡しない（未ログインの「完全に削除」はローカルだけで完結する仕様のため）。
+function pendingDeletesStorageKey(userId = cloudAccount.userId) {
+  return userId ? `${NOTE_STORAGE_KEY}.pending-deletes.user.${userId}` : null;
+}
+function readPendingDeletes(userId = cloudAccount.userId) {
+  const key = pendingDeletesStorageKey(userId);
+  if (!key) return [];
+  try {
+    const raw = JSON.parse(localStorage.getItem(key) || '[]');
+    return Array.isArray(raw) ? raw.filter((id) => typeof id === 'string') : [];
+  } catch { return []; }
+}
+function writePendingDeletes(ids, userId = cloudAccount.userId) {
+  const key = pendingDeletesStorageKey(userId);
+  if (!key) return;
+  try { localStorage.setItem(key, JSON.stringify(ids)); } catch { /* 保存できなくても致命ではない: 次回操作時に再試行できる */ }
+}
+
+const pendingDeleteRunning = new Set();
+// サーバへの物理削除要求をアカウント単位で直列に流し、失敗時は次回（次の削除操作・
+// 次回ログイン/セッション復元）まで持ち越して自動的に追いつかせる。ローカルの
+// 「完全に削除」は常に即時実行済みなので、ここで失敗してもローカル側を巻き戻さない
+// （＝ローカルは消えたまま、サーバ側にだけ後から追いつく片方向の再試行でよい。
+// 逆にサーバ側だけ先に消える経路は無い＝常にローカル削除→サーバ削除の順）。
+async function drainPendingDeletes(userId = cloudAccount.userId) {
+  if (!userId || pendingDeleteRunning.has(userId)) return;
+  pendingDeleteRunning.add(userId);
+  try {
+    while (cloudAccount.userId === userId) {
+      const pending = readPendingDeletes(userId);
+      if (!pending.length) break;
+      const id = pending[0];
+      try {
+        await apiJson(`/notes/${encodeURIComponent(id)}`, { method: 'DELETE' });
+      } catch {
+        // 401（セッション切れ）・ネットワーク断・5xxのどれでも、ここでは判別せず
+        // 単純に諦めて次の機会（次の削除操作・次回ログイン/セッション復元）に譲る。
+        // journalは消さないので取りこぼしにはならない。
+        break;
+      }
+      // 成功（既に無かった場合の deleted:false も含めて2xxはすべて「サーバに存在しない」
+      // 状態への到達を意味する＝目的達成）。journalから外す。
+      const remaining = readPendingDeletes(userId).filter((entry) => entry !== id);
+      writePendingDeletes(remaining, userId);
+    }
+  } finally {
+    pendingDeleteRunning.delete(userId);
+  }
+}
+
 // ノートの名前は任意入力（未設定=null）。空文字・空白だけの入力もnullへ丸め、
 // その場合は従来どおりnotePreview()の自動プレビューを表示する。
 function sanitizeNoteTitle(value) {
@@ -2073,6 +2126,19 @@ function purgeNoteForever(id) {
   if (notesStore.activeId === id) notesStore.activeId = null;
   persistNotesStore();
   renderNotesList();
+  // 未ログインならローカルだけで完結する（従来どおり）。ログイン中は、これまで
+  // クラウドへ保存されていたかもしれないノートをサーバ側でも物理削除しないと、
+  // ソフトデリート行として残り続けて100件の保存枠を占有し続けてしまう。
+  // ローカル削除はここで既に確定済みなので、以降のサーバ削除が失敗しても
+  // ローカルを復元しない（片方向の追いつき）。失敗はjournalに残して次回
+  // （次の削除操作・次回ログイン/セッション復元）に自動で再試行する。
+  if (cloudAccount.userId) {
+    const queue = cloudQueues.get(cloudAccount.userId);
+    queue?.dirty.delete(id); // 直前のソフトデリート保存がまだ未送信なら、二重送信せず先に取り下げる。
+    const pending = readPendingDeletes();
+    if (!pending.includes(id)) writePendingDeletes([...pending, id]);
+    void drainPendingDeletes();
+  }
 }
 
 function buildTrashListItem(note) {
@@ -5119,6 +5185,9 @@ async function switchToUserStore(userId, importAnonymous = false, operation = be
   saveCurrentNoteNow();
   retireCloudAccount();
   cloudAccount.userId = userId;
+  // 前回このアカウントで「完全に削除」がサーバへ届かず終わっていたら、
+  // ログイン（再ログイン・セッション復元）のタイミングで自動的に追いつかせる。
+  void drainPendingDeletes(userId);
   updateConversionDictionaryStorageStatus('loading');
   // 辞書・手動順位・学習はノートと同じくアカウント単位で読み直す。切替前の
   // メモリを使い続けないことで、A→B→A でも候補の並びを混ぜない。

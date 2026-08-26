@@ -421,6 +421,21 @@ async function listNotes(request: Request, env: Env): Promise<Response> {
   return json({ notes: result.results.map(toPublicNote) });
 }
 
+// 「完全に削除」専用の物理削除の口。deletedAt（ソフトデリート）はゴミ箱表示のための
+// 状態に過ぎず、行はDBに残り続けてMAX_NOTESの100件枠を占有し続ける。これを実際に
+// 空けるには行そのものを消す必要があるため、putNoteとは別にDELETEを設ける。
+// user_id = ? を必ずWHEREへ含め、他ユーザーのidを渡されても自分の行以外には
+// 一切当たらないようにする（putNote/listNotesと同じ絞り込み方針）。
+// 既に存在しない（前回の再試行がサーバへ届いていた等）場合もエラーにせず、
+// deleted: false を返して成功扱いにする。削除は本質的に冪等な操作であり、
+// クライアント側の再試行ループがここで詰まらないようにするため。
+async function deleteNote(request: Request, env: Env, id: string): Promise<Response> {
+  validateOrigin(request);
+  const userId = await authenticatedUser(request, env);
+  const result = await env.DB.prepare('DELETE FROM notes WHERE user_id = ? AND id = ?').bind(userId, id).run();
+  return json({ ok: true, deleted: result.meta.changes === 1 });
+}
+
 async function putNote(request: Request, env: Env, id: string): Promise<Response> {
   validateOrigin(request); const userId = await authenticatedUser(request, env); const note = noteFromUnknown(await boundedJson(request));
   if (note.id !== id) throw new ApiError(400, 'invalid_note');
@@ -594,6 +609,7 @@ async function api(request: Request, env: Env, path: string): Promise<Response> 
   if (path === '/api/conversion-profile' && request.method === 'PUT') return putConversionProfile(request, env);
   const match = /^\/api\/notes\/([^/]+)$/.exec(path);
   if (match && request.method === 'PUT') return putNote(request, env, decodeURIComponent(match[1]));
+  if (match && request.method === 'DELETE') return deleteNote(request, env, decodeURIComponent(match[1]));
   throw new ApiError(404, 'not_found');
 }
 

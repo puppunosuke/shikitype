@@ -259,6 +259,51 @@ describe('SHIKITYPE auth and notes', () => {
     expect(await overflowImport.json()).toEqual({ error: 'note_limit' });
   });
 
+  it('permanently deletes a note through DELETE, frees its slot, and never touches another account\'s note', async () => {
+    const account = await signup('harddelete');
+    const id = `note-${crypto.randomUUID()}`;
+    expect((await call(`/api/notes/${id}`, { method: 'PUT', body: JSON.stringify(note(id)) }, account.cookie)).status).toBe(200);
+    const other = await signup('harddelete-other');
+    const otherId = `note-${crypto.randomUUID()}`;
+    expect((await call(`/api/notes/${otherId}`, { method: 'PUT', body: JSON.stringify(note(otherId)) }, other.cookie)).status).toBe(200);
+
+    // 他人のノートidを渡しても消せない（WHERE user_id絞り込みの担保）。
+    const cross = await call(`/api/notes/${otherId}`, { method: 'DELETE' }, account.cookie);
+    expect(cross.status).toBe(200);
+    expect(await cross.json()).toEqual({ ok: true, deleted: false });
+    expect(await (await call('/api/notes', {}, other.cookie)).json<{ notes: Array<{ id: string }> }>()).toEqual({ notes: [expect.objectContaining({ id: otherId })] });
+
+    // 自分のノートは物理削除される。
+    const removed = await call(`/api/notes/${id}`, { method: 'DELETE' }, account.cookie);
+    expect(removed.status).toBe(200);
+    expect(await removed.json()).toEqual({ ok: true, deleted: true });
+    expect(await (await call('/api/notes', {}, account.cookie)).json()).toEqual({ notes: [] });
+
+    // 再試行（既に消えている）もエラーにせず冪等に成功扱いにする。
+    const retry = await call(`/api/notes/${id}`, { method: 'DELETE' }, account.cookie);
+    expect(retry.status).toBe(200);
+    expect(await retry.json()).toEqual({ ok: true, deleted: false });
+
+    // 100件枠がDELETEした分だけ実際に空く。99件埋めて101件目まで置けることを確認する。
+    const seed = Array.from({ length: 99 }, (_, index) => note(`note-${crypto.randomUUID()}-${index}`));
+    expect((await call('/api/notes/import', { method: 'POST', body: JSON.stringify({ notes: seed, idempotencyKey: `import-${crypto.randomUUID()}` }) }, account.cookie)).status).toBe(200);
+    const filler = note(`note-${crypto.randomUUID()}`);
+    expect((await call(`/api/notes/${filler.id}`, { method: 'PUT', body: JSON.stringify(filler) }, account.cookie)).status).toBe(200);
+    const overflow = note(`note-${crypto.randomUUID()}`);
+    expect((await call(`/api/notes/${overflow.id}`, { method: 'PUT', body: JSON.stringify(overflow) }, account.cookie)).status).toBe(409);
+  });
+
+  it('requires a session and same-origin request before DELETE takes effect', async () => {
+    const account = await signup('deleteauth');
+    const id = `note-${crypto.randomUUID()}`;
+    expect((await call(`/api/notes/${id}`, { method: 'PUT', body: JSON.stringify(note(id)) }, account.cookie)).status).toBe(200);
+    expect((await call(`/api/notes/${id}`, { method: 'DELETE' })).status).toBe(401);
+    const foreign = await SELF.fetch(new Request(`${origin}/api/notes/${id}`, { method: 'DELETE', headers: { Cookie: account.cookie, Origin: 'https://evil.example' } }));
+    expect(foreign.status).toBe(403);
+    // どちらの拒否経路でもノートは残っている。
+    expect(await (await call('/api/notes', {}, account.cookie)).json<{ notes: Array<{ id: string }> }>()).toEqual({ notes: [expect.objectContaining({ id })] });
+  });
+
   it('makes repeated imports idempotent and serves static assets with security headers', async () => {
     const account = await signup('retry');
     const id = `note-${crypto.randomUUID()}`;
