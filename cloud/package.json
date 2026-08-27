@@ -9,7 +9,6 @@
     "smoke:local": "node test/local-ui-smoke.mjs",
     "smoke:session-restore:local": "node test/local-session-restore-smoke.mjs",
     "smoke:title-delete-sync:local": "node test/local-title-delete-sync-smoke.mjs",
-    "smoke:passkey:local": "node test/local-passkey-smoke.mjs",
     "check": "npm run assets && npm run types && tsc --noEmit && npm test",
     "dev": "npm run assets && wrangler dev --local",
     "dry-run": "npm run assets && wrangler deploy --dry-run"
@@ -20,8 +19,5 @@
     "typescript": "^5.9.2",
     "vitest": "^4.1.0",
     "wrangler": "^4.113.0"
-  },
-  "dependencies": {
-    "@simplewebauthn/server": "^13.3.3"
   }
 }

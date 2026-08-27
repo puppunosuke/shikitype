@@ -1,4 +1,5 @@
 import { scrypt } from 'node:crypto';
+import { GoogleTokenError, verifyGoogleIdToken } from './google-id-token';
 
 const encoder = new TextEncoder();
 const decoder = new TextDecoder();
@@ -11,8 +12,9 @@ const MAX_DICTIONARY_ALIASES = 2000;
 const SESSION_DAYS = 30;
 const RATE_WINDOW_MS = 15 * 60 * 1000;
 const RATE_LIMIT = 8;
+const GOOGLE_CSRF_COOKIE = '__Host-shikitype_google_csrf';
 
-type UserRow = { id: string; login_id: string; password_hash: string; password_salt: string; recovery_hash: string };
+type UserRow = { id: string; login_id: string; password_hash: string; password_salt: string; recovery_hash: string; google_sub?: string | null; google_name?: string | null };
 type SessionRow = { user_id: string; expires_at: string };
 type NoteRow = { id: string; created_at: string; updated_at: string; unit_id: string; rows_json: string; layout_json: string; revision: number; title: string | null; deleted_at: string | null };
 type ImportRow = { fingerprint: string; response_json: string };
@@ -43,7 +45,7 @@ function addSecurityHeaders(response: Response): Response {
   headers.set('X-Frame-Options', 'DENY');
   headers.set('Referrer-Policy', 'same-origin');
   headers.set('Permissions-Policy', 'camera=(), microphone=(), geolocation=()');
-  headers.set('Content-Security-Policy', "default-src 'self'; base-uri 'none'; frame-ancestors 'none'; form-action 'self'; object-src 'none'; img-src 'self' data:; font-src 'self'; style-src 'self' 'unsafe-inline'; script-src 'self'; connect-src 'self'");
+  headers.set('Content-Security-Policy', "default-src 'self'; base-uri 'none'; frame-ancestors 'none'; form-action 'self'; object-src 'none'; img-src 'self' data: https://lh3.googleusercontent.com; font-src 'self'; style-src 'self' 'unsafe-inline'; script-src 'self' https://accounts.google.com/gsi/client; connect-src 'self' https://accounts.google.com https://www.googleapis.com; frame-src https://accounts.google.com");
   return new Response(response.body, { status: response.status, statusText: response.statusText, headers });
 }
 
@@ -88,6 +90,10 @@ async function safeEqual(left: string, right: string): Promise<boolean> {
 function validateOrigin(request: Request): void {
   const origin = request.headers.get('Origin');
   if (!origin || origin !== new URL(request.url).origin) throw new ApiError(403, 'forbidden');
+}
+
+function csrfCookie(token: string): string {
+  return `${GOOGLE_CSRF_COOKIE}=${token}; Path=/; Max-Age=3600; Secure; SameSite=Strict`;
 }
 
 async function boundedJson(request: Request): Promise<Record<string, unknown>> {
@@ -365,6 +371,86 @@ function sessionCookie(token: string): string {
 }
 function clearSessionCookie(): string { return '__Host-shikitype_session=; Path=/; Max-Age=0; Secure; HttpOnly; SameSite=Strict'; }
 
+function publicAccount(user: Pick<UserRow, 'login_id' | 'google_sub' | 'google_name'>): { id: string; name: string | null; googleLinked: boolean } {
+  return { id: user.login_id, name: user.google_name || null, googleLinked: Boolean(user.google_sub) };
+}
+
+async function handleGoogleConfig(_request: Request, env: Env): Promise<Response> {
+  const csrf = randomToken(24);
+  return json({ googleClientId: env.GOOGLE_CLIENT_ID || null, csrfToken: csrf }, 200, { 'Set-Cookie': csrfCookie(csrf) });
+}
+
+async function verifyGoogleCsrf(request: Request, body: Record<string, unknown>): Promise<void> {
+  const cookie = getCookies(request).get(GOOGLE_CSRF_COOKIE);
+  const header = request.headers.get('X-Shikitype-CSRF');
+  const bodyToken = typeof body.csrfToken === 'string' ? body.csrfToken : '';
+  if (!cookie || !header || !bodyToken || !(await safeEqual(cookie, header)) || !(await safeEqual(cookie, bodyToken))) throw new ApiError(403, 'forbidden');
+}
+
+async function googleLoginId(sub: string, env: Env): Promise<string> {
+  // Googleのsub自体は画面・URL・ログインIDへ露出させない。既存のlogin_id制約を
+  // 満たす、pepper付きの固定内部IDだけを作る。
+  return `g_${(await sha256(`google-login-id\u0000${sub}\u0000${env.AUTH_PEPPER}`)).slice(0, 28)}`;
+}
+
+async function handleGoogleLogin(request: Request, env: Env): Promise<Response> {
+  validateOrigin(request); await rateLimit(request, env, 'google-login');
+  if (!env.GOOGLE_CLIENT_ID) throw new ApiError(503, 'google_not_configured');
+  if (!request.headers.get('Content-Type')?.toLowerCase().startsWith('application/json')) throw new ApiError(415, 'invalid_request');
+  const body = await boundedJson(request);
+  await verifyGoogleCsrf(request, body);
+  const credential = stringField(body, 'credential', 10_000);
+  let identity;
+  try { identity = await verifyGoogleIdToken(credential, env.GOOGLE_CLIENT_ID); }
+  catch (error) {
+    if (error instanceof GoogleTokenError) throw new ApiError(401, 'google_verification_failed');
+    throw error;
+  }
+  const intent = body.intent === 'link' ? 'link' : 'login';
+  const now = new Date().toISOString();
+
+  if (intent === 'link') {
+    const userId = await authenticatedUser(request, env);
+    const existing = await env.DB.prepare('SELECT id FROM users WHERE google_sub = ?').bind(identity.sub).first<{ id: string }>();
+    if (existing && existing.id !== userId) throw new ApiError(409, 'google_already_linked');
+    await env.DB.prepare('UPDATE users SET google_sub = ?, google_email = ?, google_name = ?, google_picture = ?, updated_at = ? WHERE id = ?')
+      .bind(identity.sub, identity.email, identity.name, identity.picture, now, userId).run();
+    const linked = await env.DB.prepare('SELECT id, login_id, password_hash, password_salt, recovery_hash, google_sub, google_name FROM users WHERE id = ?').bind(userId).first<UserRow>();
+    if (!linked) throw new ApiError(401, 'unauthorized');
+    return json({ user: publicAccount(linked) });
+  }
+
+  // メールは照合キーにしない。Googleのsubだけを唯一の外部IDにするため、同じ
+  // メールのパスワード利用者を勝手に統合したり、既存ノートを奪ったりしない。
+  let user = await env.DB.prepare('SELECT id, login_id, password_hash, password_salt, recovery_hash, google_sub, google_name FROM users WHERE google_sub = ?').bind(identity.sub).first<UserRow>();
+  if (user) {
+    await env.DB.prepare('UPDATE users SET google_email = ?, google_name = ?, google_picture = ?, updated_at = ? WHERE id = ?')
+      .bind(identity.email, identity.name, identity.picture, now, user.id).run();
+    user = { ...user, google_name: identity.name };
+  } else {
+    const userId = `usr_${crypto.randomUUID()}`;
+    const loginId = await googleLoginId(identity.sub, env);
+    const salt = randomToken(16);
+    const recoveryCode = randomToken(24);
+    try {
+      await env.DB.prepare(`
+        INSERT INTO users (id, login_id, password_hash, password_salt, recovery_hash, google_sub, google_email, google_name, google_picture, created_at, updated_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `).bind(
+        userId, loginId, 'google-login-disabled', salt,
+        await sha256(`${recoveryCode}\u0000${env.AUTH_PEPPER}`), identity.sub, identity.email, identity.name, identity.picture, now, now,
+      ).run();
+    } catch {
+      // 競合時は同じsubで作成済みの行だけを再読込する。別の制約違反を隠さない。
+      user = await env.DB.prepare('SELECT id, login_id, password_hash, password_salt, recovery_hash, google_sub, google_name FROM users WHERE google_sub = ?').bind(identity.sub).first<UserRow>();
+      if (!user) throw new ApiError(409, 'google_login_failed');
+    }
+    user ||= { id: userId, login_id: loginId, password_hash: 'google-login-disabled', password_salt: salt, recovery_hash: '', google_sub: identity.sub, google_name: identity.name };
+  }
+  const token = await createSession(user.id, env);
+  return json({ user: publicAccount(user) }, 200, { 'Set-Cookie': sessionCookie(token) });
+}
+
 async function signup(request: Request, env: Env): Promise<Response> {
   validateOrigin(request); await rateLimit(request, env, 'signup');
   const body = await boundedJson(request); const id = loginId(body); const pass = password(body, 'password');
@@ -587,16 +673,18 @@ async function putConversionProfile(request: Request, env: Env): Promise<Respons
 }
 
 async function api(request: Request, env: Env, path: string): Promise<Response> {
+  if (path === '/api/auth/config' && request.method === 'GET') return handleGoogleConfig(request, env);
   if (path === '/api/auth/signup' && request.method === 'POST') return signup(request, env);
   if (path === '/api/auth/login' && request.method === 'POST') return login(request, env);
   if (path === '/api/auth/recover' && request.method === 'POST') return recover(request, env);
+  if (path === '/api/auth/google' && request.method === 'POST') return handleGoogleLogin(request, env);
   if (path === '/api/auth/me' && request.method === 'GET') {
     let userId: string;
     try { userId = await authenticatedUser(request, env); }
     catch (error) { if (error instanceof ApiError && error.status === 401) return json({ user: null }); throw error; }
-    const user = await env.DB.prepare('SELECT login_id FROM users WHERE id = ?').bind(userId).first<{ login_id: string }>();
+    const user = await env.DB.prepare('SELECT id, login_id, password_hash, password_salt, recovery_hash, google_sub, google_name FROM users WHERE id = ?').bind(userId).first<UserRow>();
     if (!user) return json({ user: null });
-    return json({ user: { id: user.login_id } });
+    return json({ user: publicAccount(user) });
   }
   if (path === '/api/auth/logout' && request.method === 'POST') {
     validateOrigin(request); const token = getCookies(request).get('__Host-shikitype_session');

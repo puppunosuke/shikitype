@@ -7,7 +7,8 @@ const origin = 'https://shikitype.example';
 
 beforeAll(async () => {
   await env.DB.exec(`
-    CREATE TABLE users (id TEXT PRIMARY KEY, login_id TEXT NOT NULL UNIQUE COLLATE NOCASE, password_hash TEXT NOT NULL, password_salt TEXT NOT NULL, recovery_hash TEXT NOT NULL, created_at TEXT NOT NULL, updated_at TEXT NOT NULL);
+    CREATE TABLE users (id TEXT PRIMARY KEY, login_id TEXT NOT NULL UNIQUE COLLATE NOCASE, password_hash TEXT NOT NULL, password_salt TEXT NOT NULL, recovery_hash TEXT NOT NULL, google_sub TEXT, google_email TEXT, google_name TEXT, google_picture TEXT, created_at TEXT NOT NULL, updated_at TEXT NOT NULL);
+    CREATE UNIQUE INDEX users_google_sub_idx ON users(google_sub) WHERE google_sub IS NOT NULL;
     CREATE TABLE sessions (id TEXT PRIMARY KEY, user_id TEXT NOT NULL, token_hash TEXT NOT NULL UNIQUE, expires_at TEXT NOT NULL, created_at TEXT NOT NULL);
     CREATE TABLE notes (id TEXT NOT NULL, user_id TEXT NOT NULL, created_at TEXT NOT NULL, updated_at TEXT NOT NULL, unit_id TEXT NOT NULL, rows_json TEXT NOT NULL, layout_json TEXT NOT NULL DEFAULT '{}', revision INTEGER NOT NULL DEFAULT 1, title TEXT, deleted_at TEXT, PRIMARY KEY (user_id, id));
     CREATE TABLE auth_rate_limits (bucket_key TEXT PRIMARY KEY, count INTEGER NOT NULL, reset_at TEXT NOT NULL);
@@ -82,12 +83,22 @@ describe('SHIKITYPE auth and notes', () => {
     const account = await signup();
     expect(account.recoveryCode).toMatch(/^ST-[A-F0-9]{32}$/);
     const me = await call('/api/auth/me', {}, account.cookie);
-    expect(await me.json()).toEqual({ user: { id: account.id } });
+    expect(await me.json()).toEqual({ user: { id: account.id, name: null, googleLinked: false } });
     const headers = (await call('/api/auth/login', { method: 'POST', body: JSON.stringify({ loginId: account.id, password: 'a-secure-password-123' }) })).headers.get('Set-Cookie') || '';
     expect(headers).toContain('__Host-shikitype_session=');
     expect(headers).toContain('HttpOnly');
     expect(headers).toContain('Secure');
     expect(headers).toContain('SameSite=Strict');
+  });
+
+  it('hides Google sign-in configuration until a production client ID is supplied', async () => {
+    const response = await call('/api/auth/config');
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual({ googleClientId: null, csrfToken: expect.stringMatching(/^[a-f0-9]{48}$/) });
+    expect(response.headers.get('Set-Cookie')).toContain('__Host-shikitype_google_csrf=');
+    const blocked = await call('/api/auth/google', { method: 'POST', body: '{}' });
+    expect(blocked.status).toBe(503);
+    expect(await blocked.json()).toEqual({ error: 'google_not_configured' });
   });
 
   it('keeps notes isolated between accounts', async () => {

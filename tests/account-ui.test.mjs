@@ -19,6 +19,7 @@ const main = async () => {
   await page.goto(BASE, { waitUntil: 'networkidle' });
   await page.click('#account-toggle');
   ok('ログインボタンでダイアログを開く', await page.locator('#account-dialog').evaluate((el) => el.open));
+  ok('Googleの接続情報が無い静的表示では、Googleログイン導線を出さず既存ログインへ戻る', await page.locator('#google-login-panel').evaluate((el) => el.hidden));
   for (const theme of themes) {
     await page.evaluate((id) => window.__neoApp.applyTheme(id), theme);
     const state = await page.evaluate(() => {

@@ -1707,6 +1707,7 @@ let cloudGeneration = 0;
 let accountOperation = 0;
 let accountAbortController = null;
 let accountSubmitting = false;
+let googleAuth = { clientId: null, csrfToken: null, loading: null, intent: 'login' };
 let conversionProfileRevision = 0;
 let conversionProfileDirty = false;
 let conversionProfileConflict = false;
@@ -5494,106 +5495,88 @@ function openAccountDialog(panel = 'login') {
   document.getElementById('recovery-code-panel').hidden = true;
   renderAccountDialog(panel);
   if (!dialog.open) dialog.showModal();
+  if (panel === 'login' && document.querySelector('meta[name="shikitype-cloud"]')) void prepareGoogleLogin();
 }
 
-// WebAuthnはbase64url文字列でchallenge/idをやり取りするが、navigator.credentials自体は
-// ArrayBufferでしか受け付けない。相互変換はここに閉じ、登録/ログインの両方から使う。
-function base64UrlToBuffer(value) {
-  const padded = `${value.replace(/-/g, '+').replace(/_/g, '/')}${'='.repeat((4 - value.length % 4) % 4)}`;
-  const binary = atob(padded);
-  const bytes = new Uint8Array(binary.length);
-  for (let i = 0; i < binary.length; i += 1) bytes[i] = binary.charCodeAt(i);
-  return bytes.buffer;
-}
-function bufferToBase64Url(buffer) {
-  let binary = '';
-  for (const byte of new Uint8Array(buffer)) binary += String.fromCharCode(byte);
-  return btoa(binary).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+function hideGoogleLogin() {
+  document.getElementById('google-login-panel')?.setAttribute('hidden', '');
+  document.getElementById('google-link-submit')?.setAttribute('hidden', '');
 }
 
-function passkeySupported() {
-  return typeof window.PublicKeyCredential === 'function' && typeof navigator.credentials?.create === 'function' && typeof navigator.credentials?.get === 'function';
+function loadGoogleIdentityScript() {
+  if (window.google?.accounts?.id) return Promise.resolve();
+  const existing = document.querySelector('script[data-google-identity]');
+  if (existing) return new Promise((resolve, reject) => {
+    existing.addEventListener('load', resolve, { once: true });
+    existing.addEventListener('error', reject, { once: true });
+  });
+  return new Promise((resolve, reject) => {
+    const script = document.createElement('script');
+    script.src = 'https://accounts.google.com/gsi/client';
+    script.async = true;
+    script.dataset.googleIdentity = 'true';
+    script.addEventListener('load', resolve, { once: true });
+    script.addEventListener('error', reject, { once: true });
+    document.head.append(script);
+  });
 }
 
-// パスキー登録は「既にパスワード/Googleでログイン中のアカウントへ追加の認証方式を足す」
-// 操作。パスキーだけの新規アカウント作成という別の設計判断は導入しない
-// （端末紛失時も既存のパスワード/回復コードへ必ずフォールバックできるようにするため）。
-async function registerPasskey() {
-  if (!passkeySupported() || accountSubmitting) return;
-  setAccountSubmitting(true);
-  setAccountMessage('パスキーを登録しています…');
-  try {
-    const { challengeId, options } = await apiJson('/auth/passkey/register/options', { method: 'POST', body: '{}' });
-    const publicKey = {
-      ...options,
-      challenge: base64UrlToBuffer(options.challenge),
-      user: { ...options.user, id: base64UrlToBuffer(options.user.id) },
-      excludeCredentials: (options.excludeCredentials || []).map((entry) => ({ ...entry, id: base64UrlToBuffer(entry.id) })),
-    };
-    const credential = await navigator.credentials.create({ publicKey });
-    if (!credential) throw new Error('cancelled');
-    const response = credential.response;
-    const payload = {
-      id: credential.id,
-      rawId: bufferToBase64Url(credential.rawId),
-      type: credential.type,
-      clientExtensionResults: credential.getClientExtensionResults ? credential.getClientExtensionResults() : {},
-      response: {
-        clientDataJSON: bufferToBase64Url(response.clientDataJSON),
-        attestationObject: bufferToBase64Url(response.attestationObject),
-        transports: typeof response.getTransports === 'function' ? response.getTransports() : [],
-      },
-    };
-    await apiJson('/auth/passkey/register/verify', { method: 'POST', body: JSON.stringify({ challengeId, credential: payload }) });
-    setAccountMessage('パスキーを登録しました。次回からこの端末でパスキーログインできます。');
-  } catch (error) {
-    if (error?.name === 'NotAllowedError') setAccountMessage('パスキー登録をキャンセルしました。', true);
-    else setAccountMessage('パスキーの登録に失敗しました。', true);
-  } finally {
-    setAccountSubmitting(false);
-  }
-}
-
-// ログインは discoverable credential 前提でログインIDを尋ねない。端末側が該当する
-// パスキーをUIで選ばせる。
-async function loginWithPasskey() {
-  if (!passkeySupported() || accountSubmitting) return;
+async function completeGoogleLogin(credential) {
+  if (!credential || !googleAuth.csrfToken || accountSubmitting) return;
   const operation = beginAccountOperation();
   setAccountSubmitting(true);
-  setAccountMessage('パスキーを確認しています…');
+  setAccountMessage(googleAuth.intent === 'link' ? 'Googleアカウントを連携しています…' : 'Googleアカウントを確認しています…');
   try {
-    const { challengeId, options } = await apiJson('/auth/passkey/login/options', { method: 'POST', signal: operation.signal, body: '{}' });
+    const data = await apiJson('/auth/google', {
+      method: 'POST', signal: operation.signal,
+      headers: { 'X-Shikitype-CSRF': googleAuth.csrfToken },
+      body: JSON.stringify({ credential, csrfToken: googleAuth.csrfToken, intent: googleAuth.intent }),
+    });
     if (!isCurrentAccountOperation(operation)) return;
-    const publicKey = { ...options, challenge: base64UrlToBuffer(options.challenge) };
-    const credential = await navigator.credentials.get({ publicKey });
-    if (!credential) throw new Error('cancelled');
-    if (!isCurrentAccountOperation(operation)) return;
-    const response = credential.response;
-    const payload = {
-      id: credential.id,
-      rawId: bufferToBase64Url(credential.rawId),
-      type: credential.type,
-      clientExtensionResults: credential.getClientExtensionResults ? credential.getClientExtensionResults() : {},
-      response: {
-        clientDataJSON: bufferToBase64Url(response.clientDataJSON),
-        authenticatorData: bufferToBase64Url(response.authenticatorData),
-        signature: bufferToBase64Url(response.signature),
-        userHandle: response.userHandle ? bufferToBase64Url(response.userHandle) : undefined,
-      },
-    };
-    const data = await apiJson('/auth/passkey/login/verify', { method: 'POST', signal: operation.signal, body: JSON.stringify({ challengeId, credential: payload }) });
-    if (!isCurrentAccountOperation(operation)) return;
+    if (googleAuth.intent === 'link') {
+      setAccountMessage('Googleアカウントを連携しました。');
+      renderAccountDialog();
+      return;
+    }
     const switched = await switchToUserStore(data.user.id, true, operation);
     if (!switched || !isCurrentAccountOperation(operation, data.user.id)) return;
-    setAccountMessage('パスキーでログインしました。');
+    setAccountMessage('Googleでログインしました。');
     renderAccountDialog();
   } catch (error) {
     if (!isCurrentAccountOperation(operation) || error?.name === 'AbortError') return;
-    if (error?.name === 'NotAllowedError') setAccountMessage('パスキーログインをキャンセルしました。', true);
-    else setAccountMessage('パスキーでのログインに失敗しました。', true);
+    if (error.status === 503 || error.payload?.error === 'google_not_configured') hideGoogleLogin();
+    setAccountMessage('Googleでのログインに失敗しました。IDとパスワードでもログインできます。', true);
   } finally {
     if (isCurrentAccountOperation(operation)) setAccountSubmitting(false);
+    googleAuth.intent = 'login';
   }
+}
+
+async function prepareGoogleLogin() {
+  if (googleAuth.loading) return googleAuth.loading;
+  googleAuth.loading = (async () => {
+    try {
+      const config = await apiJson('/auth/config');
+      if (!config.googleClientId || !config.csrfToken) { hideGoogleLogin(); return; }
+      await loadGoogleIdentityScript();
+      if (!window.google?.accounts?.id) { hideGoogleLogin(); return; }
+      googleAuth.clientId = config.googleClientId;
+      googleAuth.csrfToken = config.csrfToken;
+      window.google.accounts.id.initialize({ client_id: config.googleClientId, callback: ({ credential }) => void completeGoogleLogin(credential), auto_select: false, cancel_on_tap_outside: true });
+      const mount = document.getElementById('google-login');
+      if (mount) {
+        mount.replaceChildren();
+        window.google.accounts.id.renderButton(mount, { theme: 'outline', size: 'large', text: 'signin_with', shape: 'rectangular', width: Math.min(340, Math.max(220, mount.parentElement?.clientWidth - 4 || 300)) });
+      }
+      document.getElementById('google-login-panel')?.removeAttribute('hidden');
+      document.getElementById('google-link-submit')?.removeAttribute('hidden');
+    } catch {
+      hideGoogleLogin();
+    } finally {
+      googleAuth.loading = null;
+    }
+  })();
+  return googleAuth.loading;
 }
 
 async function submitAccount(action) {
@@ -5695,14 +5678,12 @@ document.getElementById('logout-submit')?.addEventListener('click', async () => 
     setAccountSubmitting(false);
   }
 });
-// 非対応ブラウザ・端末では導線ごと隠し、既存のパスワード/Googleログインだけが
-// 普通に使える状態を保つ（壊れて見える導線を残さない）。
-if (passkeySupported()) {
-  document.getElementById('passkey-login')?.removeAttribute('hidden');
-  document.getElementById('passkey-register-submit')?.removeAttribute('hidden');
-}
-document.getElementById('passkey-login')?.addEventListener('click', () => void loginWithPasskey());
-document.getElementById('passkey-register-submit')?.addEventListener('click', () => void registerPasskey());
+document.getElementById('google-link-submit')?.addEventListener('click', async () => {
+  await prepareGoogleLogin();
+  if (!googleAuth.clientId || !window.google?.accounts?.id) return;
+  googleAuth.intent = 'link';
+  window.google.accounts.id.prompt();
+});
 
 setInputMethod(inputMethod, false);
 setKeyCaptureMode(keyCaptureMode, false);

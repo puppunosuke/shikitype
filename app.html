@@ -293,10 +293,14 @@
       </div>
       <p id="account-message" role="status" aria-live="polite"></p>
       <section class="account-panel" id="account-panel-login" data-panel="login" role="tabpanel" aria-labelledby="account-tab-login">
+        <div id="google-login-panel" hidden>
+          <p>Googleアカウントでログイン</p>
+          <div id="google-login" aria-label="Googleでログイン"></div>
+          <p class="account-divider"><span>または</span></p>
+        </div>
         <label>ログインID<input id="login-id" autocomplete="username" minlength="3" maxlength="32" required /></label>
         <label>パスワード<input id="login-password" type="password" autocomplete="current-password" minlength="12" maxlength="128" required /></label>
         <button type="submit" id="login-submit" class="account-submit">ログイン</button>
-        <button type="button" id="passkey-login" class="account-submit account-submit-secondary" hidden>パスキーでログイン</button>
       </section>
       <section class="account-panel" id="account-panel-signup" data-panel="signup" role="tabpanel" aria-labelledby="account-tab-signup" hidden>
         <label>ログインID<input id="signup-id" autocomplete="username" minlength="3" maxlength="32" pattern="[A-Za-z0-9_\-]+" required /></label>
@@ -312,7 +316,7 @@
       <section id="account-signed-in" hidden>
         <p><b id="account-user-id"></b> としてログイン中</p>
         <p id="account-sync-detail"></p>
-        <button type="button" id="passkey-register-submit" class="account-submit account-submit-secondary" hidden>この端末にパスキーを登録</button>
+        <button type="button" id="google-link-submit" class="account-submit account-submit-secondary" hidden>Googleアカウントを連携</button>
         <button type="button" id="logout-submit" class="account-submit">ログアウト</button>
       </section>
       <section id="recovery-code-panel" hidden>
