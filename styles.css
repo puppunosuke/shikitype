@@ -1030,6 +1030,9 @@ body .modifier-key.is-physical {
 #account-tabs { display: grid; grid-template-columns: repeat(3, 1fr); gap: 4px; }
 .account-tab, .account-submit { min-height: 38px; border: 1px solid #888; border-radius: 0; background: #fff; color: #111; cursor: pointer; font: inherit; font-size: 12px; }
 .account-tab[aria-selected="true"], .account-submit { border-color: #111; background: #111; color: #fff; }
+/* パスキー等の副次操作は主submitと並べても優先順位が分かるよう、地を白へ戻す。 */
+.account-submit-secondary { background: #fff; color: #111; }
+.account-submit-secondary:hover { background: #f0efe9; }
 .account-panel { display: grid; gap: 10px; }
 .account-panel[hidden], #account-signed-in[hidden], #recovery-code-panel[hidden] { display: none; }
 .account-panel label { display: grid; gap: 5px; font-size: 12px; font-weight: 700; }

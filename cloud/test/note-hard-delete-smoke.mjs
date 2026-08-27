@@ -41,6 +41,7 @@ await page.waitForTimeout(200);
 await typeLatin(page, 'alpha');
 const idA = await page.evaluate(() => window.__neoApp.getNotes().activeId);
 await page.click('#new-note');
+await page.click('#new-note-create');
 await typeLatin(page, 'betabeta');
 const idB = await page.evaluate(() => window.__neoApp.getNotes().activeId);
 ok('2件のノートが別IDで保存されている', Boolean(idA) && Boolean(idB) && idA !== idB, { idA, idB });

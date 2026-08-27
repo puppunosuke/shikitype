@@ -69,6 +69,7 @@ const beforeNew = await manyPage.evaluate(() => ({
   activeId: window.__neoApp.getNotes().activeId,
 }));
 await manyPage.click('#new-note');
+await manyPage.click('#new-note-create');
 const afterNew = await manyPage.evaluate(() => ({ notes: window.__neoApp.getNotes(), status: document.getElementById('sync-status').textContent }));
 ok('ログイン中の100件到達後は新しいノートを作らない', afterNew.notes.notes.length === capped.local.notes.length && afterNew.notes.activeId === beforeNew.activeId && afterNew.status.includes('100件上限'), { count: afterNew.notes.notes.length, activeId: afterNew.notes.activeId, status: afterNew.status, beforeNew });
 await manyPage.click('#notes-toggle');

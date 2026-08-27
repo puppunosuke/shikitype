@@ -10,6 +10,10 @@ import {
   setManualPriority,
   resetManualPriorities,
   CONVERSION_CANDIDATES,
+  HIGH_SCHOOL_EXAM_SCOPE,
+  effectiveConversionCandidates,
+  emptyConversionDictionaryState,
+  importConversionDictionaryCsv,
   convertShikitypeReading,
 } from '../conversion.js';
 
@@ -27,6 +31,8 @@ ok('全角ローマ字は英語aliasとして正規化する', normalizeConversi
 const defaultAliases = CONVERSION_CANDIDATES.flatMap((candidate) => candidate.aliases.map((alias) => ({ id: candidate.id, alias, normalized: normalizeConversionQuery(alias) })));
 ok('既定aliasに漢字はなく、空候補もない', defaultAliases.every(({ alias }) => alias && !/[\u3400-\u9fff々〆ヶ]/.test(alias)), defaultAliases.filter(({ alias }) => !alias || /[\u3400-\u9fff々〆ヶ]/.test(alias)));
 ok('既定aliasは候補ごとに正規化後も重複しない', CONVERSION_CANDIDATES.every((candidate) => new Set(candidate.aliases.map(normalizeConversionQuery)).size === candidate.aliases.length), CONVERSION_CANDIDATES.filter((candidate) => new Set(candidate.aliases.map(normalizeConversionQuery)).size !== candidate.aliases.length));
+ok('既定候補は高校数学・大学受験の採用範囲だけで、単元タグを必ず持つ', CONVERSION_CANDIDATES.every((candidate) => candidate.scope === HIGH_SCHOOL_EXAM_SCOPE.included && candidate.examUnits?.length && candidate.examUnits.every((unit) => HIGH_SCHOOL_EXAM_SCOPE.units.includes(unit))), CONVERSION_CANDIDATES.filter((candidate) => candidate.scope !== HIGH_SCHOOL_EXAM_SCOPE.included || !candidate.examUnits?.length));
+ok('既定候補は全単元I・A・II・B・III・Cを横断している', HIGH_SCHOOL_EXAM_SCOPE.units.every((unit) => CONVERSION_CANDIDATES.some((candidate) => candidate.examUnits.includes(unit))), HIGH_SCHOOL_EXAM_SCOPE.units);
 ok('読み途中でも候補を出す', rankConversionCandidates('し').some((candidate) => candidate.id === 'greek-sigma'));
 
 console.log('\n== 1b. SHIKITYPE専用ローマ字入力 ==');
@@ -59,11 +65,18 @@ for (const query of ['souwa', 'wa', 'suuretsunowa']) {
 ok('せきぶんの既定1位は∫', first('せきぶん') === 'integral');
 ok('インテグラルの既定1位は∫', first('インテグラル') === 'integral');
 ok('integralの英字入力も∫を先頭候補にする', first(reading('integral').searchReading) === 'integral', reading('integral'));
+ok('途中のテグだけではインテグラルを予測しない', !rankConversionCandidates('てぐ').some((candidate) => candidate.id === 'integral'), rankConversionCandidates('てぐ').map((candidate) => candidate.id));
 for (const [query, expected] of [['そうわ', 'greek-sigma'], ['すうれつのわ', 'greek-sigma'], ['せきぶん', 'integral'], ['きょくげん', 'limit'], ['へいほうこん', 'sqrt'], ['かくりつ', 'probability'], ['きたいち', 'expectation']]) {
   ok(`${query} は既定候補を維持する`, first(query) === expected, rankConversionCandidates(query).map((candidate) => candidate.id));
 }
 const sumCandidates = rankConversionCandidates('そうわ');
 ok('Σと∑は別の安定IDで候補に共存する', sumCandidates.some((candidate) => candidate.id === 'greek-sigma') && sumCandidates.some((candidate) => candidate.id === 'sum-operator'), sumCandidates.map((candidate) => candidate.id));
+const excludedDefaultQueries = ['へんびぶん', 'なぶら', 'にじゅうせきぶん', 'がうす', 'すべて', 'ろんりせき'];
+ok('大学専門寄り・低頻度の候補は既定辞書に出さない', excludedDefaultQueries.every((query) => rankConversionCandidates(query).length === 0), excludedDefaultQueries.map((query) => [query, rankConversionCandidates(query).map((candidate) => candidate.id)]));
+const legacyImport = importConversionDictionaryCsv(String.raw`version,operation,candidate_id,symbol,latex,reading,base_priority
+1,upsert,partial,∂,\partial ,へんびぶん,190
+`, emptyConversionDictionaryState());
+ok('既存CSVで明示した旧候補IDは互換枠として再有効化できる', legacyImport.accepted === 1 && rankConversionCandidates('へんびぶん', undefined, undefined, Date.now(), 8, effectiveConversionCandidates(legacyImport.state))[0]?.id === 'partial', legacyImport);
 
 console.log('\n== 3. 学習順位と手動順位 ==');
 let learning = emptyLearningState();

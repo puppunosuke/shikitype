@@ -154,6 +154,17 @@ export function convertShikitypeReading(value) {
   return { reading: searchReading, searchReading, pending, display };
 }
 
+// 既定辞書は「高校生が大学受験の数式を書く」ための辞書に限定する。
+// パレットそのものは全ギリシャ文字を提供するが、読みからの変換候補へは
+// 高校数学I・A・II・B・III・Cおよび入試頻出の記号だけを載せる。
+// scope と examUnits は表示/UIの依存を持たない監査用メタデータ。後から
+// 単元プリセットがこの対応表を利用しても、CSV形式や安定IDには影響しない。
+export const HIGH_SCHOOL_EXAM_SCOPE = Object.freeze({
+  included: 'high-school-exam',
+  compatibility: 'compatibility-only',
+  units: Object.freeze(['math1', 'mathA', 'math2', 'mathB', 'math3', 'mathC']),
+});
+
 const GREEK_LETTERS = [
   ['alpha', 'α', 'Α', 'あるふぁ'], ['beta', 'β', 'Β', 'べーた'], ['gamma', 'γ', 'Γ', 'がんま'], ['delta', 'δ', 'Δ', 'でるた'],
   ['epsilon', 'ε', 'Ε', 'いぷしろん'], ['zeta', 'ζ', 'Ζ', 'ぜーた'], ['eta', 'η', 'Η', 'いーた'], ['theta', 'θ', 'Θ', 'しーた'],
@@ -166,8 +177,11 @@ const JAPANESE_LATIN_NAMES = ['えー','びー','しー','でぃー','いー','�
 const LETTER_CANDIDATES = Array.from({ length: 26 }, (_, index) => {
   const lower = String.fromCharCode(97 + index); const upper = lower.toUpperCase(); const reading = JAPANESE_LATIN_NAMES[index];
   return [
-    { id: `latin-lower-${lower}`, label: lower, latex: lower, aliases: [`lower ${lower}`, `lowercase ${lower}`, `${reading}こもじ`, `small ${lower}`, `small-letter-${lower}`, `lower-letter-${lower}`], categories: ['latin'], basePriority: 130 },
-    ...(lower === 'p' ? [] : [{ id: `latin-uppercase-${lower}`, label: upper, latex: upper, aliases: [upper, `upper ${lower}`, `${lower} upper`, reading, `${reading}だいもじ`, `capital ${lower}`], categories: ['latin'], basePriority: 160 }]),
+    // アルファベットは高校数学でも変数・点・集合名として全字を使う。一方、
+    // 英語の言い回しを何通りも既定aliasへ入れるとCSVが膨れ、候補も散るため、
+    // 大小文字を指定する最小限の読みだけにする。
+    { id: `latin-lower-${lower}`, label: lower, latex: lower, aliases: [`${reading}こもじ`, `lower ${lower}`], categories: ['latin'], basePriority: 130 },
+    ...(lower === 'p' ? [] : [{ id: `latin-uppercase-${lower}`, label: upper, latex: upper, aliases: [upper, reading, `upper ${lower}`], categories: ['latin'], basePriority: 160 }]),
   ];
 }).flat();
 const EXISTING_GREEK_LOWER = new Set(['alpha','beta','gamma','theta','lambda','mu','rho','omega','pi']);
@@ -175,69 +189,112 @@ const GREEK_LATEX = Object.freeze({ alpha: '\\alpha ', beta: '\\beta ', gamma: '
 const GREEK_UPPER_LATEX = Object.freeze({ gamma: '\\Gamma ', delta: '\\Delta ', theta: '\\Theta ', lambda: '\\Lambda ', xi: '\\Xi ', pi: '\\Pi ', sigma: '\\Sigma ', phi: '\\Phi ', psi: '\\Psi ', omega: '\\Omega ' });
 const GREEK_UPPER_ROMAN = Object.freeze({ alpha:'A', beta:'B', epsilon:'E', zeta:'Z', eta:'H', iota:'I', kappa:'K', mu:'M', nu:'N', omicron:'O', rho:'P', tau:'T', upsilon:'Y', chi:'X' });
 const GREEK_CANDIDATES = GREEK_LETTERS.flatMap(([name, lower, upper, reading]) => [
-  ...(EXISTING_GREEK_LOWER.has(name) ? [] : [{ id: `greek-${name}-lower`, label: lower, latex: GREEK_LATEX[name], aliases: [name, lower, reading, `${reading}こもじ`, `lower ${name}`, `small ${name}`], categories: ['greek'], basePriority: 170 }]),
-  { id: `greek-${name}-upper`, label: upper, latex: GREEK_UPPER_LATEX[name] ?? `\\mathrm{${GREEK_UPPER_ROMAN[name]}}`, aliases: [`upper ${name}`, `${name} upper`, `${reading}だいもじ`, `capital ${name}`, `おおもじ${name}`, upper], categories: ['greek'], basePriority: 140 },
+  ...(EXISTING_GREEK_LOWER.has(name) ? [] : [{ id: `greek-${name}-lower`, greekName: name, label: lower, latex: GREEK_LATEX[name], aliases: [name, lower, reading, `${reading}こもじ`, `lower ${name}`], categories: ['greek'], basePriority: 170 }]),
+  { id: `greek-${name}-upper`, greekName: name, label: upper, latex: GREEK_UPPER_LATEX[name] ?? `\\mathrm{${GREEK_UPPER_ROMAN[name]}}`, aliases: [`upper ${name}`, `${reading}だいもじ`, upper], categories: ['greek'], basePriority: 140 },
 ]);
-const EXTENDED_MATH_CANDIDATES = [
-  ['product','∏','\\prod ','せき','product','prod','product operator'], ['fraction','÷','\\div ','わる','じょさん','division','divide','quotient'], ['approximately','≈','\\approx ','ほぼ','きんじ','approximately','approx','にありー'],
-  ['proportional','∝','\\propto ','ひれい','proportional','propto','ひれいきごう'], ['subset','⊂','\\subset ','ぶぶんしゅうごう','subset','proper subset','しんぶぶんしゅうごう'],
-  ['subset-equal','⊆','\\subseteq ','ぶぶんしゅうごういこーる','subseteq','subset equal','ふくまれる'], ['superset','⊃','\\supset ','ほうがん','superset','proper superset','じょういしゅうごう'],
-  ['superset-equal','⊇','\\supseteq ','ほうがんいこーる','supseteq','superset equal','ふくむ'], ['not-belongs','∉','\\notin ','ぞくさない','notin','ようそでない'],
-  ['forall','∀','\\forall ','すべて','にんい','forall','すべての'], ['exists','∃','\\exists ','そんざい','exists','there exists','ある'],
-  ['negation','¬','\\neg ','ひてい','negation','not','ろんりひてい'], ['and','∧','\\land ','かつ','ろんりせき','and','logical and','らんど'],
-  ['or','∨','\\lor ','または','ろんりわ','or','logical or','ろあ'], ['equivalent','⇔','\\Leftrightarrow ','どうち','equivalent','iff','if and only if'],
-  ['implies','⇒','\\Rightarrow ','ならば','がんい','implies','imply','therefore'], ['degree','°','^\\circ ','ど','degree','degrees','かくど'],
-  ['prime','′','\\prime ','ぷらいむ','びぶん','prime','derivative','どうかんすう'], ['percent','%','\\% ','ぱーせんと','ひゃくぶんりつ','percent','percentage','わりあい'],
-  ['factorial','!','!','かいじょう','factorial','fact','かいじょうきごう'], ['absolute','|x|','\\left|#0\\right|','ぜったいち','absolute','absolute value','modulus'],
-  ['floor','⌊⌋','\\lfloor #0 \\rfloor','がうす','ゆかかんすう','floor','greatest integer','きりすて'], ['ceiling','⌈⌉','\\lceil #0 \\rceil','しーりんぐ','てんじょうかんすう','ceiling','least integer','きりあげ'],
-  ['derivative','d/dx','\\frac{d}{dx}','びぶん','derivative','differentiate','d dx'], ['probability','P','P','かくりつ','probability','prob','chance'],
-  ['expectation','E','E','きたいち','expectation','expected value','expect'], ['variance','V','V','ぶんさん','variance','var','ばらつき'],
-  ['coordinate','(x,y)','\\left(#0,#0\\right)','ざひょう','coordinate','coordinates','てん'], ['vector','→','\\vec{#0}','べくとる','vector','vec','やじるしべくとる'],
-].map(([id, label, latex, ...aliases]) => ({ id, label, latex, aliases, categories: ['general'], basePriority: 125 }));
+const MATH_CANDIDATE_DEFINITIONS = [
+  ['product','∏','\\prod ','せき','product','prod'], ['fraction','÷','\\div ','わる','じょほう','division','divide'], ['approximately','≈','\\approx ','きんじ','ほぼ','approx'],
+  ['proportional','∝','\\propto ','ひれい','proportional','propto'], ['subset','⊂','\\subset ','ぶぶんしゅうごう','subset'],
+  ['subset-equal','⊆','\\subseteq ','ぶぶんしゅうごういこーる','subseteq'], ['superset','⊃','\\supset ','ほうがん','superset'],
+  ['superset-equal','⊇','\\supseteq ','ほうがんいこーる','supseteq'], ['not-belongs','∉','\\notin ','ぞくさない','notin'],
+  ['forall','∀','\\forall ','すべて','にんい','forall'], ['exists','∃','\\exists ','そんざい','exists'],
+  ['negation','¬','\\neg ','ひてい','negation','not'], ['and','∧','\\land ','かつ','ろんりせき','and'],
+  ['or','∨','\\lor ','または','ろんりわ','or'], ['equivalent','⇔','\\Leftrightarrow ','どうち','equivalent','iff'],
+  ['implies','⇒','\\Rightarrow ','ならば','がんい','implies'], ['degree','°','^\\circ ','ど','かくど','degree'],
+  ['prime','′','\\prime ','ぷらいむ','どうかんすう','prime'], ['percent','%','\\% ','ぱーせんと','ひゃくぶんりつ','percent'],
+  ['factorial','!','!','かいじょう','factorial','fact'], ['absolute','|x|','\\left|#0\\right|','ぜったいち','absolute'],
+  ['floor','⌊⌋','\\lfloor #0 \\rfloor','がうす','ゆかかんすう','floor'], ['ceiling','⌈⌉','\\lceil #0 \\rceil','しーりんぐ','てんじょうかんすう','ceiling'],
+  ['derivative','d/dx','\\frac{d}{dx}','びぶん','derivative','d dx'], ['probability','P','P','かくりつ','probability','prob'],
+  ['expectation','E','E','きたいち','expectation','expected value'], ['variance','V','V','ぶんさん','variance','var'],
+  ['coordinate','(x,y)','\\left(#0,#0\\right)','ざひょう','coordinate'], ['vector','→','\\vec{#0}','べくとる','vector','vec'],
+];
+const MATH_CANDIDATES = MATH_CANDIDATE_DEFINITIONS
+  .map(([id, label, latex, ...aliases]) => ({ id, label, latex, aliases, categories: ['general'], basePriority: 125 }));
 
-export const CONVERSION_CANDIDATES = [
-  { id: 'greek-sigma', label: 'Σ', latex: '\\Sigma ', aliases: ['しぐま', 'そうわ', 'わ', 'すうれつのわ', 'sigma', 'sum'], categories: ['general', 'greek'], basePriority: 300 },
-  { id: 'sum-operator', label: '∑', latex: '\\sum ', aliases: ['そうわきごう', 'しーぐま', 'わのえんざんし', 'sum'], categories: ['general'], basePriority: 190 },
-  { id: 'integral', label: '∫', latex: '\\int ', aliases: ['せきぶん', 'いんてぐらる', 'integral', 'int'], categories: ['general'], basePriority: 300 },
-  { id: 'double-integral', label: '∬', latex: '\\iint ', aliases: ['にじゅうせきぶん', 'じゅうせきぶん'], basePriority: 180 },
-  { id: 'limit', label: 'lim', latex: '\\lim ', aliases: ['りみっと', 'きょくげん', 'lim', 'limit'], categories: ['general'], basePriority: 260 },
-  { id: 'infinity', label: '∞', latex: '\\infty ', aliases: ['むげん', 'むげんだい'], basePriority: 250 },
-  { id: 'sqrt', label: '√', latex: '\\sqrt{}', aliases: ['るーと', 'へいほうこん'], basePriority: 240 },
-  { id: 'partial', label: '∂', latex: '\\partial ', aliases: ['へんびぶん', 'ぱーしゃる'], basePriority: 190 },
-  { id: 'nabla', label: '∇', latex: '\\nabla ', aliases: ['なぶら', 'こうばい'], basePriority: 170 },
-  { id: 'pi', label: 'π', latex: '\\pi ', aliases: ['ぱい', 'えんしゅうりつ', 'pai', 'pi'], categories: ['greek'], basePriority: 230 },
-  { id: 'latin-uppercase-p', label: 'P', latex: 'P', aliases: ['p', 'ぴー', 'ぴい', 'pi-', 'pii'], categories: ['latin'], basePriority: 300 },
-  { id: 'greek-alpha', label: 'α', latex: '\\alpha ', aliases: ['あるふぁ', 'alpha'], categories: ['greek'], basePriority: 220 },
-  { id: 'greek-beta', label: 'β', latex: '\\beta ', aliases: ['べーた', 'beta'], categories: ['greek'], basePriority: 210 },
-  { id: 'greek-gamma', label: 'γ', latex: '\\gamma ', aliases: ['がんま', 'gamma'], categories: ['greek'], basePriority: 205 },
-  { id: 'greek-theta', label: 'θ', latex: '\\theta ', aliases: ['しーた', 'theta'], categories: ['greek'], basePriority: 205 },
-  { id: 'greek-lambda', label: 'λ', latex: '\\lambda ', aliases: ['らむだ', 'lambda'], categories: ['greek'], basePriority: 195 },
-  { id: 'greek-mu', label: 'μ', latex: '\\mu ', aliases: ['みゅー', 'mu'], categories: ['greek'], basePriority: 190 },
-  { id: 'greek-rho', label: 'ρ', latex: '\\rho ', aliases: ['ろー', 'rho'], categories: ['greek'], basePriority: 180 },
-  { id: 'greek-omega', label: 'ω', latex: '\\omega ', aliases: ['おめが', 'omega'], categories: ['greek'], basePriority: 180 },
-  { id: 'plus-minus', label: '±', latex: '\\pm ', aliases: ['ぷらすまいなす', 'せいふ'], basePriority: 180 },
-  { id: 'not-equal', label: '≠', latex: '\\ne ', aliases: ['のっといこーる', 'ひとしくない', 'ふとうごう'], basePriority: 180 },
-  { id: 'less-equal', label: '≤', latex: '\\le ', aliases: ['しょうなりいこーる', 'いか'], basePriority: 185 },
-  { id: 'greater-equal', label: '≥', latex: '\\ge ', aliases: ['だいなりいこーる', 'いじょう'], basePriority: 185 },
-  { id: 'arrow', label: '→', latex: '\\to ', aliases: ['やじるし', 'ならぶ', 'しゅうそく'], basePriority: 180 },
-  { id: 'therefore', label: '∴', latex: '\\therefore ', aliases: ['ゆえに', 'したがって'], basePriority: 170 },
-  { id: 'because', label: '∵', latex: '\\because ', aliases: ['なぜなら', 'なぜならば'], basePriority: 160 },
-  { id: 'belongs-to', label: '∈', latex: '\\in ', aliases: ['ぞくする', 'ようそ', 'element'], basePriority: 160 },
-  { id: 'union', label: '∪', latex: '\\cup ', aliases: ['ゆにおん', 'わしゅうごう'], basePriority: 160 },
-  { id: 'intersection', label: '∩', latex: '\\cap ', aliases: ['きょうつうぶぶん', 'せきしゅうごう'], basePriority: 160 },
-  { id: 'empty-set', label: '∅', latex: '\\emptyset ', aliases: ['くうしゅうごう'], basePriority: 150 },
-  { id: 'parallel', label: '∥', latex: '\\parallel ', aliases: ['へいこう'], basePriority: 150 },
-  { id: 'perpendicular', label: '⊥', latex: '\\perp ', aliases: ['すいちょく'], basePriority: 150 },
-  { id: 'angle', label: '∠', latex: '\\angle ', aliases: ['かく'], basePriority: 145 },
-  ...LETTER_CANDIDATES,
-  ...GREEK_CANDIDATES,
-  ...EXTENDED_MATH_CANDIDATES,
-].map((candidate) => ({
-  ...candidate,
-  // 既定辞書は読み仮名だけを持つ。カタカナは検索時にもひらがなへ寄るため、
-  // 重複した既定aliasを残さない。
-  aliases: [...new Set(candidate.aliases.map((alias) => katakanaToHiragana(String(alias).normalize('NFKC'))))],
-}));
+const EXAM_GREEK_NAMES = new Set(['alpha', 'beta', 'gamma', 'delta', 'theta', 'lambda', 'mu', 'rho', 'sigma', 'phi', 'omega', 'pi']);
+const EXAM_GREEK_UNITS = Object.freeze({
+  alpha: ['math1', 'math2'], beta: ['math1', 'math2'], gamma: ['math1', 'mathA'], delta: ['math2'], theta: ['math1', 'math2'],
+  lambda: ['math2', 'math3'], mu: ['mathB'], rho: ['math3'], sigma: ['mathB', 'math3'], phi: ['math1', 'mathA'], omega: ['math3'], pi: ['math1', 'math2'],
+});
+const withExamScope = (candidate, examUnits) => ({ ...candidate, scope: HIGH_SCHOOL_EXAM_SCOPE.included, examUnits });
+const withCompatibilityScope = (candidate) => ({ ...candidate, scope: HIGH_SCHOOL_EXAM_SCOPE.compatibility, examUnits: [] });
+const examGreekCandidates = GREEK_CANDIDATES
+  .filter((candidate) => EXAM_GREEK_NAMES.has(candidate.greekName))
+  .map(({ greekName, ...candidate }) => withExamScope(candidate, EXAM_GREEK_UNITS[greekName]));
+const legacyGreekCandidates = GREEK_CANDIDATES
+  .filter((candidate) => !EXAM_GREEK_NAMES.has(candidate.greekName))
+  .map(({ greekName, ...candidate }) => withCompatibilityScope(candidate));
+const examMathCandidateIds = new Set([
+  'fraction', 'approximately', 'proportional', 'subset', 'subset-equal', 'superset', 'superset-equal', 'not-belongs',
+  'equivalent', 'implies', 'degree', 'prime', 'percent', 'factorial', 'absolute', 'derivative', 'probability', 'expectation', 'variance', 'coordinate', 'vector',
+]);
+const examMathCandidates = MATH_CANDIDATES
+  .filter((candidate) => examMathCandidateIds.has(candidate.id))
+  .map((candidate) => withExamScope(candidate, candidate.id === 'derivative' || candidate.id === 'prime' ? ['math2', 'math3']
+    : candidate.id === 'vector' ? ['mathC']
+      : ['math1', 'mathA', 'math2', 'mathB', 'mathC']));
+const legacyMathCandidates = MATH_CANDIDATES
+  .filter((candidate) => !examMathCandidateIds.has(candidate.id))
+  .map(withCompatibilityScope);
+
+const HIGH_SCHOOL_EXAM_CANDIDATES = [
+  withExamScope({ id: 'greek-sigma', label: 'Σ', latex: '\\Sigma ', aliases: ['しぐま', 'そうわ', 'わ', 'すうれつのわ', 'sigma', 'sum'], categories: ['general', 'greek'], basePriority: 300 }, ['mathB', 'math3']),
+  withExamScope({ id: 'sum-operator', label: '∑', latex: '\\sum ', aliases: ['そうわきごう', 'しーぐま', 'わのえんざんし', 'sum'], categories: ['general'], basePriority: 190 }, ['mathB', 'math3']),
+  withExamScope({ id: 'integral', label: '∫', latex: '\\int ', aliases: ['せきぶん', 'いんてぐらる', 'integral', 'int'], categories: ['general'], basePriority: 300 }, ['math2', 'math3']),
+  withExamScope({ id: 'limit', label: 'lim', latex: '\\lim ', aliases: ['りみっと', 'きょくげん', 'lim', 'limit'], categories: ['general'], basePriority: 260 }, ['math3']),
+  withExamScope({ id: 'infinity', label: '∞', latex: '\\infty ', aliases: ['むげん', 'むげんだい', 'infinity'], categories: ['general'], basePriority: 250 }, ['math3']),
+  withExamScope({ id: 'sqrt', label: '√', latex: '\\sqrt{}', aliases: ['るーと', 'へいほうこん', 'sqrt'], categories: ['general'], basePriority: 240 }, ['math1', 'math2']),
+  withExamScope({ id: 'pi', label: 'π', latex: '\\pi ', aliases: ['ぱい', 'えんしゅうりつ', 'pai', 'pi'], categories: ['greek'], basePriority: 230 }, ['math1', 'math2']),
+  withExamScope({ id: 'latin-uppercase-p', label: 'P', latex: 'P', aliases: ['p', 'ぴー', 'ぴい', 'pi-', 'pii'], categories: ['latin'], basePriority: 300 }, ['mathA', 'mathB']),
+  withExamScope({ id: 'greek-alpha', label: 'α', latex: '\\alpha ', aliases: ['あるふぁ', 'alpha'], categories: ['greek'], basePriority: 220 }, ['math1', 'math2']),
+  withExamScope({ id: 'greek-beta', label: 'β', latex: '\\beta ', aliases: ['べーた', 'beta'], categories: ['greek'], basePriority: 210 }, ['math1', 'math2']),
+  withExamScope({ id: 'greek-gamma', label: 'γ', latex: '\\gamma ', aliases: ['がんま', 'gamma'], categories: ['greek'], basePriority: 205 }, ['math1', 'mathA']),
+  withExamScope({ id: 'greek-theta', label: 'θ', latex: '\\theta ', aliases: ['しーた', 'theta'], categories: ['greek'], basePriority: 205 }, ['math1', 'math2']),
+  withExamScope({ id: 'greek-lambda', label: 'λ', latex: '\\lambda ', aliases: ['らむだ', 'lambda'], categories: ['greek'], basePriority: 195 }, ['math2', 'math3']),
+  withExamScope({ id: 'greek-mu', label: 'μ', latex: '\\mu ', aliases: ['みゅー', 'mu'], categories: ['greek'], basePriority: 190 }, ['mathB']),
+  withExamScope({ id: 'greek-rho', label: 'ρ', latex: '\\rho ', aliases: ['ろー', 'rho'], categories: ['greek'], basePriority: 180 }, ['math3']),
+  withExamScope({ id: 'greek-omega', label: 'ω', latex: '\\omega ', aliases: ['おめが', 'omega'], categories: ['greek'], basePriority: 180 }, ['math3']),
+  withExamScope({ id: 'plus-minus', label: '±', latex: '\\pm ', aliases: ['ぷらすまいなす', 'せいふ'], categories: ['general'], basePriority: 180 }, ['math1', 'math2']),
+  withExamScope({ id: 'not-equal', label: '≠', latex: '\\ne ', aliases: ['のっといこーる', 'ひとしくない', 'ふとうごう'], categories: ['general'], basePriority: 180 }, ['math1', 'math2']),
+  withExamScope({ id: 'less-equal', label: '≤', latex: '\\le ', aliases: ['しょうなりいこーる', 'いか'], categories: ['general'], basePriority: 185 }, ['math1', 'math2']),
+  withExamScope({ id: 'greater-equal', label: '≥', latex: '\\ge ', aliases: ['だいなりいこーる', 'いじょう'], categories: ['general'], basePriority: 185 }, ['math1', 'math2']),
+  withExamScope({ id: 'arrow', label: '→', latex: '\\to ', aliases: ['やじるし', 'arrow', 'to'], categories: ['general'], basePriority: 180 }, ['math1', 'math2', 'math3', 'mathC']),
+  withExamScope({ id: 'therefore', label: '∴', latex: '\\therefore ', aliases: ['ゆえに', 'したがって'], categories: ['general'], basePriority: 170 }, ['math1', 'mathA']),
+  withExamScope({ id: 'because', label: '∵', latex: '\\because ', aliases: ['なぜなら', 'なぜならば'], categories: ['general'], basePriority: 160 }, ['math1', 'mathA']),
+  withExamScope({ id: 'belongs-to', label: '∈', latex: '\\in ', aliases: ['ぞくする', 'ようそ', 'element'], categories: ['general'], basePriority: 160 }, ['math1']),
+  withExamScope({ id: 'union', label: '∪', latex: '\\cup ', aliases: ['ゆにおん', 'わしゅうごう'], categories: ['general'], basePriority: 160 }, ['math1']),
+  withExamScope({ id: 'intersection', label: '∩', latex: '\\cap ', aliases: ['きょうつうぶぶん', 'せきしゅうごう'], categories: ['general'], basePriority: 160 }, ['math1']),
+  withExamScope({ id: 'empty-set', label: '∅', latex: '\\emptyset ', aliases: ['くうしゅうごう'], categories: ['general'], basePriority: 150 }, ['math1']),
+  withExamScope({ id: 'parallel', label: '∥', latex: '\\parallel ', aliases: ['へいこう'], categories: ['general'], basePriority: 150 }, ['math1', 'mathA']),
+  withExamScope({ id: 'perpendicular', label: '⊥', latex: '\\perp ', aliases: ['すいちょく'], categories: ['general'], basePriority: 150 }, ['math1', 'mathA']),
+  withExamScope({ id: 'angle', label: '∠', latex: '\\angle ', aliases: ['かく'], categories: ['general'], basePriority: 145 }, ['math1', 'mathA']),
+  ...LETTER_CANDIDATES.map((candidate) => withExamScope(candidate, HIGH_SCHOOL_EXAM_SCOPE.units)),
+  ...examGreekCandidates,
+  ...examMathCandidates,
+];
+
+// 以前の辞書で公開済みのIDは、ユーザーCSVを読み直したときに失わない。
+// ただしこれらは既定の読み・CSV exportには含めず、明示的にCSVでupsertした
+// 読みだけを有効化する。大学専門寄りの候補を既定から外すことと互換性を両立する。
+const COMPATIBILITY_CANDIDATES = [
+  withCompatibilityScope({ id: 'double-integral', label: '∬', latex: '\\iint ', aliases: ['にじゅうせきぶん', 'じゅうせきぶん'], categories: ['general'], basePriority: 180 }),
+  withCompatibilityScope({ id: 'partial', label: '∂', latex: '\\partial ', aliases: ['へんびぶん', 'ぱーしゃる'], categories: ['general'], basePriority: 190 }),
+  withCompatibilityScope({ id: 'nabla', label: '∇', latex: '\\nabla ', aliases: ['なぶら', 'こうばい'], categories: ['general'], basePriority: 170 }),
+  ...legacyGreekCandidates,
+  ...legacyMathCandidates,
+];
+
+function normalizeCandidate(candidate) {
+  return {
+    ...candidate,
+    // 既定辞書は読み仮名だけを持つ。カタカナは検索時にもひらがなへ寄るため、
+    // 重複した既定aliasを残さない。
+    aliases: [...new Set(candidate.aliases.map((alias) => katakanaToHiragana(String(alias).normalize('NFKC'))))],
+  };
+}
+
+export const CONVERSION_CANDIDATES = HIGH_SCHOOL_EXAM_CANDIDATES.map(normalizeCandidate);
+const KNOWN_CONVERSION_CANDIDATES = [...CONVERSION_CANDIDATES, ...COMPATIBILITY_CANDIDATES.map(normalizeCandidate)];
 
 // ユーザー辞書は既定辞書を直接書き換えず、追加行と削除トゥームストーンだけを
 // 保存する。将来既定辞書を更新しても、利用者が消した読みは復活しない。
@@ -308,6 +365,12 @@ function defaultCandidateById(id) {
   return CONVERSION_CANDIDATES.find((candidate) => candidate.id === id) ?? null;
 }
 
+// compatibility-only候補は既定では出さないが、過去に書き出したCSVを
+// 再インポートしたときにID・記号・LaTexの定義を検証するためにだけ参照する。
+function knownCandidateById(id) {
+  return KNOWN_CONVERSION_CANDIDATES.find((candidate) => candidate.id === id) ?? null;
+}
+
 /** 壊れた保存値を捨て、追加・削除だけを安全な最小状態へ寄せる。 */
 export function sanitizeConversionDictionaryState(value) {
   const next = emptyConversionDictionaryState();
@@ -317,7 +380,7 @@ export function sanitizeConversionDictionaryState(value) {
   for (const [rawId, rawCandidate] of Object.entries(additions)) {
     if (Object.keys(next.additions).length >= CONVERSION_DICTIONARY_LIMITS.maxCustomCandidates) break;
     const id = candidateId(rawId);
-    if (!id || defaultCandidateById(id) || !rawCandidate || typeof rawCandidate !== 'object' || Array.isArray(rawCandidate)) continue;
+    if (!id || knownCandidateById(id) || !rawCandidate || typeof rawCandidate !== 'object' || Array.isArray(rawCandidate)) continue;
     const item = rawCandidate;
     const label = cleanLabel(item.label);
     const latex = cleanLatex(item.latex);
@@ -329,7 +392,7 @@ export function sanitizeConversionDictionaryState(value) {
   const addedAliases = source.addedAliases && typeof source.addedAliases === 'object' && !Array.isArray(source.addedAliases) ? source.addedAliases : {};
   for (const [rawId, rawAliases] of Object.entries(addedAliases)) {
     const id = candidateId(rawId);
-    if (!id || !defaultCandidateById(id) || !Array.isArray(rawAliases)) continue;
+    if (!id || !knownCandidateById(id) || !Array.isArray(rawAliases)) continue;
     const aliases = uniqueAliases(rawAliases);
     if (aliases.length) next.addedAliases[id] = aliases;
   }
@@ -349,7 +412,12 @@ export function effectiveConversionCandidates(dictionary = emptyConversionDictio
   const state = sanitizeConversionDictionaryState(dictionary);
   const deletedCandidates = new Set(state.deletedCandidates);
   const result = [];
-  const all = [...CONVERSION_CANDIDATES, ...Object.values(state.additions)];
+  // compatibility-only候補は、既存CSVが明示的に読みを追加した場合だけ復帰する。
+  // これで高等学校向けの既定CSVを小さく保ちつつ、過去のCSVを壊さない。
+  const activatedCompatibility = KNOWN_CONVERSION_CANDIDATES
+    .filter((candidate) => candidate.scope === HIGH_SCHOOL_EXAM_SCOPE.compatibility && (state.addedAliases[candidate.id] ?? []).length)
+    .map((candidate) => ({ ...candidate, aliases: [] }));
+  const all = [...CONVERSION_CANDIDATES, ...activatedCompatibility, ...Object.values(state.additions)];
   const seenIds = new Set();
   for (const candidate of all) {
     // 既定candidateのstable IDは学習履歴/手動順位のキー。壊れたCSVや直接保存値が
@@ -481,7 +549,7 @@ export function importConversionDictionaryCsv(text, current = emptyConversionDic
   const rejected = [];
   let accepted = 0;
   const definitions = new Map();
-  const readCandidate = (id) => next.additions[id] ?? defaultCandidateById(id);
+  const readCandidate = (id) => next.additions[id] ?? knownCandidateById(id);
   const normalizedDefinition = (candidate) => candidate ? {
     label: cleanLabel(candidate.label), latex: cleanLatex(candidate.latex), basePriority: cleanPriority(candidate.basePriority),
   } : null;
@@ -518,9 +586,9 @@ export function importConversionDictionaryCsv(text, current = emptyConversionDic
     const tombstones = new Set(next.deletedAliases[id] ?? []);
     for (const alias of [...tombstones]) if (normalizeConversionQuery(alias) === normalizeConversionQuery(reading)) tombstones.delete(alias);
     if (tombstones.size) next.deletedAliases[id] = [...tombstones]; else delete next.deletedAliases[id];
-    if (known && defaultCandidateById(id)) {
-      const defaults = defaultCandidateById(id).aliases;
-      if (!defaults.some((alias) => normalizeConversionQuery(alias) === normalizeConversionQuery(reading))) {
+    if (known && knownCandidateById(id)) {
+      const defaults = defaultCandidateById(id)?.aliases;
+      if (!defaults?.some((alias) => normalizeConversionQuery(alias) === normalizeConversionQuery(reading))) {
         const additions = new Set(next.addedAliases[id] ?? []);
         additions.add(reading);
         next.addedAliases[id] = [...additions];
