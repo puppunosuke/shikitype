@@ -632,12 +632,21 @@ body[data-key-capture="original"] #capture-hint { display: none; }
   overflow: hidden;
 }
 #guide-modifiers, #guide-actions { display: grid; gap: 6px; }
+/* 全単元ノートでは、ノートの範囲を保ったままガイドだけを寄せられる入口を残す。 */
+.unit-switch-key { display: none; }
+body[data-note-scope="all"] .unit-switch-key { display: block; }
+.unit-switch-key { height: 38px; padding-top: 5px; padding-bottom: 5px; }
 /* 「文」を増やしても、狭いガイドでキー盤を下へ押し出さない。 */
 #guide-actions { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 .lock-key { display: none; }
 body[data-input-method="hybrid"] .lock-key,
 body[data-temporary-layer="true"] .lock-key { display: block; }
 body[data-input-method="hybrid"] #guide-modifiers .modifier-key { height: 38px; padding-top: 5px; padding-bottom: 5px; }
+/* 全単元の入口を足しても、従来3段の物理キー面を押し出さない。 */
+body[data-note-scope="all"] #guide-modifiers .modifier-key { height: 36px; padding-top: 4px; padding-bottom: 4px; }
+/* ハイブリッド方式は固定キー（4段目）を既に持つため、単元プリセットの入口が
+   重なると計5段相当になる。両方が同時に出る場合だけ、さらに詰めて押し出しを防ぐ。 */
+body[data-input-method="hybrid"][data-note-scope="all"] #guide-modifiers .modifier-key { height: 28px; padding-top: 2px; padding-bottom: 2px; }
 .lock-key[aria-pressed="true"] { border-color: var(--accent); box-shadow: inset 3px 0 0 var(--accent); }
 .modifier-key, .action-key, .key-cap {
   position: relative;
@@ -990,6 +999,27 @@ body .modifier-key.is-physical {
 /* ---------- アカウント ---------- */
 #account-dialog { width: min(390px, calc(100vw - 28px)); max-height: min(620px, calc(100vh - 28px)); padding: 0 18px 18px; overflow: auto; border: 1px solid #111; border-radius: 0; background: #f7f6f2; color: #111; box-shadow: 8px 8px 0 rgba(17,17,17,.2); }
 #account-dialog::backdrop { background: rgba(16,16,16,.46); }
+#new-note-dialog, #guide-unit-dialog { width: min(620px, calc(100vw - 28px)); max-height: min(760px, calc(100vh - 28px)); padding: 0 18px 18px; overflow: hidden; border: 1px solid #111; border-radius: 0; background: #f7f6f2; color: #111; box-shadow: 8px 8px 0 rgba(17,17,17,.2); }
+#new-note-dialog { height: min(760px, calc(100vh - 28px)); box-sizing: border-box; }
+#new-note-dialog::backdrop, #guide-unit-dialog::backdrop { background: rgba(16,16,16,.46); }
+#new-note-dialog-shell, #guide-unit-dialog-shell { display: grid; gap: 12px; }
+#new-note-dialog-shell { height: 100%; grid-template-rows: auto auto auto minmax(0, 1fr) auto; }
+.note-dialog-head { position: sticky; z-index: 1; top: 0; display: flex; align-items: center; justify-content: space-between; padding: 16px 0 10px; border-bottom: 1px solid #bbb; background: #f7f6f2; }
+.note-dialog-head h2 { margin: 0; font-size: 16px; }
+.note-dialog-head button { width: 32px; height: 32px; border: 1px solid #111; border-radius: 0; background: transparent; color: inherit; font-size: 20px; cursor: pointer; }
+#new-note-dialog p, #guide-unit-dialog p { margin: 0; font-size: 12px; line-height: 1.55; }
+/* 科目→単元の二段階選択。全単元は科目行の先頭に常設し、選んだ科目だけ下に単元を出す。 */
+.unit-modal-subject-choice { display: flex; flex-wrap: wrap; gap: 6px; }
+.unit-modal-subject-button { min-height: 36px; padding: 6px 14px; border: 1px solid #777; border-radius: 0; background: #fff; color: #111; cursor: pointer; font: 700 12px/1.2 var(--font-jp), var(--font-en); }
+.unit-modal-subject-button:hover, .unit-modal-subject-button[aria-pressed="true"] { border-color: #111; background: #111; color: #fff; }
+.new-note-unit-choice { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); grid-auto-rows: min-content; align-content: start; gap: 6px; }
+#new-note-dialog .new-note-unit-choice { min-height: 0; overflow-y: auto; padding-right: 4px; }
+.new-note-unit-button { min-height: 36px; padding: 6px 8px; border: 1px solid #777; border-radius: 0; background: #fff; color: #111; cursor: pointer; font: 600 11px/1.2 var(--font-jp), var(--font-en); text-align: left; }
+.new-note-unit-button:hover, .new-note-unit-button[aria-pressed="true"] { border-color: #111; background: #111; color: #fff; }
+.new-note-unit-all { grid-column: 1 / -1; font-size: 13px; }
+.new-note-unit-subject { grid-column: 1 / -1; margin-top: 6px; padding-top: 8px; border-top: 1px solid #bbb; color: #555; font-size: 11px; font-weight: 700; }
+.note-dialog-actions { display: flex; justify-content: flex-end; padding-top: 4px; }
+.note-dialog-actions button { min-height: 38px; padding: 8px 18px; border: 1px solid #111; border-radius: 0; background: #111; color: #fff; cursor: pointer; font: 700 12px var(--font-jp), var(--font-en); }
 #account-dialog-shell { display: grid; gap: 12px; }
 .account-dialog-head { position: sticky; top: 0; display: flex; align-items: center; justify-content: space-between; padding: 16px 0 10px; border-bottom: 1px solid #bbb; background: #f7f6f2; }
 .account-dialog-head h2 { margin: 0; font-size: 16px; }
@@ -1234,6 +1264,7 @@ body[data-key-capture="accessible"] #capture-hint { color: var(--muted); }
 .side-choice.wrap { flex-wrap: wrap; gap: 4px 6px; }
 .side-choice.wrap button { flex: 0 0 auto; }
 #unit-choice.unit-choice { margin-top: 6px; }
+#unit-scope-note { margin: -2px 0 8px; }
 #method-base-list { display: flex; flex-direction: column; gap: 6px; margin-top: 8px; }
 #layer-method-list { display: flex; flex-direction: column; gap: 6px; margin-top: 8px; }
 .method-base-row { display: flex; align-items: center; gap: 10px; }

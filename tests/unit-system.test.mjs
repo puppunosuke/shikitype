@@ -33,7 +33,7 @@ async function main() {
 
   console.log('\n== 1. 科目→単元の2段選択 ==');
   const subjectCount = await page.locator('#unit-subject-choice button').count();
-  ok('科目は6件', subjectCount === 6, subjectCount);
+  ok('全単元を先頭に、科目は6件', subjectCount === 7, subjectCount);
   const subjectLabels = await page.locator('#unit-subject-choice button').allTextContents();
   ok('科目に数I〜数IIIが揃う', ['数I', '数A', '数II', '数B', '数C', '数III'].every((l) => subjectLabels.includes(l)), subjectLabels);
 
@@ -46,7 +46,7 @@ async function main() {
     courseLabel: document.getElementById('course-label').textContent,
   }));
   ok('数Aを選ぶと先頭単元が自動選択される', afterSubject.subject === 'sa' && afterSubject.unit === 'sa-kakuritsu' && afterSubject.unitButtonCount === 3, afterSubject);
-  ok('上部の科目表示も追従する', afterSubject.courseLabel.includes('数A') && afterSubject.courseLabel.includes('場合の数と確率'), afterSubject.courseLabel);
+  ok('全単元ノートの上部表示は、ガイドを変えても全単元のまま', afterSubject.courseLabel.includes('全単元'), afterSubject.courseLabel);
 
   console.log('\n== 3. 単元選択はキーボードだけで到達できる ==');
   await page.click('#unit-choice button:has-text("図形の性質")');

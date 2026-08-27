@@ -72,6 +72,7 @@
         </div>
         <div id="key-guide-body">
           <div id="guide-modifiers" aria-label="文字の切り替え">
+            <button type="button" class="modifier-key unit-switch-key" id="guide-unit-switch" aria-haspopup="dialog"><span>単元</span><small>プリセット</small></button>
             <button type="button" class="modifier-key" data-modifier="shift" aria-pressed="false"><span>Shift</span><small>大文字</small></button>
             <button type="button" class="modifier-key layer-key" data-special="Tab"><span>Tab</span><small>次: 英字</small></button>
             <button type="button" class="modifier-key lock-key" id="layer-lock" aria-pressed="false"><span>固定</span><small>現在の層</small></button>
@@ -195,8 +196,9 @@
       </div>
     </section>
 
-    <section class="side-section">
+    <section class="side-section" id="unit-preset-section">
       <h3>単元プリセット</h3>
+      <p class="side-note" id="unit-scope-note"></p>
       <div id="unit-subject-choice" class="side-choice wrap" role="list" aria-label="科目の選択"></div>
       <div id="unit-choice" class="side-choice wrap unit-choice" role="list" aria-label="単元の選択"></div>
     </section>
@@ -254,6 +256,25 @@
         </section>
       </div>
     </div>
+  </dialog>
+
+  <dialog id="new-note-dialog" aria-labelledby="new-note-dialog-title">
+    <form id="new-note-dialog-shell" method="dialog">
+      <div class="note-dialog-head"><h2 id="new-note-dialog-title">新しいノート</h2><button type="button" id="new-note-dialog-close" aria-label="閉じる">×</button></div>
+      <p>学習する単元を選んでから始めます。</p>
+      <div id="new-note-subject-choice" class="unit-modal-subject-choice" role="list" aria-label="ノートの科目"></div>
+      <div id="new-note-unit-choice" class="new-note-unit-choice" role="list" aria-label="ノートの単元"></div>
+      <div class="note-dialog-actions"><button type="button" id="new-note-create">作成する</button></div>
+    </form>
+  </dialog>
+
+  <dialog id="guide-unit-dialog" aria-labelledby="guide-unit-dialog-title">
+    <form id="guide-unit-dialog-shell" method="dialog">
+      <div class="note-dialog-head"><h2 id="guide-unit-dialog-title">キーガイドの単元</h2><button type="button" id="guide-unit-dialog-close" aria-label="閉じる">×</button></div>
+      <p>ノートは全単元のまま、キーガイドとパレットの表示順だけを選べます。</p>
+      <div id="guide-unit-subject-choice" class="unit-modal-subject-choice" role="list" aria-label="キーガイドの科目"></div>
+      <div id="guide-unit-choice" class="new-note-unit-choice" role="list" aria-label="キーガイドの単元"></div>
+    </form>
   </dialog>
 
   <div id="palette">

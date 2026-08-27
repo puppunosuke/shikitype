@@ -61,6 +61,9 @@ export const SUBJECTS = [
   ] },
 ];
 export const UNITS = SUBJECTS.flatMap((s) => s.units.map((u) => ({ ...u, subject: s.id, subjectLabel: s.label })));
+// 単元を絞らず高校数学の全範囲を使うためのプリセット。個別単元と同じくノートへ
+// 保存できるIDにし、あとから開いてもガイドの状態がぶれないようにする。
+export const ALL_UNITS_ID = 'all';
 
 // キーごとの単元タグ。'common' は常に強調（全単元で使う）。配列は「そのキーの記号が
 // よく使われる単元」の一覧で、現在単元がどれにも含まれなければキーガイドで薄く表示する
@@ -81,6 +84,7 @@ export const unitTags = {
 
 /** キー code の記号が unit（単元id）でよく使われるか（'common' またはタグ配列に含む）。 */
 export function isKeyInUnit(code, unit) {
+  if (unit === ALL_UNITS_ID) return true;
   const tag = unitTags[code];
   if (!tag || tag === 'common') return true;
   if (Array.isArray(tag)) return tag.includes(unit);

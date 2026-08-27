@@ -21,6 +21,7 @@ async function latex(page) {
 }
 async function startBlankNote(page) {
   await page.click('#new-note');
+  await page.click('#new-note-create');
   await page.waitForTimeout(20);
 }
 

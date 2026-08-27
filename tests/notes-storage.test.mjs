@@ -29,6 +29,7 @@ async function main() {
   ok('複数行の数式を版付き形式で自動保存する', first.notes.version === 1 && first.notes.notes.length === 1 && first.rows.length === 2 && first.notes.notes[0].rows.length === 2, first);
 
   await page.click('#new-note');
+  await page.click('#new-note-create');
   const blank = await page.evaluate(() => ({ rows: window.__neoApp.rows.length, notes: window.__neoApp.getNotes().notes.length, stat: document.getElementById('stat-keystrokes').textContent, active: window.__neoApp.getNotes().activeId }));
   ok('新しいノートは白紙を保存せず統計をリセットする', blank.rows === 1 && blank.notes === 1 && blank.stat === '0' && blank.active === null, blank);
   await page.keyboard.press('KeyA');

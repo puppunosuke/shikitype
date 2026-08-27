@@ -38,6 +38,7 @@ async function main() {
 
   // 新しいノート → 分数y → 改行z
   await page.click('#new-note');
+  await page.click('#new-note-create');
   await page.click('math-field');
   await page.keyboard.press('KeyL');
   await page.keyboard.press('Tab');
@@ -52,6 +53,7 @@ async function main() {
 
   // 新規ノート → 履歴先頭から復元
   await page.click('#new-note');
+  await page.click('#new-note-create');
   await page.click('#notes-toggle');
   await page.click('.note-list-item:first-child');
   await page.waitForTimeout(60);

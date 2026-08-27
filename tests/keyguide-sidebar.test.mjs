@@ -103,6 +103,7 @@ async function main() {
   // ノート自動保存後の再読込では直前の式が復元される。キー割り当ての出力だけを
   // 測るこの節は、意図的に白紙ノートから始める。
   await page.click('#new-note');
+  await page.click('#new-note-create');
   await page.click('#sidebar-toggle');
   await page.click('[data-settings-category="keys"]');
   assertEqual('サイドバーが開く', await page.isVisible('#sidebar'), true);

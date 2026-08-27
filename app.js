@@ -13,7 +13,7 @@ MathfieldElement.restoreFocusWhenDocumentFocused = false;
 import {
   resolveAction, getActiveLayout, physicalRows, keyDisplayName,
   LAYERS, LAYER_NAMES, labelFor, actionFor, getOverride, setOverride, clearOverride, clearAllOverrides, overrideCount,
-  SUBJECTS, UNITS, isKeyInUnit,
+  SUBJECTS, UNITS, ALL_UNITS_ID, isKeyInUnit,
 } from '/keymap.js';
 import { convertUnicodeToLatex } from '/unicode-latex.js';
 import {
@@ -1991,6 +1991,11 @@ function noteDisplayTitle(note) {
   return sanitizeNoteTitle(note.title) || notePreview(note.rows);
 }
 
+function unitLabel(unitId) {
+  if (unitId === ALL_UNITS_ID) return '全単元';
+  return UNITS.find((entry) => entry.id === unitId)?.label ?? '';
+}
+
 // 設定モーダルの検索（部分一致・大小無視、input即時反映）と操作感を揃える。
 // 対象は表示名（名前があればそれ、無ければ自動プレビュー）と行の生LaTeX本文。
 function noteMatchesFilter(note, query) {
@@ -2010,10 +2015,9 @@ function buildNoteListItem(note) {
   const title = document.createElement('b');
   title.textContent = noteDisplayTitle(note);
   const meta = document.createElement('small');
-  const unit = UNITS.find((entry) => entry.id === note.unitId);
   const date = new Date(note.updatedAt);
   const time = Number.isNaN(date.getTime()) ? '' : date.toLocaleString('ja-JP', { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' });
-  meta.textContent = [unit?.label, time].filter(Boolean).join(' · ');
+  meta.textContent = [unitLabel(note.unitId), time].filter(Boolean).join(' · ');
   const actions = document.createElement('div');
   actions.className = 'note-item-actions';
   const renameBtn = document.createElement('button');
@@ -2099,7 +2103,7 @@ function deleteNote(id) {
       .filter((entry) => !entry.deletedAt)
       .sort((a, b) => String(b.updatedAt).localeCompare(String(a.updatedAt)))[0];
     if (next) loadNote(next.id, true, false);
-    else newNote();
+    else createNewNote(noteUnitScope);
   } else {
     renderNotesList();
   }
@@ -2215,13 +2219,13 @@ function saveCurrentNoteNow() {
   const values = rows.map((row) => row.mf.value);
   let note = current;
   if (!note) {
-    note = { id: makeNoteId(), createdAt: now, updatedAt: now, unitId: currentUnit, rows: [], revision: 0, title: null, deletedAt: null };
+    note = { id: makeNoteId(), createdAt: now, updatedAt: now, unitId: noteUnitScope, rows: [], revision: 0, title: null, deletedAt: null };
     notesStore.notes.push(note);
     notesStore.activeId = note.id;
   }
   note.rows = values;
   note.layout = noteLayoutSnapshot();
-  note.unitId = currentUnit;
+  note.unitId = noteUnitScope;
   note.updatedAt = now;
   persistNotesStore();
   renderNotesList();
@@ -2281,7 +2285,10 @@ function loadNote(id, restoreFocus = true, saveCurrent = true) {
   const blocks = layout.mode === 'canvas' ? layout.blocks : (note.rows.length ? note.rows.map((latex, index) => ({ latex, x: 112, y: 96 + index * 104 })) : [{ latex: '', x: 112, y: 96 }]);
   blocks.forEach((item) => createRow(false, String(item.latex || ''), item));
   notesStore.activeId = note.id;
-  if (UNIT_IDS.has(note.unitId)) setCurrentUnit(note.unitId);
+  if (UNIT_IDS.has(note.unitId)) {
+    noteUnitScope = note.unitId;
+    setCurrentUnit(note.unitId);
+  }
   restoringNote = false;
   renderLayoutMode();
   persistNotesStore();
@@ -2302,7 +2309,7 @@ function loadNote(id, restoreFocus = true, saveCurrent = true) {
   });
 }
 
-function newNote() {
+function createNewNote(unitId = noteUnitScope) {
   // サーバー側は内容の有無に関わらず100件を上限にする。端末に退避した
   // 101件目を再び増やさないため、ここもストア件数で同じ境界を使う。
   if (cloudAccount.userId && notesStore.notes.length >= CLOUD_NOTE_LIMIT) {
@@ -2311,6 +2318,8 @@ function newNote() {
   }
   clearTimeout(noteSaveTimer);
   saveCurrentNoteNow();
+  noteUnitScope = UNIT_IDS.has(unitId) ? unitId : ALL_UNITS_ID;
+  setCurrentUnit(noteUnitScope);
   notesStore.activeId = null;
   clearRowsForNote();
   layoutMode = 'rows';
@@ -2329,6 +2338,129 @@ function newNote() {
   // focusもここで吸収する。
   claimRowFocus(row);
   initHistory();
+}
+
+let newNoteUnitChoice = ALL_UNITS_ID;
+let newNoteSubjectChoice = ALL_UNITS_ID;
+let newNoteOpener = null;
+let guideUnitChoice = ALL_UNITS_ID;
+let guideUnitSubjectChoice = ALL_UNITS_ID;
+let guideUnitOpener = null;
+
+// 科目→単元の二段階。全単元だけは先頭に常設し、22件を一画面へ並べて
+// スクロールさせない。選択結果の確定は呼び出し元に任せる。
+function renderUnitModalChoices({ subjectId, unitId, subjectContainerId, unitContainerId, onSubject, onUnit }) {
+  const subjects = document.getElementById(subjectContainerId);
+  const units = document.getElementById(unitContainerId);
+  if (!subjects || !units) return;
+  subjects.replaceChildren();
+  units.replaceChildren();
+  const subjectButton = (id, label) => {
+    const button = document.createElement('button');
+    button.type = 'button';
+    button.className = 'unit-modal-subject-button';
+    button.dataset.subjectId = id;
+    button.textContent = label;
+    button.setAttribute('aria-pressed', String(subjectId === id));
+    button.addEventListener('click', () => onSubject(id));
+    subjects.append(button);
+  };
+  subjectButton(ALL_UNITS_ID, '全単元');
+  for (const subject of SUBJECTS) subjectButton(subject.id, subject.label);
+  if (subjectId === ALL_UNITS_ID) return;
+  const subject = SUBJECTS.find((entry) => entry.id === subjectId);
+  for (const unit of subject?.units ?? []) {
+    const button = document.createElement('button');
+    button.type = 'button';
+    button.className = 'new-note-unit-button';
+    button.dataset.unitId = unit.id;
+    button.textContent = unit.label;
+    button.setAttribute('aria-pressed', String(unitId === unit.id));
+    button.addEventListener('click', () => onUnit(unit.id));
+    units.append(button);
+  }
+}
+
+function renderNewNoteUnitChoices() {
+  renderUnitModalChoices({
+    subjectId: newNoteSubjectChoice,
+    unitId: newNoteUnitChoice,
+    subjectContainerId: 'new-note-subject-choice',
+    unitContainerId: 'new-note-unit-choice',
+    onSubject: (id) => {
+      newNoteSubjectChoice = id;
+      newNoteUnitChoice = id === ALL_UNITS_ID ? ALL_UNITS_ID : null;
+      renderNewNoteUnitChoices();
+      document.querySelector(`#new-note-subject-choice [data-subject-id="${CSS.escape(id)}"]`)?.focus({ preventScroll: true });
+    },
+    onUnit: (id) => {
+      newNoteUnitChoice = id;
+      renderNewNoteUnitChoices();
+      document.querySelector(`#new-note-unit-choice [data-unit-id="${CSS.escape(id)}"]`)?.focus({ preventScroll: true });
+    },
+  });
+  const create = document.getElementById('new-note-create');
+  if (create) create.disabled = !newNoteUnitChoice;
+}
+
+function openNewNoteDialog() {
+  const dialog = document.getElementById('new-note-dialog');
+  if (!dialog) return;
+  newNoteOpener = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+  newNoteSubjectChoice = ALL_UNITS_ID;
+  newNoteUnitChoice = ALL_UNITS_ID;
+  renderNewNoteUnitChoices();
+  if (!dialog.open) dialog.showModal();
+  dialog.querySelector('[data-subject-id="all"]')?.focus();
+}
+
+function closeNewNoteDialog({ restoreFocus = true } = {}) {
+  const dialog = document.getElementById('new-note-dialog');
+  if (dialog?.open) dialog.close();
+  if (restoreFocus && newNoteOpener?.isConnected) newNoteOpener.focus({ preventScroll: true });
+  newNoteOpener = null;
+}
+
+function renderGuideUnitChoices() {
+  renderUnitModalChoices({
+    subjectId: guideUnitSubjectChoice,
+    unitId: guideUnitChoice,
+    subjectContainerId: 'guide-unit-subject-choice',
+    unitContainerId: 'guide-unit-choice',
+    onSubject: (id) => {
+      guideUnitSubjectChoice = id;
+      guideUnitChoice = id === ALL_UNITS_ID ? ALL_UNITS_ID : null;
+      renderGuideUnitChoices();
+      document.querySelector(`#guide-unit-subject-choice [data-subject-id="${CSS.escape(id)}"]`)?.focus({ preventScroll: true });
+    },
+    onUnit: (id) => {
+      guideUnitChoice = id;
+      setCurrentUnit(id);
+      closeGuideUnitDialog({ restoreFocus: false });
+      focusActiveRow();
+    },
+  });
+}
+
+function openGuideUnitDialog() {
+  // 個別ノートの単元はノートの範囲そのものなので、ここからは変えない。
+  if (noteUnitScope !== ALL_UNITS_ID) return;
+  const dialog = document.getElementById('guide-unit-dialog');
+  if (!dialog) return;
+  guideUnitOpener = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+  // 開くたびに「全単元」から始める。Escで閉じた場合は実際のガイドを変更しない。
+  guideUnitSubjectChoice = ALL_UNITS_ID;
+  guideUnitChoice = ALL_UNITS_ID;
+  renderGuideUnitChoices();
+  if (!dialog.open) dialog.showModal();
+  dialog.querySelector('[data-subject-id="all"]')?.focus();
+}
+
+function closeGuideUnitDialog({ restoreFocus = true } = {}) {
+  const dialog = document.getElementById('guide-unit-dialog');
+  if (dialog?.open) dialog.close();
+  if (restoreFocus && guideUnitOpener?.isConnected) guideUnitOpener.focus({ preventScroll: true });
+  guideUnitOpener = null;
 }
 
 function toggleNotesList(open) {
@@ -2928,6 +3060,26 @@ document.addEventListener('keydown', (e) => {
     return;
   }
 
+  // ノート作成／キーガイド単元の二段階dialogも同様に分離する。ここを素通りさせると
+  // 下のパレット開閉Escapeが先に奪い、dialog自身のcancelハンドラへ届かないまま
+  // モーダルが閉じなくなる（アカウント/設定dialogと同じ理由）。
+  const newNoteDialog = document.getElementById('new-note-dialog');
+  if (newNoteDialog?.open) {
+    if (e.code === 'Escape') {
+      e.preventDefault(); e.stopPropagation(); e.stopImmediatePropagation();
+      closeNewNoteDialog();
+    }
+    return;
+  }
+  const guideUnitDialogEl = document.getElementById('guide-unit-dialog');
+  if (guideUnitDialogEl?.open) {
+    if (e.code === 'Escape') {
+      e.preventDefault(); e.stopPropagation(); e.stopImmediatePropagation();
+      closeGuideUnitDialog();
+    }
+    return;
+  }
+
   // 変換queryにfocusがあっても、accessibleモードの画面操作キーは従来どおり
   // 優先する。専用IMEは文字・候補操作だけを所有し、F2/F4/F8/F9は奪わない。
   if (keyCaptureMode === 'accessible' && ['F2', 'F4', 'F8', 'F9'].includes(e.code)) {
@@ -3209,28 +3361,46 @@ function handlePaste() {
 // ---------------------------------------------------------------------------
 
 const UNIT_KEY = 'neo-math.unit.v1';
-const UNIT_IDS = new Set(UNITS.map((u) => u.id));
-let currentUnit = 's3-sekibun'; // 既定は数III「積分法」（MVP当初の叩き台キー配置に最も近い）
+const UNIT_IDS = new Set([ALL_UNITS_ID, ...UNITS.map((u) => u.id)]);
+// noteUnitScopeはノートに保存する学習範囲、currentUnitはキーガイドとパレットだけの
+// 一時プリセット。全単元ノートでは両者を分けることで、個別の手掛かりを見ても
+// ノート自体の範囲を勝手に狭めない。
+let noteUnitScope = ALL_UNITS_ID;
+let currentUnit = ALL_UNITS_ID;
 try {
   const savedUnit = localStorage.getItem(UNIT_KEY);
   if (savedUnit && UNIT_IDS.has(savedUnit)) currentUnit = savedUnit;
 } catch { /* 保存不可でも既定単元で続行する */ }
-let currentSubject = UNITS.find((u) => u.id === currentUnit)?.subject ?? 's3';
+let currentSubject = currentUnit === ALL_UNITS_ID ? ALL_UNITS_ID : (UNITS.find((u) => u.id === currentUnit)?.subject ?? 's3');
 
 function updateCourseLabel() {
+  // ノートの学習範囲は上バーに固定で出す。全単元ノート内でキーガイドだけを
+  // 個別単元へ寄せても、ノート自体が狭まったように見せない。
+  const scopeUnit = noteUnitScope === ALL_UNITS_ID ? null : UNITS.find((u) => u.id === noteUnitScope);
+  const courseLabel = document.getElementById('course-label');
+  if (courseLabel) {
+    courseLabel.innerHTML = scopeUnit
+      ? `<span>${scopeUnit.subjectLabel}</span>${scopeUnit.label}`
+      : '<span>高校数学</span>全単元';
+  }
+  if (currentUnit === ALL_UNITS_ID) {
+    const guideTitle = document.getElementById('key-guide-title');
+    if (guideTitle) guideTitle.textContent = '全単元 キーガイド';
+    document.body.dataset.noteScope = noteUnitScope;
+    return;
+  }
   const unit = UNITS.find((u) => u.id === currentUnit);
   if (!unit) return;
-  const courseLabel = document.getElementById('course-label');
-  if (courseLabel) courseLabel.innerHTML = `<span>${unit.subjectLabel}</span>${unit.label}`;
   const guideTitle = document.getElementById('key-guide-title');
-  if (guideTitle) guideTitle.textContent = `${unit.subjectLabel} キーガイド`;
+  if (guideTitle) guideTitle.textContent = `${unit.subjectLabel}・${unit.label} キーガイド`;
+  document.body.dataset.noteScope = noteUnitScope;
 }
 
 function setCurrentUnit(unitId, persist = true) {
+  if (!UNIT_IDS.has(unitId)) return;
+  currentUnit = unitId;
   const unit = UNITS.find((u) => u.id === unitId);
-  if (!unit) return;
-  currentUnit = unit.id;
-  currentSubject = unit.subject;
+  currentSubject = unit?.subject ?? ALL_UNITS_ID;
   if (persist) {
     try { localStorage.setItem(UNIT_KEY, currentUnit); }
     catch (err) { console.warn('[neo-math] unit save failed', err); }
@@ -3238,10 +3408,17 @@ function setCurrentUnit(unitId, persist = true) {
   updateCourseLabel();
   renderKeyGuide();
   renderPalette();
+}
+
+function setNoteUnitScope(unitId) {
+  if (!UNIT_IDS.has(unitId)) return;
+  noteUnitScope = unitId;
+  setCurrentUnit(unitId);
   scheduleNoteSave();
 }
 
 function setCurrentSubject(subjectId) {
+  if (subjectId === ALL_UNITS_ID) { setCurrentUnit(ALL_UNITS_ID); return; }
   const subject = SUBJECTS.find((s) => s.id === subjectId);
   if (!subject) return;
   // 科目を変えたら、その科目の先頭単元を選ぶ（未選択状態を作らない）。
@@ -4221,20 +4398,38 @@ function renderSidebar() {
     (m) => setKeyCaptureMode(m),
   );
 
-  // 単元プリセット（科目→単元の2段）。割り当ては動かさず、キーガイドの強調とパレットの
-  // 並びだけを切り替える。
+  // 単元プリセット（科目→単元の2段）。全単元ノートではキーガイドだけを切り替え、
+  // 個別ノートではノートの学習範囲と常に同じ値へ更新する。
+  const unitScopeNote = document.getElementById('unit-scope-note');
+  if (unitScopeNote) unitScopeNote.textContent = noteUnitScope === ALL_UNITS_ID
+    ? 'このノートは「全単元」です。ここで選ぶとキーガイドとパレットの表示順だけが変わります。'
+    : `このノートは「${unitLabel(noteUnitScope)}」です。選ぶとノートの単元も切り替わります。`;
   renderChoice(
     document.getElementById('unit-subject-choice'),
-    SUBJECTS.map((s) => ({ value: s.id, label: s.label })),
+    [{ value: ALL_UNITS_ID, label: '全単元' }, ...SUBJECTS.map((s) => ({ value: s.id, label: s.label }))],
     currentSubject,
-    (id) => { setCurrentSubject(id); renderSidebar(); },
+    (id) => {
+      if (id === ALL_UNITS_ID) {
+        if (noteUnitScope === ALL_UNITS_ID) setCurrentUnit(ALL_UNITS_ID);
+        else setNoteUnitScope(ALL_UNITS_ID);
+      } else {
+        const subject = SUBJECTS.find((s) => s.id === id);
+        const unitId = subject?.units[0]?.id;
+        if (!unitId) return;
+        if (noteUnitScope === ALL_UNITS_ID) setCurrentUnit(unitId);
+        else setNoteUnitScope(unitId);
+      }
+      renderSidebar();
+    },
   );
   const subject = SUBJECTS.find((s) => s.id === currentSubject);
+  const unitChoice = document.getElementById('unit-choice');
+  if (unitChoice) unitChoice.hidden = !subject;
   renderChoice(
-    document.getElementById('unit-choice'),
+    unitChoice,
     (subject?.units ?? []).map((u) => ({ value: u.id, label: u.label })),
     currentUnit,
-    (id) => { setCurrentUnit(id); renderSidebar(); },
+    (id) => { if (noteUnitScope === ALL_UNITS_ID) setCurrentUnit(id); else setNoteUnitScope(id); renderSidebar(); },
   );
 
   // 入力方式ごとの基底層（記号／英字を入れ替え）。方式ごとに独立して保存する。
@@ -4508,7 +4703,16 @@ document.getElementById('sidebar')?.addEventListener('close', () => {
   document.body.classList.remove('sidebar-open');
   document.getElementById('sidebar-toggle')?.setAttribute('aria-expanded', 'false');
 });
-document.getElementById('new-note')?.addEventListener('click', newNote);
+document.getElementById('new-note')?.addEventListener('click', openNewNoteDialog);
+document.getElementById('new-note-dialog-close')?.addEventListener('click', closeNewNoteDialog);
+document.getElementById('new-note-dialog')?.addEventListener('cancel', (event) => { event.preventDefault(); closeNewNoteDialog(); });
+document.getElementById('new-note-create')?.addEventListener('click', () => {
+  closeNewNoteDialog();
+  createNewNote(newNoteUnitChoice);
+});
+document.getElementById('guide-unit-switch')?.addEventListener('click', openGuideUnitDialog);
+document.getElementById('guide-unit-dialog-close')?.addEventListener('click', () => document.getElementById('guide-unit-dialog')?.close());
+document.getElementById('guide-unit-dialog')?.addEventListener('cancel', (event) => { event.preventDefault(); event.currentTarget.close(); focusActiveRow(); });
 document.getElementById('notes-toggle')?.addEventListener('click', () => toggleNotesList());
 document.getElementById('notes-search')?.addEventListener('input', (event) => {
   notesFilterQuery = event.target.value;
@@ -5094,9 +5298,11 @@ function replaceEditorWithActiveNote(restoreFocus = true) {
     loadNote(initial.id, restoreFocus, false);
   }
   else {
-    // ストアの切替直後に newNote() を使うと、前アカウントの表示中の式を
+    // ストアの切替直後に新規作成処理を使うと、前アカウントの表示中の式を
     // 新しい名前空間へ保存してしまう。ここでは保存せず空の編集面だけを作る。
     clearRowsForNote();
+    noteUnitScope = ALL_UNITS_ID;
+    setCurrentUnit(ALL_UNITS_ID, false);
     createRow(false);
     activeRowIndex = rows.length - 1;
   }
@@ -5447,8 +5653,10 @@ window.__neoApp = {
   handleVirtualKey,
   handleVirtualSpecial,
   getCurrentUnit: () => currentUnit,
+  getNoteUnitScope: () => noteUnitScope,
   getCurrentSubject: () => currentSubject,
   setCurrentUnit,
+  setNoteUnitScope,
   setCurrentSubject,
   getMethodBaseLayer: () => ({ ...methodBaseLayer }),
   setMethodBaseLayer,
@@ -5496,7 +5704,11 @@ window.__neoApp = {
   },
   exportConversionDictionaryCsv: () => exportConversionDictionaryCsv(conversionDictionary),
   saveNote: saveCurrentNoteNow,
-  newNote,
+  // UIは単元選択モーダルを経由する。既存の回帰テスト用APIは、従来どおり
+  // 即時に全単元の白紙を作る低レベル操作として残す。
+  newNote: () => createNewNote(ALL_UNITS_ID),
+  createNewNote,
+  openNewNoteDialog,
   loadNote,
   getNotes: () => structuredClone(notesStore),
   undo: performUndo,
