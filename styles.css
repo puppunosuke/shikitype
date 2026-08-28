@@ -1042,6 +1042,9 @@ body .modifier-key.is-physical {
 #review-status[data-error="true"] { color: #b3261e; }
 #review-submit, #review-again { min-height: 42px; border: 1px solid var(--ink); border-radius: 0; background: var(--ink); color: #fff; cursor: pointer; font: 700 13px var(--font-jp), var(--font-en); }
 #review-submit:disabled { cursor: wait; opacity: .65; }
+/* 主操作（別の見直しをする）と競合させない、過去一覧へ戻るだけの低優先アクション。 */
+.review-link-button { min-height: 32px; border: none; background: none; color: var(--muted); text-decoration: underline; cursor: pointer; font: 400 12px var(--font-jp), var(--font-en); justify-self: center; }
+.review-link-button:hover, .review-link-button:focus-visible { color: var(--ink); }
 /* #review-result の display:grid が native [hidden] より強くなり、初期表示で
    空の結果面が残る事故を防ぐ。 */
 #review-result { display: grid; gap: 10px; }

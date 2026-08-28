@@ -19,7 +19,7 @@ import { convertUnicodeToLatex } from '/unicode-latex.js';
 import {
   rankConversionCandidates, recordCandidateSelection, sanitizeLearningState,
   sanitizeManualPriorityState, setManualPriority, resetManualPriorities,
-  getConversionCandidate, normalizeConversionQuery, convertShikitypeReading,
+  getConversionCandidate, normalizeConversionQuery, convertShikitypeReading, shikitypeSearchQueries,
   emptyConversionDictionaryState, sanitizeConversionDictionaryState, effectiveConversionCandidates,
   importConversionDictionaryCsv, exportConversionDictionaryCsv,
 } from '/conversion.js';
@@ -78,10 +78,11 @@ try {
 } catch { /* 保存不可でも標準方式で続行する */ }
 let legacyInputMethod = inputMethod;
 
-// 既存の入力方式は「3層へまとめて適用するプリセット」としてそのまま残す。
+// 変換方式は「変換」と「ギリシャ文字」の二層だけを持つ。従来方式の英字層は
+// keymap.jsに残し、変換方式へは持ち込まない。
 // 新しい保存値が無い既存利用者は、最後に選んだ方式を全層へ複製してから始めるので
 // 旧localStorage値を失わない。
-const INPUT_METHOD_LAYERS = ['conversion', 'latin', 'greek'];
+const INPUT_METHOD_LAYERS = ['conversion', 'greek'];
 let layerInputMethods = Object.fromEntries(INPUT_METHOD_LAYERS.map((layer) => [layer, inputMethod]));
 try {
   const savedLayerMethods = JSON.parse(localStorage.getItem(LAYER_INPUT_METHOD_KEY) || 'null');
@@ -1378,10 +1379,10 @@ window.addEventListener('resize', () => {
 let conversionOpen = false;
 let conversionPrioritySearch = '';
 
-// SHIKITYPE変換方式では、変換・英字・ギリシャのどの層も同じ専用IMEを通す。
-// 層ごとの差は候補の順位だけで、OS IMEやMathLiveへ生の文字を渡す経路は作らない。
+// SHIKITYPE変換方式で専用IMEを通すのは変換層だけ。ギリシャ文字層は物理キーの
+// 割当を直接数式へ入れる。層を変えても同じ候補挙動になる問題をここで分ける。
 function isShikitypeTransformLayer() {
-  return inputSystem === 'conversion';
+  return inputSystem === 'conversion' && activeInputLayer() === 'symbol';
 }
 
 // `\\text{}` は数式ではなく文章を置くための明示領域。ここだけは普段の文章と
@@ -1403,23 +1404,15 @@ function isNativeTextEntry(row) {
 
 const isNativeTextContext = isNativeTextEntry;
 
-function candidateScopeForLayer(layer) {
-  return layer === 'symbol' || layer === 'conversion' ? 'general' : layer;
-}
-
-function candidateIsInScope(candidate, scope) {
-  // CSVで追加した候補は、分類列を増やさず従来どおり一般の数学候補として扱う。
-  return (candidate.categories ?? ['general']).includes(scope);
-}
-
 const CONVERSION_CANDIDATE_DISPLAY_LIMIT = 8;
 
 function candidatesForActiveInputLayer(state) {
-  const scope = candidateScopeForLayer(activeInputLayer());
-  const dictionary = activeConversionCandidates().filter((candidate) => candidateIsInScope(candidate, scope));
-  // 表示はASCII rawのまま、検索だけはローマ字→かな変換後の読みとraw aliasの両方を使う。
-  // これで`integral`と`せきぶん`のどちらも同じ∫へ届き、途中語もaliasの語頭だけで絞れる。
-  const queries = [...new Set([state.raw, state.searchReading, state.reading].filter(Boolean))];
+  // 変換層はカテゴリ横断の辞書を使う。以前のgeneral絞り込みはπなどgreek分類の
+  // 既定候補と、分類を持つCSV候補を落としていたため廃止する。
+  const dictionary = activeConversionCandidates();
+  // raw英字・確定済み読み・未確定子音からあり得るかな語頭を併用する。
+  // これで p / s の一打目からCSVのかな読みも候補化できる。
+  const queries = [...new Set([...shikitypeSearchQueries(state.raw), state.searchReading, state.reading].filter(Boolean))];
   const byId = new Map();
   for (const query of queries) {
     for (const candidate of rankConversionCandidates(query, conversionLearning, conversionManualPriority, Date.now(), dictionary.length, dictionary)) {
@@ -1431,10 +1424,20 @@ function candidatesForActiveInputLayer(state) {
     .sort((a, b) => (b.manualPriority ?? 0) - (a.manualPriority ?? 0)
       || (b.score ?? 0) - (a.score ?? 0)
       || a.label.localeCompare(b.label, 'ja'));
+  // 英字一打は常に小文字そのものを第一候補にする。既定辞書のlower候補を使うため
+  // 学習履歴・手動順位・再変換の安定IDは維持される。二文字目を打てば通常検索へ戻る。
+  const literal = /^[a-z]$/i.test(state.raw)
+    ? dictionary.find((candidate) => candidate.id === `latin-lower-${state.raw.toLowerCase()}`)
+    : null;
+  if (literal) {
+    byId.set(literal.id, { ...literal, query: state.raw.toLowerCase(), match: Number.MAX_SAFE_INTEGER, score: Number.MAX_SAFE_INTEGER, learnedCount: 0, manualPriority: Number.MAX_SAFE_INTEGER });
+  }
+  const literalFirst = literal ? [byId.get(literal.id)] : [];
+  const ranked = literal ? ordered.filter((candidate) => candidate.id !== literal.id) : ordered;
   // 変換トレイは記号だけを見せるため、同じ層・同じqueryで同一glyphを複数並べない。
   // 先に並べたもの（手動順位/一致/学習が強い候補）を残す。
   const seenGlyphs = new Set();
-  return ordered.filter((candidate) => {
+  return [...literalFirst, ...ranked].filter((candidate) => {
     const glyph = candidate.label;
     if (seenGlyphs.has(glyph)) return false;
     seenGlyphs.add(glyph); return true;
@@ -1477,7 +1480,7 @@ function renderConversionCandidates(row) {
     ? `conversion-option-${row.id}-${state.selectedIndex}` : '');
   // rawが空のときは候補トレイ自体を出さない。一方で英字一打は読みの変換結果が空でも
   // literal候補を持つので、候補が存在する限り表示・確定できるようにする。
-  state.shell.hidden = inputSystem !== 'conversion' || (!state.raw && !state.pending && !query.trim());
+  state.shell.hidden = !isShikitypeTransformLayer() || (!state.raw && !state.pending && !query.trim());
   if (!query.trim() && state.pending && !state.candidates.length) {
     state.status.textContent = `「${state.pending}」を読みとして待機中`; 
     return;
@@ -1622,7 +1625,7 @@ function handleConversionKey(row, event) {
   const state = row?.conversion;
   if (!state || state.composing || event.isComposing || event.keyCode === 229) return false;
   if (event.code === 'Tab') {
-    // 候補が無い空の変換層でまでTabを奪うと、英字／ギリシャ層への既存遷移を
+    // 候補が無い空の変換層でまでTabを奪うと、ギリシャ文字層への遷移を
     // 失う。候補が出ている間だけ候補選択をトグルし、それ以外は層切替へ渡す。
     if (!state.candidates.length && !state.navigation) return false;
     state.navigation = !state.navigation;
@@ -3489,6 +3492,11 @@ function nextLayer(layer, method = inputMethod) {
   return LAYERS[(LAYERS.indexOf(layer) + 1) % LAYERS.length];
 }
 
+const CONVERSION_LAYERS = ['symbol', 'greek'];
+function nextConversionLayer(layer) {
+  return CONVERSION_LAYERS[(CONVERSION_LAYERS.indexOf(layer) + 1) % CONVERSION_LAYERS.length];
+}
+
 function isUppercaseGuide() {
   return activeInputLayer() !== 'symbol' && (physicalShift || virtualShift);
 }
@@ -3512,9 +3520,9 @@ function longPressLayer() {
 }
 
 function keyCap(code, layer, interactive = false, uppercase = false, { selectableOnly = false } = {}) {
-  // 変換方式の三層はいずれも「物理英字を読みbufferへ入れる」面。旧来方式だけが
-  // 層ごとの直接記号入力なので、ガイドも実挙動と同じraw英字を示す。
-  const shikitypeKey = inputSystem === 'conversion' && !selectableOnly;
+  // 変換層だけが物理英字を読みbufferへ入れる。ギリシャ文字層は直接入力なので、
+  // ガイドにも実際の割当を出す。
+  const shikitypeKey = isShikitypeTransformLayer() && !selectableOnly;
   const label = shikitypeKey ? conversionKeyText(code) : labelFor(code, layer, uppercase);
   const holdSymbolLabel = inputMethod === 'hold' && /^Key[A-Z]$/.test(code)
     ? labelFor(code, longPressLayer(), false)
@@ -3591,7 +3599,8 @@ function renderKeyGuide() {
   const tabHint = document.querySelector('[data-special="Tab"] small');
   if (tabHint) {
     if (inputSystem === 'conversion') {
-      tabHint.textContent = `次: ${LAYER_NAMES[nextLayer(activeInputLayer())] === '記号' ? '変換' : LAYER_NAMES[nextLayer(activeInputLayer())]}`;
+      const next = nextConversionLayer(activeInputLayer());
+      tabHint.textContent = `次: ${next === 'symbol' ? '変換' : LAYER_NAMES[next]}`;
     } else {
     // 長押し方式は Tab が常に baseLayer（英字⇔ギリシャ）を送るので、その値で見せる
     // （短押し/長押しの入れ替え設定に関わらず、Tabの挙動自体は一定）。
@@ -3801,11 +3810,10 @@ function clearVirtualShift() {
 function cycleBaseLayer(lockLayer = false) {
   let next;
   if (inputSystem === 'conversion') {
-    // 変換方式では長押し設定中でも3層を必ず通れる。変換層へ戻る経路を失うと
-    // 専用IMEの入口が消えるため、従来の英字⇔ギリシャだけの循環は使わない。
+    // 変換方式では変換層とギリシャ文字層だけを循環する。英字層は従来方式専用。
     const sourceLayer = activeInputLayer();
     const sourceMethod = inputMethod;
-    next = nextLayer(sourceLayer);
+    next = nextConversionLayer(sourceLayer);
     if (sourceMethod === 'hybrid' && !lockLayer) {
       temporaryLayer = next === baseLayer ? null : next;
       temporaryTransition = temporaryLayer ? { returnLayer: baseLayer, sourceLayer, sourceMethod } : null;
@@ -4200,7 +4208,9 @@ function setInputMethod(methodId, persist = true, applyLayerPreset = persist) {
   }
   inputMethod = methodId;
   if (inputSystem === 'legacy') legacyInputMethod = methodId;
-  baseLayer = methodBaseLayer[methodId] ?? INPUT_METHODS[methodId].defaultLayer;
+  // 変換方式には英字基底層を復元しない。旧保存値や公開APIからsetInputMethod()を
+  // 呼んでも、必ず変換層へ安全に寄せる。
+  baseLayer = inputSystem === 'conversion' ? 'symbol' : (methodBaseLayer[methodId] ?? INPUT_METHODS[methodId].defaultLayer);
   temporaryLayer = null;
   temporaryTransition = null;
   virtualShift = false;
@@ -4395,8 +4405,9 @@ function renderOperationsGuide() {
   const list = document.getElementById('operations-guide-list');
   if (!list) return;
   const tabMethod = INPUT_METHODS[inputMethodForLayer(activeInputLayer())];
+  const conversionTabNote = '候補があるときは候補選択を切替。候補がないときは変換とギリシャ文字を切り替える。';
   const entries = [
-    ['Tab', tabMethod?.note ?? 'レイヤーを切り替える、または変換候補をトグルする。'],
+    ['Tab', inputSystem === 'conversion' ? conversionTabNote : (tabMethod?.note ?? 'レイヤーを切り替える、または変換候補をトグルする。')],
     ['Enter', '変換候補を確定する。文（\\text{}）の中では文を閉じる。'],
     ['矢印キー', '数式内でカーソルを移動する。候補一覧を出しているときは候補間を移動する。'],
     ['Escape', '記号層へ戻す。パレット（ギリシャ文字・低頻度記号）を開閉する。'],
@@ -4490,7 +4501,7 @@ function renderSidebar() {
     );
   }
 
-  // 変換方式だけの層別設定。変換用層は専用IME、英字・ギリシャは既存キーマップを使い、
+  // 変換方式だけの層別設定。変換用層は専用IME、ギリシャは既存キーマップを使い、
   // それぞれに4種類の切替方法を持たせる。
   for (const layer of INPUT_METHOD_LAYERS) {
     const el = document.getElementById(`layer-method-${layer}`);
@@ -4504,9 +4515,11 @@ function renderSidebar() {
   }
   renderConversionPriorityControls();
 
+  const configurableLayers = inputSystem === 'conversion' ? CONVERSION_LAYERS : LAYERS;
+  if (!configurableLayers.includes(configLayer)) configLayer = 'symbol';
   renderChoice(
     document.getElementById('layer-choice'),
-    LAYERS.map((l) => ({ value: l, label: inputSystem === 'conversion' && l === 'symbol' ? '変換用（キー設定）' : LAYER_NAMES[l] })),
+    configurableLayers.map((l) => ({ value: l, label: inputSystem === 'conversion' && l === 'symbol' ? '変換用（キー設定）' : LAYER_NAMES[l] })),
     configLayer,
     (l) => { configLayer = l; configCode = null; renderSidebar(); },
   );
@@ -4637,7 +4650,7 @@ let activeSettingsCategory = 'basic';
 const settingsScrollPositions = new Map();
 const SETTINGS_SEARCH_ITEMS = [
   ['basic', '入力系統', '従来方式 変換方式', 'input-system-section'], ['basic', '編集面', '行 キャンバス', 'layout-mode-section'], ['basic', '単元プリセット', '科目 単元', 'unit-subject-choice'], ['basic', 'キー操作モード', 'キー捕捉', 'capture-choice'],
-  ['input', '従来方式の入力方法', '標準トグル 数式常駐 一時 固定 長押し', 'legacy-input-method-section'], ['input', '変換方式の層ごとの切替方法', '変換 英字 ギリシャ', 'conversion-layer-method-section'], ['input', '方式ごとの基底層', '記号 英字', 'legacy-method-base-section'],
+  ['input', '従来方式の入力方法', '標準トグル 数式常駐 一時 固定 長押し', 'legacy-input-method-section'], ['input', '変換方式の層ごとの切替方法', '変換 ギリシャ', 'conversion-layer-method-section'], ['input', '方式ごとの基底層', '記号 英字', 'legacy-method-base-section'],
   ['conversion', '変換候補の優先順位', '候補 読み 優先', 'conversion-priority-section'], ['conversion', '読み辞書 CSV', 'インポート エクスポート', 'conversion-dictionary-section'],
   ['keys', '操作', 'Tab Enter Escape Backspace Ctrl 取り消し コピー 貼り付け キャンバス 複製 矩形選択 文章', 'operations-guide-section'],
   ['keys', '編集する層', 'キー 割当', 'layer-choice'], ['keys', '割り当て先', '物理キーボード', 'assign-section'], ['appearance', 'デザイン', 'テーマ 外観', 'sidebar-theme-choice'],
@@ -5856,6 +5869,10 @@ document.getElementById('review-toggle')?.addEventListener('click', openReviewDi
 document.getElementById('review-dialog-shell')?.addEventListener('submit', (event) => { event.preventDefault(); void submitReview(); });
 document.getElementById('review-dialog-close')?.addEventListener('click', () => document.getElementById('review-dialog')?.close());
 document.getElementById('review-again')?.addEventListener('click', () => openReviewDialog());
+// 結果表示から「別の見直しをする」しか戻り口がないと、過去の見直し一覧(#review-history)へ
+// 迷わず戻れない（同じ画面へ遷移するのに新規見直しにしか見えないラベルだった）。
+// 挙動はopenReviewDialog()そのままで、ラベルだけ「一覧に戻る」目的を正直に示す。
+document.getElementById('review-back-to-list')?.addEventListener('click', () => openReviewDialog({ focusProblem: false }));
 document.getElementById('review-login')?.addEventListener('click', () => {
   reviewResumeAfterLogin = true;
   document.getElementById('review-dialog')?.close();
