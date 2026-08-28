@@ -15,6 +15,7 @@ import {
   emptyConversionDictionaryState,
   importConversionDictionaryCsv,
   convertShikitypeReading,
+  shikitypeSearchQueries,
 } from '../conversion.js';
 
 let passed = 0;
@@ -38,6 +39,9 @@ ok('読み途中でも候補を出す', rankConversionCandidates('し').some((ca
 console.log('\n== 1b. SHIKITYPE専用ローマ字入力 ==');
 const reading = (value) => convertShikitypeReading(value);
 ok('sは未確定のまま待機する', reading('s').reading === '' && reading('s').pending === 's', reading('s'));
+ok('未確定子音も候補検索用にかなの語頭へ展開する',
+  shikitypeSearchQueries('s').includes('し') && shikitypeSearchQueries('p').includes('ぱ'),
+  { s: shikitypeSearchQueries('s'), p: shikitypeSearchQueries('p') });
 ok('siとshiはどちらも し', reading('si').display === 'し' && reading('shi').display === 'し', { si: reading('si'), shi: reading('shi') });
 ok('sigumaは しぐま', reading('siguma').display === 'しぐま', reading('siguma'));
 ok('sekibunは せきぶん', reading('sekibun').display === 'せきぶん', reading('sekibun'));
@@ -65,6 +69,7 @@ for (const query of ['souwa', 'wa', 'suuretsunowa']) {
 ok('せきぶんの既定1位は∫', first('せきぶん') === 'integral');
 ok('インテグラルの既定1位は∫', first('インテグラル') === 'integral');
 ok('integralの英字入力も∫を先頭候補にする', first(reading('integral').searchReading) === 'integral', reading('integral'));
+ok('pa-sento相当の長音なし読みも既定%候補へ正規化して届く', first(reading('pa-sento').searchReading) === 'percent', reading('pa-sento'));
 ok('途中のテグだけではインテグラルを予測しない', !rankConversionCandidates('てぐ').some((candidate) => candidate.id === 'integral'), rankConversionCandidates('てぐ').map((candidate) => candidate.id));
 for (const [query, expected] of [['そうわ', 'greek-sigma'], ['すうれつのわ', 'greek-sigma'], ['せきぶん', 'integral'], ['きょくげん', 'limit'], ['へいほうこん', 'sqrt'], ['かくりつ', 'probability'], ['きたいち', 'expectation']]) {
   ok(`${query} は既定候補を維持する`, first(query) === expected, rankConversionCandidates(query).map((candidate) => candidate.id));

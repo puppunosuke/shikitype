@@ -40,7 +40,7 @@ await page.click('.settings-nav-item[data-settings-category="input"]');
 await page.click('#layer-method-conversion [data-choice-value="math"]');
 await page.click('.settings-nav-item[data-settings-category="keys"]');
 const conversionMathTab = await page.locator('#operations-guide-list dd').first().textContent();
-ok('Tabの説明は現在の割当を反映して変わる（固定文字列の一覧ではない）', legacyTab !== conversionMathTab && conversionMathTab.includes('英字層'), { legacyTab, conversionMathTab });
+ok('変換方式のTab説明は英字層を含めず、変換/ギリシャの操作を示す', legacyTab !== conversionMathTab && conversionMathTab.includes('変換') && conversionMathTab.includes('ギリシャ') && !conversionMathTab.includes('英字'), { legacyTab, conversionMathTab });
 
 await browser.close();
 ok('ページエラーなし', pageErrors.length === 0, pageErrors);

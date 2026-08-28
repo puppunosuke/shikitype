@@ -293,6 +293,11 @@
         <button type="submit" id="review-submit">見直す</button>
         <details id="review-history" hidden><summary>過去の見直し</summary><div id="review-history-list"></div></details>
       </section>
+      <section id="review-progress" hidden>
+        <p id="review-progress-status" tabindex="-1"></p>
+        <ol id="review-progress-stages" aria-live="polite"></ol>
+        <button type="button" id="review-progress-close" class="review-link-button">閉じて他の操作をする（終わったら見直すボタンに戻ります）</button>
+      </section>
       <section id="review-result" hidden aria-live="polite">
         <div class="review-card"><h3>できていること</h3><ul id="review-strengths"></ul></div>
         <div class="review-card"><h3>直す箇所</h3><div id="review-corrections"></div></div>

@@ -144,9 +144,14 @@ await page.keyboard.type('shi');
 const candidateGeometry = await page.evaluate(() => {
   const row = window.__neoApp.getActiveRow();
   const field = row.mf.getBoundingClientRect(); const tray = row.conversion.shell.getBoundingClientRect();
-  return { below: tray.top >= field.bottom - 1, sameRow: row.conversion.shell.closest('.row') === row.wrap };
+  const viewport = document.getElementById('canvas-viewport').getBoundingClientRect();
+  return {
+    below: tray.top >= field.bottom - 1,
+    inViewport: tray.left >= viewport.left + 5 && tray.right <= viewport.right - 5,
+    owner: row.conversion.shell.dataset.ownerRow === row.id,
+  };
 });
-ok('変換候補はキャンバス上でも対象ブロックの直下へ追従する', candidateGeometry.below && candidateGeometry.sameRow, candidateGeometry);
+ok('変換候補はキャンバス上でも対象blockの直下・viewport内へ追従する', candidateGeometry.below && candidateGeometry.inViewport && candidateGeometry.owner, candidateGeometry);
 
 const canvasCaret = await page.evaluate(() => {
   const row = window.__neoApp.getActiveRow(); const block = row.wrap.getBoundingClientRect(); const caret = row.caret.getBoundingClientRect();
@@ -167,6 +172,37 @@ ok('canvasで2個目blockを作っても可視caretは新しい入力先の1本�
 
 await page.setViewportSize({ width: 360, height: 760 });
 await page.waitForTimeout(30);
+const narrowViewportBox = await viewport.boundingBox();
+if (!narrowViewportBox) throw new Error('narrow canvas viewport missing');
+async function edgeTrayGeometry(x, y) {
+  await page.mouse.click(x, y);
+  await page.waitForTimeout(30);
+  await page.keyboard.press('KeyP');
+  await page.waitForTimeout(80);
+  return page.evaluate(() => {
+    const row = window.__neoApp.getActiveRow();
+    const viewport = document.getElementById('canvas-viewport').getBoundingClientRect();
+    const tray = row.conversion.shell.getBoundingClientRect();
+    const list = row.conversion.list;
+    const first = list.querySelector('.conversion-candidate')?.getBoundingClientRect();
+    list.scrollLeft = list.scrollWidth;
+    const last = list.querySelector('.conversion-candidate:last-child')?.getBoundingClientRect();
+    return {
+      viewport, tray, first, last,
+      belowCaret: tray.top >= row.caret.getBoundingClientRect().bottom - 1,
+      owner: row.conversion.shell.dataset.ownerRow === row.id,
+      firstVisible: first?.left >= viewport.left + 5 && first?.right <= viewport.right - 5,
+      lastVisible: last?.left >= viewport.left + 5 && last?.right <= viewport.right - 5,
+      trayVisible: tray.left >= viewport.left + 5 && tray.right <= viewport.right - 5,
+    };
+  });
+}
+const leftEdgeTray = await edgeTrayGeometry(narrowViewportBox.x + 10, narrowViewportBox.y + 150);
+ok('360px canvasの左端blockでも候補先頭はclipせず、caret直下に出る', leftEdgeTray.trayVisible && leftEdgeTray.firstVisible && leftEdgeTray.lastVisible && leftEdgeTray.belowCaret && leftEdgeTray.owner, leftEdgeTray);
+await page.keyboard.press('Escape');
+const rightEdgeTray = await edgeTrayGeometry(narrowViewportBox.x + narrowViewportBox.width - 10, narrowViewportBox.y + 300);
+ok('360px canvasの右端blockでも候補末尾までviewport内で読める', rightEdgeTray.trayVisible && rightEdgeTray.firstVisible && rightEdgeTray.lastVisible && rightEdgeTray.belowCaret && rightEdgeTray.owner, rightEdgeTray);
+await page.keyboard.press('Escape');
 const narrowDelete = await page.evaluate(() => {
   const row = window.__neoApp.getActiveRow();
   const button = row.wrap.querySelector('.row-delete');

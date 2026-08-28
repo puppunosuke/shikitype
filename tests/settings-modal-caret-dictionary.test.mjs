@@ -1,5 +1,5 @@
 import { chromium } from '../spike/node_modules/playwright/index.mjs';
-import { CONVERSION_CANDIDATES, effectiveConversionCandidates, rankConversionCandidates } from '../conversion.js';
+import { CONVERSION_CANDIDATES, effectiveConversionCandidates } from '../conversion.js';
 
 let passed = 0; const failures = [];
 function ok(label, value, detail = value) { if (value) { passed++; console.log(`  OK  ${label}`); } else { failures.push({ label, detail }); console.log(`  FAIL ${label}: ${JSON.stringify(detail)}`); } }
@@ -7,7 +7,7 @@ function ok(label, value, detail = value) { if (value) { passed++; console.log(`
 const ids = CONVERSION_CANDIDATES.map((candidate) => candidate.id);
 ok('既定辞書は100件以上かつIDが一意', CONVERSION_CANDIDATES.length >= 100 && new Set(ids).size === ids.length, { candidates: CONVERSION_CANDIDATES.length, aliases: CONVERSION_CANDIDATES.reduce((total, candidate) => total + candidate.aliases.length, 0), duplicateIds: ids.filter((id, index) => ids.indexOf(id) !== index) });
 ok('CSV相当の重複IDを既定候補へ重ねない', effectiveConversionCandidates({ additions: { integral: { id: 'integral', label: '×', latex: 'x', basePriority: 1, aliases: ['x'] } } }).filter((candidate) => candidate.id === 'integral').length === 1);
-ok('Latin raw pはPを最優先し小文字は明示alias経由', rankConversionCandidates('p').filter((candidate) => candidate.categories?.includes('latin')).map((candidate) => candidate.id).join(',') === 'latin-uppercase-p');
+ok('辞書には単英字の小文字候補を持ち、変換UIが先頭固定に利用できる', ids.includes('latin-lower-p') && ids.includes('latin-lower-x'));
 
 const browser = await chromium.launch({ headless: true });
 const page = await browser.newPage({ viewport: { width: 1280, height: 900 } });
@@ -28,6 +28,12 @@ ok('変換中のcaretとASCII previewが維持される', caretAfterTyping.caret
 const opener = await page.locator('#sidebar-toggle'); await opener.click();
 const modal = await page.evaluate(() => ({ open: document.getElementById('sidebar')?.open, panels: [...document.querySelectorAll('.settings-panel')].map((panel) => [panel.id, panel.hidden]), parents: ['input-system-section','layout-mode-section','legacy-input-method-section','conversion-priority-section','conversion-dictionary-section','legacy-method-base-section'].map((id) => [id, document.getElementById(id)?.closest('.settings-panel')?.id]), caretHidden: document.querySelector('.conversion-caret')?.hidden }));
 ok('設定はnative modalで、カテゴリ所属とcaret遮蔽を保つ', modal.open && modal.caretHidden && JSON.stringify(modal.parents) === JSON.stringify([['input-system-section','settings-panel-basic'],['layout-mode-section','settings-panel-basic'],['legacy-input-method-section','settings-panel-input'],['conversion-priority-section','settings-panel-conversion'],['conversion-dictionary-section','settings-panel-conversion'],['legacy-method-base-section','settings-panel-input']]), modal);
+await page.click('[data-settings-category="input"]');
+const conversionLayerSettings = await page.evaluate(() => ({
+  latinMethodRow: !!document.getElementById('layer-method-latin'),
+  layerChoices: [...document.querySelectorAll('#layer-choice [data-choice-value]')].map((button) => button.dataset.choiceValue),
+}));
+ok('変換方式の設定から英字層を外し、変換/ギリシャだけを選べる', !conversionLayerSettings.latinMethodRow && JSON.stringify(conversionLayerSettings.layerChoices) === JSON.stringify(['symbol', 'greek']), conversionLayerSettings);
 await page.focus('#sidebar-close'); await page.keyboard.press('Tab');
 const dialogTab = await page.evaluate(() => ({ focused: document.activeElement?.id, baseLayer: window.__neoApp.getBaseLayer(), inside: document.getElementById('sidebar')?.contains(document.activeElement) }));
 ok('設定modal中のTabは数式層を奪わず次の設定操作へ進む', dialogTab.focused === 'settings-search' && dialogTab.baseLayer === 'symbol' && dialogTab.inside, dialogTab);

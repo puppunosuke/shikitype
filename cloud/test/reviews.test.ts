@@ -76,6 +76,53 @@ describe('AI review pipeline', () => {
     expect(stored.results.filter((row) => row.stage !== 'falsifier').every((row) => row.total_tokens === 18 && typeof row.duration_ms === 'number')).toBe(true);
   });
 
+  it('reports run progress through /api/reviews/status while it is completing, and the finished stages afterward', async () => {
+    const { cookie, noteId, noteUpdatedAt } = await account();
+    const key = `review-${crypto.randomUUID()}`;
+    // 見直しを送る前は該当runがまだ無いので「pending」で返る（未着手を失敗と区別する）。
+    const beforeSubmit = await call(`/api/reviews/status?key=${encodeURIComponent(key)}`, {}, cookie);
+    expect(beforeSubmit.status).toBe(200);
+    expect(await beforeSubmit.json()).toEqual({ status: 'pending', stages: [] });
+
+    const outputs = [
+      { referenceSteps: ['置換する'], checkpoints: ['微分を確認'], confidence: 0.92 },
+      { strengths: ['置換の発想は正しい'], corrections: [{ blockId: 'block-1', text: '微分係数をもう一度確認' }], firstMismatchBlockId: 'block-1', issueTypes: ['係数'], hintDirection: '置換に伴う微分係数を見直す', correctSummary: '置換の方針は正しい', confidence: 0.91, needsFalsifier: false },
+      { strengths: ['置換の方針は合っています'], corrections: [{ blockId: 'block-1', text: '係数だけを見直して' }], nextStep: '置換後の微分を一行だけ確かめよう。', confidence: 0.91 },
+    ];
+    const realFetch = globalThis.fetch;
+    vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify({ output_text: JSON.stringify(outputs.shift()), usage: { input_tokens: 11, output_tokens: 7, total_tokens: 18 } }), { status: 200, headers: { 'Content-Type': 'application/json' } })));
+    let response: Response;
+    try {
+      response = await call('/api/reviews', { method: 'POST', body: JSON.stringify({ noteId, noteUpdatedAt, problem: '∫2x dx を求めよ', conditions: '高校数学の範囲', reviewKind: 'hint', mode: 'pipeline', blocks: [{ id: 'block-1', latex: '\\int 2x' }], idempotencyKey: key }) }, cookie);
+    } finally { vi.stubGlobal('fetch', realFetch); }
+    expect(response.status).toBe(201);
+    const created = await response.json<{ runId: string }>();
+
+    // 完了後は結果本体と、段階名・省略状態がstatus経由でも取れる（進行表示の土台）。
+    const afterComplete = await call(`/api/reviews/status?key=${encodeURIComponent(key)}`, {}, cookie);
+    expect(afterComplete.status).toBe(200);
+    const statusBody = await afterComplete.json<{ status: string; stages: Array<{ stage: string; skipped: boolean }>; result: { runId: string } }>();
+    expect(statusBody.status).toBe('completed');
+    expect(statusBody.result.runId).toBe(created.runId);
+    expect(statusBody.stages.map((s) => s.stage)).toEqual(['independent_solver', 'solution_auditor', 'falsifier', 'tutor']);
+    expect(statusBody.stages.find((s) => s.stage === 'falsifier')?.skipped).toBe(true);
+    expect(statusBody.stages.find((s) => s.stage === 'tutor')?.skipped).toBe(false);
+  });
+
+  it('rejects a status lookup for another user\'s idempotency key', async () => {
+    const first = await account();
+    const second = await account();
+    const key = `review-${crypto.randomUUID()}`;
+    const realFetch = globalThis.fetch;
+    vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify({ output_text: JSON.stringify({ referenceSteps: [], checkpoints: [], confidence: 0.5 }), usage: { input_tokens: 1, output_tokens: 1, total_tokens: 2 } }), { status: 200, headers: { 'Content-Type': 'application/json' } })));
+    try {
+      await call('/api/reviews', { method: 'POST', body: JSON.stringify({ noteId: first.noteId, noteUpdatedAt: first.noteUpdatedAt, problem: 'xを求めよ', conditions: '', reviewKind: 'hint', mode: 'single', blocks: [{ id: 'block-1', latex: 'x=1' }], idempotencyKey: key }) }, first.cookie);
+    } finally { vi.stubGlobal('fetch', realFetch); }
+    const asOtherUser = await call(`/api/reviews/status?key=${encodeURIComponent(key)}`, {}, second.cookie);
+    expect(asOtherUser.status).toBe(200);
+    expect(await asOtherUser.json()).toEqual({ status: 'pending', stages: [] });
+  });
+
   it('returns a clear setup error before calling the model when the secret is unavailable', async () => {
     const { cookie, noteId, noteUpdatedAt } = await account();
     const original = env.OPENAI_API_KEY;

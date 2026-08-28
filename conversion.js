@@ -154,6 +154,29 @@ export function convertShikitypeReading(value) {
   return { reading: searchReading, searchReading, pending, display };
 }
 
+/**
+ * 専用IMEの途中打鍵で候補検索に使う語を返す。
+ *
+ * `s` や `p` はローマ字としてまだ一音に確定していないが、その状態で候補を
+ * 出さないと「2〜3文字打つまで何も起きない」入力になる。未確定末尾については
+ * あり得るかな（s -> さ/し/す/せ/そ、p -> ぱ/ぴ/ぷ/ぺ/ぽ 等）を語頭検索へ足す。
+ * raw英字も残すので integral / lim のように英字で書かれたaliasは従来どおり
+ * 一打目から検索できる。これは曖昧入力を捨てずに、かなaliasを持つCSVにも効く。
+ */
+export function shikitypeSearchQueries(value) {
+  const source = String(value ?? '').normalize('NFKC');
+  const converted = convertShikitypeReading(source);
+  const queries = new Set([source, converted.reading, converted.searchReading].filter(Boolean));
+  // 末尾の未確定ローマ字だけを展開する。途中まで確定した読みは残し、後続の一音が
+  // 何になっても一致する「語頭」として辞書を検索する。
+  if (/^[A-Za-z]+$/.test(source) && converted.pending) {
+    for (const key of ROMAJI_KEYS) {
+      if (key.startsWith(converted.pending)) queries.add(`${converted.reading}${ROMAJI_KANA[key]}`);
+    }
+  }
+  return [...queries];
+}
+
 // 既定辞書は「高校生が大学受験の数式を書く」ための辞書に限定する。
 // パレットそのものは全ギリシャ文字を提供するが、読みからの変換候補へは
 // 高校数学I・A・II・B・III・Cおよび入試頻出の記号だけを載せる。

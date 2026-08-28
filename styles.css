@@ -430,9 +430,9 @@ body[data-key-capture="original"] #capture-hint { display: none; }
   font: 500 clamp(18px, 2vw, 25px)/1.25 var(--font-jp), var(--font-en);
   letter-spacing: .04em;
 }
-.conversion-candidate-tray { min-width: 0; margin: 2px 0 9px; }
+.conversion-candidate-tray { position: fixed; z-index: 22; min-width: 0; margin: 0; }
 .conversion-candidate-tray[hidden] { display: none; }
-.conversion-candidates { display: flex; gap: 5px; min-width: 0; margin: 0; overflow-x: auto; overscroll-behavior-inline: contain; scrollbar-width: thin; }
+.conversion-candidates { display: flex; gap: 5px; width: 100%; min-width: 0; margin: 0; overflow-x: auto; overscroll-behavior-inline: contain; scrollbar-width: thin; }
 .conversion-candidate {
   flex: 0 0 48px;
   min-height: 44px;
@@ -521,7 +521,6 @@ body[data-key-capture="original"] #capture-hint { display: none; }
 }
 #editor-sheet.canvas-mode .row::before { left: 10px; top: 17px; }
 #editor-sheet.canvas-mode .row math-field { padding: 7px 0; cursor: text; }
-#editor-sheet.canvas-mode .conversion-candidate-tray { margin-bottom: 0; }
 /* Shift+dragで矩形選択している最中だけ見える範囲表示。canvas-viewportの子として
    screen座標にそのまま置くので、pan/zoomのtransformを受けない。 */
 #editor-sheet.canvas-mode .canvas-select-box {
@@ -1048,7 +1047,13 @@ body .modifier-key.is-physical {
 /* #review-result の display:grid が native [hidden] より強くなり、初期表示で
    空の結果面が残る事故を防ぐ。 */
 #review-result { display: grid; gap: 10px; }
-#review-result[hidden], #review-setup[hidden], #review-history[hidden] { display: none; }
+#review-progress { display: grid; gap: 12px; }
+#review-result[hidden], #review-setup[hidden], #review-history[hidden], #review-progress[hidden] { display: none; }
+#review-progress-status { margin: 0; color: var(--muted); font-size: 12px; }
+#review-progress-stages { display: grid; gap: 6px; margin: 0; padding: 0; list-style: none; }
+#review-progress-stages li { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 9px 10px; border: 1px solid var(--line); font-size: 13px; color: var(--muted); }
+#review-progress-stages li[data-state="active"] { border-color: var(--ink); color: var(--ink); font-weight: 700; }
+#review-progress-stages li[data-state="done"] { color: var(--ink); }
 .review-card { padding: 14px; border: 1px solid var(--line); background: rgba(255,255,255,.62); }
 .review-card h3 { margin: 0 0 8px; font-size: 12px; }
 .review-card ul { display: grid; gap: 5px; margin: 0; padding-left: 19px; font-size: 13px; }

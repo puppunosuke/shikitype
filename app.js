@@ -348,6 +348,45 @@ function updateConversionCaret(row = activeRow()) {
     else { const fraction = Math.min(1, Math.max(0, Number(row.mf.position || 0) / Math.max(1, Number(row.mf.lastOffset || 1)))); left = fieldRect.left + 3 + (fieldRect.width - 8) * fraction; }
   } catch { /* mount途中は次フレームで追従する */ }
   caret.style.left = `${Math.round(left)}px`; caret.style.top = `${Math.round(top)}px`; caret.style.height = `${Math.round(height)}px`;
+  positionConversionCandidateTray(row);
+}
+
+// canvasのworld座標内に候補を置くと、パンした端でviewportのoverflowに切られる。
+// 論理caretを基準にoverlayへ出し、見えている編集面の左右に収める。
+function conversionTrayViewportBounds() {
+  const boundary = layoutMode === 'canvas'
+    ? document.getElementById('canvas-viewport')
+    : document.getElementById('editor-sheet');
+  const rect = boundary?.getBoundingClientRect();
+  if (!rect) return null;
+  const left = Math.max(4, rect.left + 6);
+  const right = Math.min(window.innerWidth - 4, rect.right - 6);
+  return right > left ? { left, right } : null;
+}
+
+function positionConversionCandidateTray(row = activeRow()) {
+  const state = row?.conversion;
+  const shell = state?.shell;
+  if (!shell || shell.hidden || activeRow() !== row || !isShikitypeTransformLayer()) return;
+  // transformされたcanvas blockの子ではposition: fixedもblock基準になるため、
+  // app-stage直下へ移す。rowとの対応はdata属性として保持する。
+  const stage = document.getElementById('app-stage');
+  if (stage && shell.parentElement !== stage) stage.appendChild(shell);
+  shell.dataset.ownerRow = row.id;
+
+  const bounds = conversionTrayViewportBounds();
+  const caretRect = row.caret?.getBoundingClientRect();
+  const fieldRect = row.mf?.getBoundingClientRect();
+  if (!bounds || !fieldRect) return;
+  const anchorLeft = caretRect?.left ?? fieldRect.left;
+  const anchorBottom = caretRect?.bottom ?? fieldRect.bottom;
+  const width = Math.min(416, Math.max(1, bounds.right - bounds.left));
+  const left = Math.max(bounds.left, Math.min(anchorLeft, bounds.right - width));
+  shell.style.width = `${Math.round(width)}px`;
+  shell.style.left = `${Math.round(left)}px`;
+  shell.style.top = `${Math.round(anchorBottom + 6)}px`;
+  // 端へ移動した直後も、まず先頭候補を必ず読める位置から表示する。
+  state.list.scrollLeft = 0;
 }
 
 // ---------------------------------------------------------------------------
@@ -1368,7 +1407,10 @@ function installCanvasControls() {
 }
 
 window.addEventListener('resize', () => {
-  if (layoutMode === 'canvas') requestAnimationFrame(() => { fitCanvasRowsToViewport(); scheduleConversionCaret(activeRow()); });
+  requestAnimationFrame(() => {
+    if (layoutMode === 'canvas') fitCanvasRowsToViewport();
+    scheduleConversionCaret(activeRow());
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -1481,6 +1523,10 @@ function renderConversionCandidates(row) {
   // rawが空のときは候補トレイ自体を出さない。一方で英字一打は読みの変換結果が空でも
   // literal候補を持つので、候補が存在する限り表示・確定できるようにする。
   state.shell.hidden = !isShikitypeTransformLayer() || (!state.raw && !state.pending && !query.trim());
+  // portalの位置更新はrAFなので、行モードでも描画された瞬間から所有rowを一貫して
+  // 判別できるようここで先に設定する。閉じたtrayには古いrow情報を残さない。
+  if (state.shell.hidden) delete state.shell.dataset.ownerRow;
+  else state.shell.dataset.ownerRow = row.id;
   if (!query.trim() && state.pending && !state.candidates.length) {
     state.status.textContent = `「${state.pending}」を読みとして待機中`; 
     return;
@@ -1539,7 +1585,10 @@ function closeConversion(row = activeRow(), { clear = true, focus = true } = {})
 function openConversion(row = activeRow(), focus = true) {
   if (!row?.conversion || !isShikitypeTransformLayer()) return;
   for (const candidateRow of rows) {
-    if (candidateRow !== row && candidateRow.conversion) candidateRow.conversion.shell.hidden = true;
+    if (candidateRow !== row && candidateRow.conversion) {
+      candidateRow.conversion.shell.hidden = true;
+      delete candidateRow.conversion.shell.dataset.ownerRow;
+    }
   }
   activeRowIndex = rows.indexOf(row);
   conversionOpen = true;
@@ -2594,6 +2643,9 @@ function removeEmptyRow(row, { requireEmpty = true, skipHistory = false } = {}) 
   if (sink instanceof HTMLElement) sink.blur();
   if (row.mf.isConnected) row.mf.blur();
   row.caret?.remove();
+  // 候補トレイはclip回避のためapp-stage直下へportalしている。row本体だけを
+  // 消すとhiddenな候補DOMが残るため、block削除時は同時に明示破棄する。
+  row.conversion?.shell?.remove();
   row.wrap.remove();
   rows.splice(index, 1);
   selectedRows.delete(row);
@@ -5065,6 +5117,20 @@ let reviewSubmitting = false;
 let reviewHistory = [];
 let reviewHistoryNoteId = null;
 let reviewResumeAfterLogin = false;
+// 待機中の進行表示（段階名・経過時間）を出すための状態。パイプラインはCloudflare Workerの
+// 1requestの中で順に実行されるため、これらは「今どこまで終わったか」を別requestで
+// pollingするための帳簿であって、パイプライン自体の実行方式は変えていない。
+let reviewPollTimer = null;
+let reviewSubmitStartedAt = 0;
+let reviewCurrentKey = null;
+let reviewStageProgress = [];
+let reviewMode = 'pipeline';
+// 待機中にダイアログを閉じても見直しは裏側で走り続ける（fetchはダイアログの開閉と無関係）。
+// 閉じている間に完了/失敗したら、次に開いたときに正しい画面を出すためのフラグ。
+let reviewResultUnseen = false;
+let pendingReviewSetupMessage = null;
+const REVIEW_STAGE_LABELS = { independent_solver: '独立した解法を作成', solution_auditor: '答案と照合', falsifier: '診断を再検証', tutor: '最小のヒントに整理', single: '通常の見直し' };
+const REVIEW_STAGE_ORDER = { pipeline: ['independent_solver', 'solution_auditor', 'falsifier', 'tutor'], single: ['single'] };
 
 function setReviewStatus(message = '', error = false) {
   const status = document.getElementById('review-status');
@@ -5117,6 +5183,8 @@ function focusReviewBlock(blockId) {
 function renderReviewResult(result) {
   latestReviewResult = { ...result, snapshotKey: JSON.stringify(Array.isArray(result.snapshot) ? result.snapshot : reviewBlocksSnapshot()) };
   document.getElementById('review-setup').hidden = true;
+  const progressPanel = document.getElementById('review-progress');
+  if (progressPanel) progressPanel.hidden = true;
   const section = document.getElementById('review-result');
   section.hidden = false;
   const card = result.card || {};
@@ -5139,10 +5207,9 @@ function renderReviewResult(result) {
   refreshReviewStaleState();
   const trace = document.getElementById('review-stage-list');
   trace.replaceChildren();
-  const labels = { independent_solver: '独立した解法を作成', solution_auditor: '答案と照合', falsifier: '診断を再検証', tutor: '最小のヒントに整理', single: '通常の見直し' };
   for (const stage of result.stages || []) {
     const item = document.createElement('li');
-    item.textContent = stage.skipped ? `${labels[stage.stage] || stage.stage}（${stage.reason || '条件を満たさず省略'}）` : (labels[stage.stage] || stage.stage);
+    item.textContent = stage.skipped ? `${REVIEW_STAGE_LABELS[stage.stage] || stage.stage}（${stage.reason || '条件を満たさず省略'}）` : (REVIEW_STAGE_LABELS[stage.stage] || stage.stage);
     trace.append(item);
   }
   document.getElementById('review-trace').hidden = !(result.stages?.length);
@@ -5178,17 +5245,110 @@ async function loadReviewHistory(noteId) {
   }
 }
 
+function updateReviewToggleState(state) {
+  const toggle = document.getElementById('review-toggle');
+  if (!toggle) return;
+  const label = toggle.querySelector('span:last-child');
+  if (state === 'running') { if (label) label.textContent = '見直し中…'; toggle.setAttribute('aria-label', 'ノートを見直し中'); }
+  else if (state === 'ready') { if (label) label.textContent = '見直し結果あり'; toggle.setAttribute('aria-label', '見直し結果を見る'); }
+  else { if (label) label.textContent = '見直す'; toggle.setAttribute('aria-label', 'ノートを見直す'); }
+}
+
+function reviewElapsedSeconds() {
+  return Math.max(0, Math.round((Date.now() - reviewSubmitStartedAt) / 1000));
+}
+
+function renderReviewProgress() {
+  const order = REVIEW_STAGE_ORDER[reviewMode] || REVIEW_STAGE_ORDER.pipeline;
+  const list = document.getElementById('review-progress-stages');
+  if (list) {
+    list.replaceChildren();
+    let activeAssigned = false;
+    for (const stage of order) {
+      const entry = reviewStageProgress.find((row) => row.stage === stage);
+      const item = document.createElement('li');
+      let state = 'pending';
+      let suffix = '未着手';
+      if (entry) { state = 'done'; suffix = entry.skipped ? '省略' : '完了'; }
+      else if (!activeAssigned) { state = 'active'; suffix = '実行中…'; activeAssigned = true; }
+      item.dataset.state = state;
+      item.textContent = `${REVIEW_STAGE_LABELS[stage] || stage}　${suffix}`;
+      list.append(item);
+    }
+  }
+  const status = document.getElementById('review-progress-status');
+  if (status) status.textContent = `見直しを実行しています（経過${reviewElapsedSeconds()}秒）`;
+}
+
+async function pollReviewStatus(key) {
+  try {
+    const payload = await apiJson(`/reviews/status?key=${encodeURIComponent(key)}`);
+    if (reviewCurrentKey !== key) return; // 別の見直しが始まっていたら古い応答は捨てる
+    reviewStageProgress = Array.isArray(payload.stages) ? payload.stages : [];
+    renderReviewProgress();
+  } catch {
+    // 進捗取得の失敗は見直し自体を止めない。次のtickで再試行する。
+  }
+}
+
+function showReviewProgressPanel() {
+  document.getElementById('review-setup').hidden = true;
+  document.getElementById('review-result').hidden = true;
+  const progress = document.getElementById('review-progress');
+  if (progress) progress.hidden = false;
+  // 送信ボタンがhiddenになると、開いたままのdialog内でフォーカスがbodyへ抜けてしまう
+  // （showModal()は既に開いているdialogへは再適用されない）。状態原則どおり、隠した分は
+  // 自前でフォーカス先を補い、SR利用者にも「見直しを実行しています」を即読ませる。
+  setTimeout(() => document.getElementById('review-progress-status')?.focus(), 0);
+}
+
+function startReviewProgress(key, mode) {
+  reviewCurrentKey = key;
+  reviewMode = mode;
+  reviewStageProgress = [];
+  reviewSubmitStartedAt = Date.now();
+  showReviewProgressPanel();
+  updateReviewToggleState('running');
+  renderReviewProgress();
+  clearInterval(reviewPollTimer);
+  reviewPollTimer = setInterval(() => { renderReviewProgress(); void pollReviewStatus(key); }, 1000);
+}
+
+function stopReviewProgress() {
+  clearInterval(reviewPollTimer);
+  reviewPollTimer = null;
+}
+
 function openReviewDialog({ focusProblem = true } = {}) {
   const dialog = document.getElementById('review-dialog');
   if (!dialog) return;
-  document.getElementById('review-result').hidden = true;
-  document.getElementById('review-setup').hidden = false;
-  setReviewStatus(cloudAccount.userId ? '問題文と、いまのノートの式を使います。' : '見直しにはログインが必要です。', !cloudAccount.userId);
-  document.getElementById('review-login').hidden = Boolean(cloudAccount.userId);
+  let showingResult = false;
+  if (reviewSubmitting) {
+    showReviewProgressPanel();
+    renderReviewProgress();
+  } else if (reviewResultUnseen && latestReviewResult) {
+    reviewResultUnseen = false;
+    updateReviewToggleState('');
+    document.getElementById('review-progress').hidden = true;
+    document.getElementById('review-setup').hidden = true;
+    document.getElementById('review-result').hidden = false;
+    showingResult = true;
+  } else {
+    document.getElementById('review-progress').hidden = true;
+    document.getElementById('review-result').hidden = true;
+    document.getElementById('review-setup').hidden = false;
+    if (pendingReviewSetupMessage) {
+      setReviewStatus(pendingReviewSetupMessage.text, pendingReviewSetupMessage.error);
+      pendingReviewSetupMessage = null;
+    } else {
+      setReviewStatus(cloudAccount.userId ? '問題文と、いまのノートの式を使います。' : '見直しにはログインが必要です。', !cloudAccount.userId);
+    }
+    document.getElementById('review-login').hidden = Boolean(cloudAccount.userId);
+  }
   if (!dialog.open) dialog.showModal();
   const noteId = notesStore.activeId;
   if (noteId && (reviewHistoryNoteId !== noteId || !reviewHistory.length)) void loadReviewHistory(noteId);
-  if (focusProblem) setTimeout(() => document.getElementById('review-problem')?.focus(), 0);
+  if (focusProblem && !reviewSubmitting && !showingResult) setTimeout(() => document.getElementById('review-problem')?.focus(), 0);
 }
 
 async function submitReview() {
@@ -5200,7 +5360,9 @@ async function submitReview() {
   if (!blocks.length) { setReviewStatus('見直す式をノートに入力してください。', true); return; }
   reviewSubmitting = true;
   const submit = document.getElementById('review-submit'); if (submit) submit.disabled = true;
-  setReviewStatus('ノートを保存してから見直しています…');
+  const idempotencyKey = `review-${crypto.randomUUID()}`;
+  const mode = document.getElementById('review-mode')?.value || 'pipeline';
+  startReviewProgress(idempotencyKey, mode);
   try {
     saveCurrentNoteNow();
     const queue = queueForAccount(cloudAccount.userId);
@@ -5212,17 +5374,31 @@ async function submitReview() {
       noteId: note.id, noteUpdatedAt, problem,
       conditions: document.getElementById('review-conditions')?.value?.trim() || '',
       reviewKind: document.getElementById('review-kind')?.value || 'hint',
-      mode: document.getElementById('review-mode')?.value || 'pipeline',
-      blocks, idempotencyKey: `review-${crypto.randomUUID()}`,
+      mode, blocks, idempotencyKey,
     }) });
+    stopReviewProgress();
+    const dialog = document.getElementById('review-dialog');
+    const closedMidflight = !dialog?.open;
     renderReviewResult(result);
     reviewHistory = [{ ...result, result }, ...reviewHistory.filter((entry) => entry.runId !== result.runId)].slice(0, 6);
     reviewHistoryNoteId = note.id;
     renderReviewHistory();
+    if (closedMidflight) { reviewResultUnseen = true; updateReviewToggleState('ready'); }
+    else updateReviewToggleState('');
   } catch (error) {
+    stopReviewProgress();
     const code = error?.payload?.error || error?.message;
     const message = code === 'review_not_configured' ? 'AI見直しはまだ設定されていません。' : code === 'note_stale' ? 'ノートが更新されたため、もう一度見直してください。' : code === 'note_not_saved' ? 'ノートを保存できませんでした。通信を確認してください。' : '見直しを完了できませんでした。';
-    setReviewStatus(message, true);
+    const dialog = document.getElementById('review-dialog');
+    updateReviewToggleState('');
+    if (dialog?.open) {
+      document.getElementById('review-progress').hidden = true;
+      document.getElementById('review-setup').hidden = false;
+      setReviewStatus(message, true);
+    } else {
+      // 閉じている間に失敗した。次に開いたときに理由が分かるよう、setup表示用に理由を控えておく。
+      pendingReviewSetupMessage = { text: message, error: true };
+    }
   } finally {
     reviewSubmitting = false;
     if (submit) submit.disabled = false;
@@ -5868,6 +6044,9 @@ document.getElementById('account-toggle')?.addEventListener('click', () => openA
 document.getElementById('review-toggle')?.addEventListener('click', openReviewDialog);
 document.getElementById('review-dialog-shell')?.addEventListener('submit', (event) => { event.preventDefault(); void submitReview(); });
 document.getElementById('review-dialog-close')?.addEventListener('click', () => document.getElementById('review-dialog')?.close());
+// 待機中は見直し自体を止めず、ダイアログだけ閉じて他の操作をできるようにする。
+// 完了/失敗はreview-toggleの表示切り替えで知らせ、開き直したときに結果/理由を出す。
+document.getElementById('review-progress-close')?.addEventListener('click', () => document.getElementById('review-dialog')?.close());
 document.getElementById('review-again')?.addEventListener('click', () => openReviewDialog());
 // 結果表示から「別の見直しをする」しか戻り口がないと、過去の見直し一覧(#review-history)へ
 // 迷わず戻れない（同じ画面へ遷移するのに新規見直しにしか見えないラベルだった）。

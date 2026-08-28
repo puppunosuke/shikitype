@@ -112,15 +112,14 @@ async function main() {
   await page.evaluate(() => window.__neoApp.setInputSystem('conversion', false));
   await page.evaluate(() => window.__neoApp.newNote());
   await page.click('math-field');
-  // 先に latin層で x を読みとして打ち、Enterで確定（＝1つの取り消し単位）
-  await switchLayer('latin');
+  // 変換層でxを打ち、Enterで小文字xを確定（＝1つの取り消し単位）
+  await switchLayer('symbol');
   await pressCode('KeyX');
   await pressCode('Enter');
   await page.waitForTimeout(650);
   const beforeConfirm = await value(0);
-  ok('xを確定する', beforeConfirm === 'X', beforeConfirm);
-  // symbol層のreadingで積分記号を確定する（別の取り消し単位になるはず）
-  await switchLayer('symbol');
+  ok('xを小文字で確定する', beforeConfirm === 'x', beforeConfirm);
+  // 同じ変換層のreadingで積分記号を確定する（別の取り消し単位になるはず）
   for (const ch of 'INTEGRAL') await pressCode(`Key${ch}`);
   await pressCode('Enter');
   const afterConfirm = await value(0);

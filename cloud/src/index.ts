@@ -982,6 +982,23 @@ async function listReviews(request: Request, env: Env, noteId: string): Promise<
   return json({ reviews: result.results.map((row) => ({ runId: row.id, noteId: row.note_id, noteUpdatedAt: row.note_updated_at, reviewKind: row.review_kind, mode: row.mode, createdAt: row.created_at, completedAt: row.completed_at, snapshot: JSON.parse(row.snapshot_json), result: row.result_json ? JSON.parse(row.result_json) : null })) });
 }
 
+// 見直し実行中の進行状況だけを軽量に返す。executeReviewPipeline()は各段階が終わるたびに
+// review_stagesへ即insertしているため（同一requestの完了を待たずD1へ反映される）、
+// 別requestとして送るこのpollingは、パイプラインを止めずに「今どこまで終わったか」を読める。
+// SSE化やバックグラウンド実行への作り替えはせず、既存の逐次insertへ相乗りするだけに留めた。
+async function reviewStatus(request: Request, env: Env): Promise<Response> {
+  const userId = await authenticatedUser(request, env);
+  const key = new URL(request.url).searchParams.get('key') || '';
+  if (!key || key.length > 200) throw new ApiError(400, 'invalid_request');
+  const run = await env.DB.prepare('SELECT id, status, result_json, error_code FROM review_runs WHERE user_id = ? AND idempotency_key = ?').bind(userId, key).first<{ id: string; status: string; result_json: string | null; error_code: string | null }>();
+  if (!run) return json({ status: 'pending', stages: [] });
+  const stagesResult = await env.DB.prepare('SELECT stage, input_scope, duration_ms FROM review_stages WHERE run_id = ? ORDER BY created_at ASC').bind(run.id).all<{ stage: string; input_scope: string; duration_ms: number | null }>();
+  const stages = stagesResult.results.map((row) => ({ stage: row.stage, durationMs: row.duration_ms, skipped: row.input_scope === 'skipped_by_stage_conditions' }));
+  if (run.status === 'completed' && run.result_json) return json({ status: 'completed', stages, result: JSON.parse(run.result_json) });
+  if (run.status === 'failed') return json({ status: 'failed', stages, error: run.error_code || 'review_failed' });
+  return json({ status: 'running', stages });
+}
+
 async function api(request: Request, env: Env, path: string): Promise<Response> {
   if (path === '/api/auth/config' && request.method === 'GET') return handleGoogleConfig(request, env);
   if (path === '/api/auth/signup' && request.method === 'POST') return signup(request, env);
@@ -1006,6 +1023,7 @@ async function api(request: Request, env: Env, path: string): Promise<Response> 
   if (path === '/api/conversion-profile' && request.method === 'GET') return listConversionProfile(request, env);
   if (path === '/api/conversion-profile' && request.method === 'PUT') return putConversionProfile(request, env);
   if (path === '/api/reviews' && request.method === 'POST') return createReview(request, env);
+  if (path === '/api/reviews/status' && request.method === 'GET') return reviewStatus(request, env);
   const reviewMatch = /^\/api\/notes\/([^/]+)\/reviews$/.exec(path);
   if (reviewMatch && request.method === 'GET') return listReviews(request, env, decodeURIComponent(reviewMatch[1]));
   const match = /^\/api\/notes\/([^/]+)$/.exec(path);
