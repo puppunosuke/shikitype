@@ -2,6 +2,8 @@
 interface Env {
   AUTH_PEPPER: string;
   GOOGLE_CLIENT_ID?: string;
+  // 本番では `wrangler secret put OPENAI_API_KEY` だけで渡す。varsには置かない。
+  OPENAI_API_KEY?: string;
 }
 
 interface SubtleCrypto {

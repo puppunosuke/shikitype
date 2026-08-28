@@ -13,13 +13,18 @@ const SESSION_DAYS = 30;
 const RATE_WINDOW_MS = 15 * 60 * 1000;
 const RATE_LIMIT = 8;
 const GOOGLE_CSRF_COOKIE = '__Host-shikitype_google_csrf';
+const MAX_REVIEW_PROBLEM_CHARS = 8_000;
+const MAX_REVIEW_CONDITIONS_CHARS = 4_000;
+const MAX_REVIEW_BLOCKS = 80;
+const MAX_REVIEW_BLOCK_CHARS = 4_000;
+const MAX_OPENAI_RESPONSE_BYTES = 64 * 1024;
 
 type UserRow = { id: string; login_id: string; password_hash: string; password_salt: string; recovery_hash: string; google_sub?: string | null; google_name?: string | null };
 type SessionRow = { user_id: string; expires_at: string };
 type NoteRow = { id: string; created_at: string; updated_at: string; unit_id: string; rows_json: string; layout_json: string; revision: number; title: string | null; deleted_at: string | null };
 type ImportRow = { fingerprint: string; response_json: string };
-type CanvasBlock = { latex: string; x: number; y: number };
-type NoteLayout = { mode: 'rows' | 'canvas'; camera: { x: number; y: number; zoom: number }; blocks: CanvasBlock[] };
+type CanvasBlock = { id: string; latex: string; x: number; y: number };
+type NoteLayout = { mode: 'rows' | 'canvas'; camera: { x: number; y: number; zoom: number }; blocks: CanvasBlock[]; blockIds: string[] };
 type PublicNote = { id: string; createdAt: string; updatedAt: string; unitId: string; rows: string[]; layout: NoteLayout; revision: number; title: string | null; deletedAt: string | null };
 type DictionaryEntry = { id: string; label: string; latex: string; basePriority: number; aliases: string[] };
 type DictionaryState = { version: 1; additions: Record<string, DictionaryEntry>; addedAliases: Record<string, string[]>; deletedAliases: Record<string, string[]>; deletedCandidates: string[] };
@@ -27,6 +32,14 @@ type ManualPriorityState = { version: 1; priorities: Record<string, number> };
 type ProfileRow = { dictionary_json: string; manual_json: string; revision: number; updated_at: string };
 type ProfileUpdateRow = { fingerprint: string; response_json: string };
 type PublicConversionProfile = { dictionary: DictionaryState; manual: ManualPriorityState; revision: number; updatedAt: string | null };
+type ReviewBlock = { id: string; latex: string };
+type ReviewRequest = { noteId: string; noteUpdatedAt: string; problem: string; conditions: string; reviewKind: 'hint' | 'review'; mode: 'single' | 'pipeline'; blocks: ReviewBlock[]; idempotencyKey: string };
+type ReviewRunRow = { id: string; user_id: string; note_id: string; note_updated_at: string; snapshot_json: string; problem_text: string; conditions_text: string; review_kind: 'hint' | 'review'; mode: 'single' | 'pipeline'; status: 'running' | 'completed' | 'failed'; result_json: string | null; error_code: string | null; created_at: string; completed_at: string | null };
+type ReviewStage = 'independent_solver' | 'solution_auditor' | 'falsifier' | 'tutor' | 'single';
+type ReviewStageRow = { stage: ReviewStage; input_scope: string; output_json: string; input_tokens?: number | null; output_tokens?: number | null; total_tokens?: number | null; duration_ms?: number | null; created_at: string };
+type ReviewCard = { strengths: string[]; corrections: Array<{ blockId: string | null; text: string }>; nextStep: string; confidence: number };
+type ReviewUsage = { inputTokens: number | null; outputTokens: number | null; totalTokens: number | null };
+type ReviewResponse = { output: Record<string, unknown>; usage: ReviewUsage; durationMs: number };
 
 class ApiError extends Error {
   constructor(readonly status: number, readonly code: string) { super(code); }
@@ -288,10 +301,36 @@ function isCanvasCoordinate(value: unknown): value is number {
   return typeof value === 'number' && Number.isFinite(value) && Math.abs(value) <= 12_000;
 }
 
+function isBlockId(value: unknown): value is string {
+  return typeof value === 'string' && /^block-[a-z0-9-]{8,120}$/i.test(value);
+}
+
+// 旧ノートにはIDが無い。読み出し時に一度だけ安全に補完され、次の通常保存で
+// layout_jsonへ残る。行番号をレビューIDとして使い続ける移行にはしない。
+function legacyBlockId(index: number, latex: string): string {
+  // crypto hash is async and note validation is intentionally synchronous. This is only a
+  // deterministic bridge for old notes; the next client save replaces it with a UUID.
+  let hash = 2166136261;
+  for (let offset = 0; offset < latex.length; offset += 1) hash = Math.imul(hash ^ latex.charCodeAt(offset), 16777619);
+  return `block-legacy-${index}-${(hash >>> 0).toString(16)}`;
+}
+
+function noteBlockIds(value: unknown, rows: string[]): string[] {
+  const source = Array.isArray(value) ? value : [];
+  const seen = new Set<string>();
+  return rows.map((latex, index) => {
+    const candidate = source[index];
+    let id = isBlockId(candidate) && !seen.has(candidate) ? candidate : legacyBlockId(index, latex);
+    while (seen.has(id)) id = `${id}-${seen.size}`;
+    seen.add(id);
+    return id;
+  });
+}
+
 function noteLayoutFromUnknown(value: unknown, rows: string[]): NoteLayout {
   // 行モードはrows本文だけを持つ。旧クライアントの欠落layoutも、ここでblocksへ
   // 複製しないことで大きいノートのAPI容量を不必要に二重消費しない。
-  if (value === undefined || value === null) return { mode: 'rows', camera: { x: 72, y: 54, zoom: 1 }, blocks: [] };
+  if (value === undefined || value === null) return { mode: 'rows', camera: { x: 72, y: 54, zoom: 1 }, blocks: [], blockIds: noteBlockIds(null, rows) };
   if (!value || typeof value !== 'object' || Array.isArray(value)) throw new ApiError(400, 'invalid_note');
   const item = value as Record<string, unknown>;
   if (item.mode !== 'rows' && item.mode !== 'canvas') throw new ApiError(400, 'invalid_note');
@@ -300,15 +339,18 @@ function noteLayoutFromUnknown(value: unknown, rows: string[]): NoteLayout {
   const zoom = typeof camera.zoom === 'number' && Number.isFinite(camera.zoom) && camera.zoom >= 0.4 && camera.zoom <= 2.5 ? camera.zoom : null;
   if (zoom === null) throw new ApiError(400, 'invalid_note');
   if (!Array.isArray(item.blocks) || item.blocks.length > 80) throw new ApiError(400, 'invalid_note');
+  const blockIds = noteBlockIds(item.blockIds, rows);
   const blocks: CanvasBlock[] = item.blocks.map((raw, index) => {
     if (!raw || typeof raw !== 'object' || Array.isArray(raw)) throw new ApiError(400, 'invalid_note');
     const block = raw as Record<string, unknown>;
     if (typeof block.latex !== 'string' || block.latex.length > 4000 || !isCanvasCoordinate(block.x) || !isCanvasCoordinate(block.y)) throw new ApiError(400, 'invalid_note');
-    return { latex: block.latex, x: block.x, y: block.y };
+    return { id: isBlockId(block.id) ? block.id : blockIds[index], latex: block.latex, x: block.x, y: block.y };
   });
   if (item.mode === 'canvas' && blocks.length !== rows.length) throw new ApiError(400, 'invalid_note');
   if (!isCanvasCoordinate(camera.x) || !isCanvasCoordinate(camera.y)) throw new ApiError(400, 'invalid_note');
-  return { mode: item.mode, camera: { x: camera.x, y: camera.y, zoom }, blocks };
+  const canonicalIds = noteBlockIds(blocks.length ? blocks.map((block) => block.id) : blockIds, rows);
+  blocks.forEach((block, index) => { block.id = canonicalIds[index]; });
+  return { mode: item.mode, camera: { x: camera.x, y: camera.y, zoom }, blocks, blockIds: canonicalIds };
 }
 
 function toPublicNote(row: NoteRow): PublicNote {
@@ -672,6 +714,274 @@ async function putConversionProfile(request: Request, env: Env): Promise<Respons
   return json(response);
 }
 
+function reviewText(value: unknown, max: number, required = false): string {
+  if (typeof value !== 'string') {
+    if (required) throw new ApiError(400, 'invalid_review');
+    return '';
+  }
+  const text = value.replace(/\u0000/g, '').trim();
+  if ((required && !text) || text.length > max) throw new ApiError(400, 'invalid_review');
+  return text;
+}
+
+function reviewRequestFromUnknown(value: Record<string, unknown>): ReviewRequest {
+  const noteId = stringField(value, 'noteId', 120);
+  if (!/^note-[a-z0-9-]{8,120}(?:-conflict)?$/i.test(noteId)) throw new ApiError(400, 'invalid_review');
+  const noteUpdatedAt = reviewText(value.noteUpdatedAt, 40, true);
+  if (Number.isNaN(Date.parse(noteUpdatedAt))) throw new ApiError(400, 'invalid_review');
+  const problem = reviewText(value.problem, MAX_REVIEW_PROBLEM_CHARS, true);
+  const conditions = reviewText(value.conditions, MAX_REVIEW_CONDITIONS_CHARS);
+  const reviewKind = value.reviewKind === 'hint' || value.reviewKind === 'review' ? value.reviewKind : null;
+  const mode = value.mode === 'single' || value.mode === 'pipeline' ? value.mode : null;
+  const idempotencyKey = reviewText(value.idempotencyKey, 120, true);
+  if (!reviewKind || !mode || !/^[a-z0-9_-]{16,120}$/i.test(idempotencyKey) || !Array.isArray(value.blocks) || !value.blocks.length || value.blocks.length > MAX_REVIEW_BLOCKS) throw new ApiError(400, 'invalid_review');
+  const blocks: ReviewBlock[] = [];
+  const blockIds = new Set<string>();
+  for (const raw of value.blocks) {
+    if (!raw || typeof raw !== 'object' || Array.isArray(raw)) throw new ApiError(400, 'invalid_review');
+    const block = raw as Record<string, unknown>;
+    const id = reviewText(block.id, 120, true);
+    const latex = reviewText(block.latex, MAX_REVIEW_BLOCK_CHARS, true);
+    if (!/^[a-z][a-z0-9:_-]{0,119}$/i.test(id) || blockIds.has(id)) throw new ApiError(400, 'invalid_review');
+    blockIds.add(id); blocks.push({ id, latex });
+  }
+  if (encoder.encode(JSON.stringify({ noteId, noteUpdatedAt, problem, conditions, blocks })).byteLength > MAX_BODY_BYTES - 4_096) throw new ApiError(413, 'review_too_large');
+  return { noteId, noteUpdatedAt, problem, conditions, reviewKind, mode, blocks, idempotencyKey };
+}
+
+function boundedStringList(value: unknown, max = 4, itemMax = 400): string[] {
+  if (!Array.isArray(value)) return [];
+  return value.filter((item): item is string => typeof item === 'string')
+    .map((item) => item.replace(/\u0000/g, '').trim()).filter(Boolean).slice(0, max).map((item) => item.slice(0, itemMax));
+}
+
+function boundedConfidence(value: unknown): number {
+  return typeof value === 'number' && Number.isFinite(value) ? Math.max(0, Math.min(1, value)) : 0.5;
+}
+
+function reviewCorrections(value: unknown, allowedIds: Set<string>): Array<{ blockId: string | null; text: string }> {
+  if (!Array.isArray(value)) return [];
+  return value.slice(0, 4).flatMap((raw) => {
+    if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return [];
+    const entry = raw as Record<string, unknown>;
+    const text = typeof entry.text === 'string' ? entry.text.replace(/\u0000/g, '').trim().slice(0, 600) : '';
+    const blockId = typeof entry.blockId === 'string' && allowedIds.has(entry.blockId) ? entry.blockId : null;
+    return text ? [{ blockId, text }] : [];
+  });
+}
+
+function normalizeReviewCard(value: unknown, allowedIds: Set<string>): ReviewCard {
+  const item = value && typeof value === 'object' && !Array.isArray(value) ? value as Record<string, unknown> : {};
+  const nextStep = typeof item.nextStep === 'string' ? item.nextStep.replace(/\u0000/g, '').trim().slice(0, 600) : '';
+  if (!nextStep) throw new ApiError(502, 'review_invalid_response');
+  return { strengths: boundedStringList(item.strengths), corrections: reviewCorrections(item.corrections, allowedIds), nextStep, confidence: boundedConfidence(item.confidence) };
+}
+
+async function boundedResponseJson(response: Response): Promise<unknown> {
+  if (Number(response.headers.get('Content-Length') || '0') > MAX_OPENAI_RESPONSE_BYTES) throw new ApiError(502, 'review_response_too_large');
+  if (!response.body) throw new ApiError(502, 'review_invalid_response');
+  const reader = response.body.getReader(); const chunks: Uint8Array[] = []; let size = 0;
+  try {
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      size += value.byteLength;
+      if (size > MAX_OPENAI_RESPONSE_BYTES) throw new ApiError(502, 'review_response_too_large');
+      chunks.push(value);
+    }
+  } finally { reader.releaseLock(); }
+  const all = new Uint8Array(size); let offset = 0;
+  for (const chunk of chunks) { all.set(chunk, offset); offset += chunk.byteLength; }
+  try { return JSON.parse(decoder.decode(all)); }
+  catch { throw new ApiError(502, 'review_invalid_response'); }
+}
+
+function responseText(payload: unknown): { text: string; refused: boolean } {
+  if (!payload || typeof payload !== 'object') return { text: '', refused: false };
+  const item = payload as Record<string, unknown>;
+  if (typeof item.output_text === 'string') return { text: item.output_text, refused: false };
+  if (!Array.isArray(item.output)) return { text: '', refused: false };
+  for (const output of item.output) {
+    if (!output || typeof output !== 'object' || Array.isArray(output)) continue;
+    const content = (output as Record<string, unknown>).content;
+    if (!Array.isArray(content)) continue;
+    for (const part of content) {
+      if (part && typeof part === 'object' && !Array.isArray(part)) {
+        const record = part as Record<string, unknown>;
+        if (record.type === 'refusal') return { text: '', refused: true };
+        if (typeof record.text === 'string') return { text: record.text, refused: false };
+      }
+    }
+  }
+  return { text: '', refused: false };
+}
+
+function reviewStageSchema(stage: ReviewStage): Record<string, unknown> {
+  const base = { type: 'object', additionalProperties: false };
+  const confidence = { type: 'number' };
+  const strengths = { type: 'array', items: { type: 'string' } };
+  const corrections = { type: 'array', items: { type: 'object', additionalProperties: false, properties: { blockId: { type: ['string', 'null'] }, text: { type: 'string' } }, required: ['blockId', 'text'] } };
+  if (stage === 'independent_solver') return { ...base, properties: { referenceSteps: strengths, checkpoints: strengths, confidence }, required: ['referenceSteps', 'checkpoints', 'confidence'] };
+  if (stage === 'solution_auditor') return { ...base, properties: { strengths, corrections, firstMismatchBlockId: { type: ['string', 'null'] }, issueTypes: strengths, hintDirection: { type: 'string' }, correctSummary: { type: 'string' }, confidence, needsFalsifier: { type: 'boolean' } }, required: ['strengths', 'corrections', 'firstMismatchBlockId', 'issueTypes', 'hintDirection', 'correctSummary', 'confidence', 'needsFalsifier'] };
+  if (stage === 'falsifier') return { ...base, properties: { verdict: { type: 'string' }, disagreement: { type: 'boolean' }, strengths, corrections, nextStep: { type: 'string' }, confidence }, required: ['verdict', 'disagreement', 'strengths', 'corrections', 'nextStep', 'confidence'] };
+  return { ...base, properties: { strengths, corrections, nextStep: { type: 'string' }, confidence }, required: ['strengths', 'corrections', 'nextStep', 'confidence'] };
+}
+
+function responseUsage(payload: unknown): ReviewUsage {
+  const usage = payload && typeof payload === 'object' && !Array.isArray(payload) ? (payload as Record<string, unknown>).usage : null;
+  const record = usage && typeof usage === 'object' && !Array.isArray(usage) ? usage as Record<string, unknown> : {};
+  const integer = (value: unknown) => typeof value === 'number' && Number.isInteger(value) && value >= 0 ? value : null;
+  return { inputTokens: integer(record.input_tokens), outputTokens: integer(record.output_tokens), totalTokens: integer(record.total_tokens) };
+}
+
+async function responseJson(env: Env, stage: ReviewStage, input: Record<string, unknown>): Promise<ReviewResponse> {
+  if (!env.OPENAI_API_KEY) throw new ApiError(503, 'review_not_configured');
+  const schema = reviewStageSchema(stage);
+  const stageInstruction = stage === 'solution_auditor'
+    ? 'Treat a different correct approach as correct. Call out only the first block that is no longer mathematically derivable from prior blocks and stated conditions. Never put final values, reference formulas, or worked solution steps in hintDirection or correctSummary.'
+    : stage === 'tutor'
+      ? 'Use only the supplied safe handoff. Never reconstruct or reveal a full solution, reference formula, or final answer.'
+      : 'Do not reveal a full chain of thought.';
+  let response: Response;
+  const startedAt = Date.now();
+  try {
+    response = await fetch('https://api.openai.com/v1/responses', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${env.OPENAI_API_KEY}` },
+      body: JSON.stringify({
+        model: 'gpt-5.6-terra',
+        store: false,
+        text: { format: { type: 'json_schema', name: `shikitype_${stage}`, strict: true, schema } },
+        input: [{ role: 'developer', content: [{ type: 'input_text', text: `You are the ${stage} stage of a Japanese high-school mathematics review pipeline. Return only the requested JSON. Never reveal hidden chain-of-thought. Use concise Japanese. ${stageInstruction}` }] }, { role: 'user', content: [{ type: 'input_text', text: JSON.stringify(input) }] }],
+      }),
+    });
+  } catch {
+    throw new ApiError(503, 'review_unavailable');
+  }
+  if (!response.ok) throw new ApiError(response.status === 401 || response.status === 403 ? 503 : 502, 'review_unavailable');
+  const payload = await boundedResponseJson(response);
+  const extracted = responseText(payload);
+  if (extracted.refused) throw new ApiError(422, 'review_refused');
+  let parsed: unknown;
+  try { parsed = JSON.parse(extracted.text); }
+  catch { throw new ApiError(502, 'review_invalid_response'); }
+  if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) throw new ApiError(502, 'review_invalid_response');
+  return { output: parsed as Record<string, unknown>, usage: responseUsage(payload), durationMs: Date.now() - startedAt };
+}
+
+async function insertReviewStage(env: Env, runId: string, stage: ReviewStage, inputScope: string, output: unknown, usage: ReviewUsage | null = null, durationMs: number | null = null): Promise<void> {
+  await env.DB.prepare('INSERT INTO review_stages (id, run_id, stage, input_scope, output_json, input_tokens, output_tokens, total_tokens, duration_ms, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)')
+    .bind(`rvs_${crypto.randomUUID()}`, runId, stage, inputScope, JSON.stringify(output), usage?.inputTokens ?? null, usage?.outputTokens ?? null, usage?.totalTokens ?? null, durationMs, new Date().toISOString()).run();
+}
+
+async function executeReviewPipeline(env: Env, runId: string, review: ReviewRequest): Promise<{ card: ReviewCard; stages: Array<{ stage: ReviewStage; inputScope: string; skipped?: boolean; reason?: string }> }> {
+  const allowedIds = new Set(review.blocks.map((block) => block.id));
+  const stages: Array<{ stage: ReviewStage; inputScope: string; skipped?: boolean; reason?: string }> = [];
+  const write = async (stage: ReviewStage, inputScope: string, response: ReviewResponse) => {
+    await insertReviewStage(env, runId, stage, inputScope, response.output, response.usage, response.durationMs);
+    stages.push({ stage, inputScope });
+  };
+  if (review.mode === 'single') {
+    const response = await responseJson(env, 'single', { task: review.reviewKind, problem: review.problem, conditions: review.conditions, studentBlocks: review.blocks, output: 'Return strengths, corrections, nextStep, confidence.' });
+    const card = normalizeReviewCard(response.output, allowedIds);
+    await insertReviewStage(env, runId, 'single', 'problem_conditions_and_student_blocks', card, response.usage, response.durationMs);
+    stages.push({ stage: 'single', inputScope: 'problem_conditions_and_student_blocks' });
+    return { card, stages };
+  }
+
+  // Contract: independent_solver gets no `studentBlocks` field, ever.
+  const solverResponse = await responseJson(env, 'independent_solver', { task: 'Solve independently within Japanese high-school mathematics.', problem: review.problem, conditions: review.conditions, output: 'Return referenceSteps, checkpoints, confidence.' });
+  const reference = { referenceSteps: boundedStringList(solverResponse.output.referenceSteps, 8), checkpoints: boundedStringList(solverResponse.output.checkpoints, 8), confidence: boundedConfidence(solverResponse.output.confidence) };
+  await insertReviewStage(env, runId, 'independent_solver', 'problem_and_conditions', reference, solverResponse.usage, solverResponse.durationMs);
+  stages.push({ stage: 'independent_solver', inputScope: 'problem_and_conditions' });
+
+  const auditorResponse = await responseJson(env, 'solution_auditor', {
+    task: review.reviewKind,
+    reference,
+    studentBlocks: review.blocks,
+    auditRule: 'Do not mark a different method wrong merely because it differs from the reference. An error is the first block that can no longer be mathematically derived from the prior blocks and stated conditions.',
+    safeHandoffRule: 'hintDirection and correctSummary must not contain a final answer, a reference formula, or a worked solution.',
+    output: 'Return strengths, corrections with blockId, firstMismatchBlockId, issueTypes, hintDirection, correctSummary, confidence, needsFalsifier.',
+  });
+  const diagnosis = {
+    strengths: boundedStringList(auditorResponse.output.strengths),
+    corrections: reviewCorrections(auditorResponse.output.corrections, allowedIds),
+    firstMismatchBlockId: typeof auditorResponse.output.firstMismatchBlockId === 'string' && allowedIds.has(auditorResponse.output.firstMismatchBlockId) ? auditorResponse.output.firstMismatchBlockId : null,
+    issueTypes: boundedStringList(auditorResponse.output.issueTypes, 4, 80),
+    hintDirection: typeof auditorResponse.output.hintDirection === 'string' ? auditorResponse.output.hintDirection.slice(0, 400) : '',
+    correctSummary: typeof auditorResponse.output.correctSummary === 'string' ? auditorResponse.output.correctSummary.slice(0, 400) : '',
+    confidence: boundedConfidence(auditorResponse.output.confidence),
+    needsFalsifier: auditorResponse.output.needsFalsifier === true,
+  };
+  await insertReviewStage(env, runId, 'solution_auditor', 'reference_solution_and_student_blocks', diagnosis, auditorResponse.usage, auditorResponse.durationMs);
+  stages.push({ stage: 'solution_auditor', inputScope: 'reference_solution_and_student_blocks' });
+
+  let verified = diagnosis;
+  if (diagnosis.needsFalsifier || diagnosis.confidence < 0.75 || reference.confidence < 0.75) {
+    // Contract: falsifier sees summaries only, not the complete student answer.
+    const falsifierResponse = await responseJson(env, 'falsifier', { task: 'Try to refute the audit without inventing facts.', reference, diagnosis, output: 'Return verdict, disagreement, strengths, corrections, nextStep, confidence.' });
+    const falsifier = falsifierResponse.output;
+    const corrected = { ...diagnosis, strengths: boundedStringList(falsifier.strengths).length ? boundedStringList(falsifier.strengths) : diagnosis.strengths, corrections: reviewCorrections(falsifier.corrections, allowedIds).length ? reviewCorrections(falsifier.corrections, allowedIds) : diagnosis.corrections, confidence: boundedConfidence(falsifier.confidence) };
+    verified = corrected;
+    await insertReviewStage(env, runId, 'falsifier', 'reference_and_audit_summary', { verdict: typeof falsifier.verdict === 'string' ? falsifier.verdict.slice(0, 300) : '', disagreement: falsifier.disagreement === true, ...corrected }, falsifierResponse.usage, falsifierResponse.durationMs);
+    stages.push({ stage: 'falsifier', inputScope: 'reference_and_audit_summary' });
+  } else {
+    const reason = '独立解答と照合の信頼度が十分だったため省略';
+    await insertReviewStage(env, runId, 'falsifier', 'skipped_by_stage_conditions', { skipped: true, reason }, null, 0);
+    stages.push({ stage: 'falsifier', inputScope: 'skipped_by_stage_conditions', skipped: true, reason });
+  }
+
+  // Contract: tutor is deliberately denied the original problem, reference solution, full answer,
+  // and the auditor's full record. Real API leakage-rate evaluation belongs in a separate eval,
+  // never this regular user-facing request path; mocks assert this fixed handoff shape.
+  const safeHandoff = { blockId: verified.firstMismatchBlockId, issueTypes: verified.issueTypes, hintDirection: verified.hintDirection, correctSummary: verified.correctSummary, strengths: verified.strengths };
+  const tutorResponse = await responseJson(env, 'tutor', { task: review.reviewKind, safeHandoff, output: 'Return strengths, corrections, nextStep, confidence. Give the smallest useful hint; do not reveal a full solution or final answer.' });
+  const card = normalizeReviewCard(tutorResponse.output, allowedIds);
+  await insertReviewStage(env, runId, 'tutor', 'safe_audit_handoff_only', card, tutorResponse.usage, tutorResponse.durationMs);
+  stages.push({ stage: 'tutor', inputScope: 'safe_audit_handoff_only' });
+  return { card, stages };
+}
+
+async function createReview(request: Request, env: Env): Promise<Response> {
+  validateOrigin(request); const userId = await authenticatedUser(request, env); const review = reviewRequestFromUnknown(await boundedJson(request));
+  const note = await env.DB.prepare('SELECT id, updated_at FROM notes WHERE user_id = ? AND id = ?').bind(userId, review.noteId).first<{ id: string; updated_at: string }>();
+  if (!note) throw new ApiError(404, 'note_not_found');
+  // 見直す対象はサーバに保存済みの同一snapshotだけに限定する。編集中の古い
+  // ブロックへ結果を紐付けないため、クライアントは同期成功後のupdatedAtを送る。
+  if (note.updated_at !== review.noteUpdatedAt) throw new ApiError(409, 'note_stale');
+  const fingerprint = await sha256(JSON.stringify({ noteId: review.noteId, noteUpdatedAt: review.noteUpdatedAt, problem: review.problem, conditions: review.conditions, reviewKind: review.reviewKind, mode: review.mode, blocks: review.blocks }));
+  const existing = await env.DB.prepare('SELECT id, status, fingerprint, result_json, error_code FROM review_runs WHERE user_id = ? AND idempotency_key = ?').bind(userId, review.idempotencyKey).first<{ id: string; status: string; fingerprint: string; result_json: string | null; error_code: string | null }>();
+  if (existing) {
+    if (!(await safeEqual(existing.fingerprint, fingerprint))) throw new ApiError(409, 'idempotency_conflict');
+    if (existing.status === 'completed' && existing.result_json) return json(JSON.parse(existing.result_json));
+    if (existing.status === 'running') throw new ApiError(409, 'review_in_progress');
+    throw new ApiError(503, existing.error_code || 'review_failed');
+  }
+  await rateLimit(request, env, 'review');
+  const running = await env.DB.prepare("SELECT COUNT(*) AS count FROM review_runs WHERE user_id = ? AND status = 'running'").bind(userId).first<{ count: number }>();
+  if ((running?.count || 0) >= 1) throw new ApiError(429, 'review_busy');
+  const runId = `rev_${crypto.randomUUID()}`;
+  const now = new Date().toISOString();
+  await env.DB.prepare('INSERT INTO review_runs (id, user_id, note_id, note_updated_at, snapshot_json, problem_text, conditions_text, review_kind, mode, status, idempotency_key, fingerprint, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)')
+    .bind(runId, userId, review.noteId, review.noteUpdatedAt, JSON.stringify(review.blocks), review.problem, review.conditions, review.reviewKind, review.mode, 'running', review.idempotencyKey, fingerprint, now).run();
+  try {
+    const executed = await executeReviewPipeline(env, runId, review);
+    const result = { runId, noteId: review.noteId, noteUpdatedAt: review.noteUpdatedAt, reviewKind: review.reviewKind, mode: review.mode, card: executed.card, stages: executed.stages, createdAt: now };
+    await env.DB.prepare("UPDATE review_runs SET status = 'completed', result_json = ?, completed_at = ? WHERE id = ? AND user_id = ?").bind(JSON.stringify(result), new Date().toISOString(), runId, userId).run();
+    return json(result, 201);
+  } catch (error) {
+    const code = error instanceof ApiError ? error.code : 'review_failed';
+    await env.DB.prepare("UPDATE review_runs SET status = 'failed', error_code = ?, completed_at = ? WHERE id = ? AND user_id = ?").bind(code, new Date().toISOString(), runId, userId).run();
+    throw error;
+  }
+}
+
+async function listReviews(request: Request, env: Env, noteId: string): Promise<Response> {
+  const userId = await authenticatedUser(request, env);
+  const result = await env.DB.prepare("SELECT id, note_id, note_updated_at, snapshot_json, review_kind, mode, status, result_json, error_code, created_at, completed_at FROM review_runs WHERE user_id = ? AND note_id = ? AND status = 'completed' ORDER BY created_at DESC LIMIT 12").bind(userId, noteId).all<ReviewRunRow>();
+  return json({ reviews: result.results.map((row) => ({ runId: row.id, noteId: row.note_id, noteUpdatedAt: row.note_updated_at, reviewKind: row.review_kind, mode: row.mode, createdAt: row.created_at, completedAt: row.completed_at, snapshot: JSON.parse(row.snapshot_json), result: row.result_json ? JSON.parse(row.result_json) : null })) });
+}
+
 async function api(request: Request, env: Env, path: string): Promise<Response> {
   if (path === '/api/auth/config' && request.method === 'GET') return handleGoogleConfig(request, env);
   if (path === '/api/auth/signup' && request.method === 'POST') return signup(request, env);
@@ -695,6 +1005,9 @@ async function api(request: Request, env: Env, path: string): Promise<Response> 
   if (path === '/api/notes/import' && request.method === 'POST') return importNotes(request, env);
   if (path === '/api/conversion-profile' && request.method === 'GET') return listConversionProfile(request, env);
   if (path === '/api/conversion-profile' && request.method === 'PUT') return putConversionProfile(request, env);
+  if (path === '/api/reviews' && request.method === 'POST') return createReview(request, env);
+  const reviewMatch = /^\/api\/notes\/([^/]+)\/reviews$/.exec(path);
+  if (reviewMatch && request.method === 'GET') return listReviews(request, env, decodeURIComponent(reviewMatch[1]));
   const match = /^\/api\/notes\/([^/]+)$/.exec(path);
   if (match && request.method === 'PUT') return putNote(request, env, decodeURIComponent(match[1]));
   if (match && request.method === 'DELETE') return deleteNote(request, env, decodeURIComponent(match[1]));

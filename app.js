@@ -240,8 +240,8 @@ window.__neoSaveSessionLog = saveSessionLog;
 let rowCounter = 0;
 
 class RowState {
-  constructor(mf) {
-    this.id = 'row' + (++rowCounter);
+  constructor(mf, id = null) {
+    this.id = isBlockId(id) ? id : makeBlockId();
     this.mf = mf;
     this.stack = [];       // 開いているスロットのスタック（自前の権威）
     this.history = [];     // Shift+Space で1段開き直すための履歴
@@ -866,15 +866,37 @@ function normalizeCanvasCamera(value) {
   };
 }
 
+function makeBlockId() {
+  return `block-${crypto.randomUUID()}`;
+}
+
+function isBlockId(value) {
+  return typeof value === 'string' && /^block-[a-z0-9-]{8,120}$/i.test(value);
+}
+
+function normalizedBlockIds(value, count) {
+  const source = Array.isArray(value) ? value : [];
+  const seen = new Set();
+  return Array.from({ length: Math.max(0, Math.min(80, count)) }, (_, index) => {
+    const candidate = source[index];
+    const id = isBlockId(candidate) && !seen.has(candidate) ? candidate : makeBlockId();
+    seen.add(id);
+    return id;
+  });
+}
+
 function normalizeNoteLayout(value, fallbackRows = []) {
+  const blockIds = normalizedBlockIds(value?.blockIds, fallbackRows.length);
   const blocks = Array.isArray(value?.blocks) ? value.blocks.slice(0, 80)
     .filter((item) => item && typeof item.latex === 'string' && item.latex.length <= 4000)
-    .map((item, index) => ({ latex: item.latex, x: clampCanvasNumber(item.x, 24), y: clampCanvasNumber(item.y, 96 + index * 104) })) : [];
+    .map((item, index) => ({ id: isBlockId(item.id) ? item.id : blockIds[index] || makeBlockId(), latex: item.latex, x: clampCanvasNumber(item.x, 24), y: clampCanvasNumber(item.y, 96 + index * 104) })) : [];
   if (value?.mode === 'canvas') {
-    const safeBlocks = blocks.length ? blocks : fallbackRows.slice(0, 80).map((latex, index) => ({ latex: String(latex || ''), x: 24, y: 96 + index * 104 }));
-    return { mode: 'canvas', camera: normalizeCanvasCamera(value.camera), blocks: safeBlocks };
+    const safeBlocks = blocks.length ? blocks : fallbackRows.slice(0, 80).map((latex, index) => ({ id: blockIds[index], latex: String(latex || ''), x: 24, y: 96 + index * 104 }));
+    const safeIds = normalizedBlockIds(safeBlocks.map((block) => block.id), fallbackRows.length);
+    safeBlocks.forEach((block, index) => { block.id = safeIds[index]; });
+    return { mode: 'canvas', camera: normalizeCanvasCamera(value.camera), blocks: safeBlocks, blockIds: safeIds };
   }
-  return { mode: 'rows', camera: normalizeCanvasCamera(null), blocks: fallbackRows.slice(0, 80).map((latex, index) => ({ latex: String(latex || ''), x: 24, y: 96 + index * 104 })) };
+  return { mode: 'rows', camera: normalizeCanvasCamera(null), blocks: [], blockIds };
 }
 
 function rowWorldPosition(row, index = rows.indexOf(row)) {
@@ -951,10 +973,13 @@ function noteLayoutSnapshot() {
   return {
     mode: layoutMode,
     camera: { ...canvasCamera },
+    // indexではなく作成時のIDを保存する。行の挿入・削除・並べ替え後も見直し結果が
+    // 同じ数式ブロックを指せるように、rows本文と同じ順序で持つ。
+    blockIds: rows.map((row) => row.id),
     // 行モードはrowsが唯一の本文。ここへ同じLaTeXを重ねて保存すると、大きな既存
     // ノートが容量上限を二重に消費する。配置が必要なキャンバスだけを完全保存する。
     blocks: layoutMode === 'canvas'
-      ? rows.map((row, index) => ({ latex: String(row.mf.value || ''), ...rowWorldPosition(row, index) }))
+      ? rows.map((row, index) => ({ id: row.id, latex: String(row.mf.value || ''), ...rowWorldPosition(row, index) }))
       : [],
   };
 }
@@ -2239,6 +2264,7 @@ function saveCurrentNoteNow() {
 
 function scheduleNoteSave() {
   if (restoringNote) return;
+  refreshReviewStaleState();
   clearTimeout(noteSaveTimer);
   // 保存はNOTE_SAVE_DELAY_MSだけ遅延書き込みなので、その間は「保存中」を出す
   // （3. 保存された感。書き込み自体はsaveCurrentNoteNow側で従来どおり正しく動く）。
@@ -2283,7 +2309,11 @@ function loadNote(id, restoreFocus = true, saveCurrent = true) {
   const layout = normalizeNoteLayout(note.layout, note.rows);
   layoutMode = layout.mode;
   canvasCamera = layout.camera;
-  const blocks = layout.mode === 'canvas' ? layout.blocks : (note.rows.length ? note.rows.map((latex, index) => ({ latex, x: 112, y: 96 + index * 104 })) : [{ latex: '', x: 112, y: 96 }]);
+  const blocks = layout.mode === 'canvas'
+    ? layout.blocks
+    : (note.rows.length
+      ? note.rows.map((latex, index) => ({ id: layout.blockIds[index], latex, x: 112, y: 96 + index * 104 }))
+      : [{ id: makeBlockId(), latex: '', x: 112, y: 96 }]);
   blocks.forEach((item) => createRow(false, String(item.latex || ''), item));
   notesStore.activeId = note.id;
   if (UNIT_IDS.has(note.unitId)) {
@@ -2592,7 +2622,7 @@ function createRow(focus, latex = '', position = null, insertIndex = rows.length
   mf.menuItems = [];
   if (latex) mf.value = latex;
 
-  const row = new RowState(mf);
+  const row = new RowState(mf, position?.id);
   row.wrap = wrap;
   // 外部からの明示的なmath-field.focus()（テスト/APIを含む）は、新しい入力先の
   // 指定として扱う。一方、MathLiveがshadow sinkへ戻す内部focusはここを通らない。
@@ -2795,7 +2825,7 @@ function captureHistorySnapshot() {
     layoutMode,
     activeIndex: activeRowIndex,
     position: activeRow()?.mf?.position ?? 0,
-    blocks: rows.map((row, index) => ({ latex: String(row.mf.value || ''), ...rowWorldPosition(row, index) })),
+    blocks: rows.map((row, index) => ({ id: row.id, latex: String(row.mf.value || ''), ...rowWorldPosition(row, index) })),
   };
 }
 
@@ -2812,6 +2842,7 @@ function initHistory() {
 function markHistoryDirty() {
   if (applyingHistorySnapshot) return;
   historyDirty = true;
+  refreshReviewStaleState();
 }
 
 // 打鍵ごとの細かい変更はデバウンスでまとめる。区切り操作（ブロック追加/削除、候補確定、
@@ -2858,6 +2889,9 @@ function applyHistorySnapshot(snapshot) {
     if (blocks.length === rows.length) {
       rows.forEach((row, index) => {
         const block = blocks[index];
+        // 同数のブロックでも、並べ替えを含む履歴ではIDを復元する。これをしないと
+        // 以前の見直し結果が別の数式へ飛ぶ。
+        row.id = isBlockId(block.id) ? block.id : row.id;
         if (row.mf.value !== block.latex) row.mf.value = block.latex;
         setRowWorldPosition(row, block, index);
         row.lastConfirm = null;
@@ -3077,6 +3111,17 @@ document.addEventListener('keydown', (e) => {
     if (e.code === 'Escape') {
       e.preventDefault(); e.stopPropagation(); e.stopImmediatePropagation();
       closeGuideUnitDialog();
+    }
+    return;
+  }
+
+  // 見直しmodalではTab/矢印/Enterをフォームの操作へ渡す。背景の数式IMEが
+  // 候補操作や改行として奪うと、問題文を入力できなくなるため完全に分離する。
+  const reviewDialog = document.getElementById('review-dialog');
+  if (reviewDialog?.open) {
+    if (e.code === 'Escape') {
+      e.preventDefault(); e.stopPropagation(); e.stopImmediatePropagation();
+      reviewDialog.close();
     }
     return;
   }
@@ -5002,6 +5047,175 @@ async function apiJson(path, options = {}) {
   return payload;
 }
 
+let latestReviewResult = null;
+let reviewSubmitting = false;
+let reviewHistory = [];
+let reviewHistoryNoteId = null;
+let reviewResumeAfterLogin = false;
+
+function setReviewStatus(message = '', error = false) {
+  const status = document.getElementById('review-status');
+  if (!status) return;
+  status.textContent = message;
+  status.dataset.error = error ? 'true' : '';
+}
+
+function reviewBlocksSnapshot() {
+  return rows
+    .map((row) => ({ id: row.id, latex: String(row.mf.value || '') }))
+    .filter((block) => block.latex.replace(/\\placeholder\{\}/g, '').trim());
+}
+
+function reviewSnapshotKey() {
+  return JSON.stringify(reviewBlocksSnapshot());
+}
+
+function reviewResultIsStale() {
+  const note = notesStore.notes.find((entry) => entry.id === notesStore.activeId);
+  if (!latestReviewResult || !note) return false;
+  return latestReviewResult.snapshotKey !== reviewSnapshotKey()
+    || Boolean(latestReviewResult.noteUpdatedAt && note._cloudUpdatedAt && latestReviewResult.noteUpdatedAt !== note._cloudUpdatedAt);
+}
+
+function refreshReviewStaleState() {
+  const stale = document.getElementById('review-stale');
+  if (!stale || !latestReviewResult) return;
+  stale.textContent = 'この結果の後にノートが編集されています。';
+  stale.hidden = !reviewResultIsStale();
+}
+
+function focusReviewBlock(blockId) {
+  const row = rows.find((entry) => entry.id === blockId);
+  if (!row) {
+    const stale = document.getElementById('review-stale');
+    if (stale) { stale.textContent = 'この見直し時の数式ブロックは、現在のノートにはありません。'; stale.hidden = false; }
+    return;
+  }
+  document.getElementById('review-dialog')?.close();
+  claimRowFocus(row);
+  if (layoutMode === 'canvas') {
+    const position = rowWorldPosition(row, rows.indexOf(row));
+    const bounds = canvasViewport.getBoundingClientRect();
+    canvasCamera = { ...canvasCamera, x: bounds.width / 2 - position.x * canvasCamera.zoom, y: bounds.height / 2 - position.y * canvasCamera.zoom };
+    renderLayoutMode();
+  } else row.wrap.scrollIntoView({ block: 'center', behavior: 'smooth' });
+}
+
+function renderReviewResult(result) {
+  latestReviewResult = { ...result, snapshotKey: JSON.stringify(Array.isArray(result.snapshot) ? result.snapshot : reviewBlocksSnapshot()) };
+  document.getElementById('review-setup').hidden = true;
+  const section = document.getElementById('review-result');
+  section.hidden = false;
+  const card = result.card || {};
+  const strengths = document.getElementById('review-strengths');
+  strengths.replaceChildren();
+  for (const text of card.strengths?.length ? card.strengths : ['ここまでの式を確認しています。']) {
+    const item = document.createElement('li'); item.textContent = text; strengths.append(item);
+  }
+  const corrections = document.getElementById('review-corrections');
+  corrections.replaceChildren();
+  if (card.corrections?.length) {
+    for (const correction of card.corrections) {
+      const button = document.createElement('button'); button.type = 'button'; button.className = 'review-correction'; button.textContent = correction.text;
+      if (correction.blockId) button.addEventListener('click', () => focusReviewBlock(correction.blockId));
+      else button.disabled = true;
+      corrections.append(button);
+    }
+  } else corrections.textContent = '直す箇所は見つかりませんでした。';
+  document.getElementById('review-next-step').textContent = card.nextStep || '';
+  refreshReviewStaleState();
+  const trace = document.getElementById('review-stage-list');
+  trace.replaceChildren();
+  const labels = { independent_solver: '独立した解法を作成', solution_auditor: '答案と照合', falsifier: '診断を再検証', tutor: '最小のヒントに整理', single: '通常の見直し' };
+  for (const stage of result.stages || []) {
+    const item = document.createElement('li');
+    item.textContent = stage.skipped ? `${labels[stage.stage] || stage.stage}（${stage.reason || '条件を満たさず省略'}）` : (labels[stage.stage] || stage.stage);
+    trace.append(item);
+  }
+  document.getElementById('review-trace').hidden = !(result.stages?.length);
+}
+
+function renderReviewHistory() {
+  const list = document.getElementById('review-history-list');
+  const details = document.getElementById('review-history');
+  if (!list || !details) return;
+  list.replaceChildren();
+  details.hidden = reviewHistory.length === 0;
+  for (const entry of reviewHistory.slice(0, 6)) {
+    if (!entry?.result) continue;
+    const button = document.createElement('button');
+    button.type = 'button'; button.className = 'review-history-item';
+    const time = new Date(entry.createdAt || entry.completedAt).toLocaleString('ja-JP', { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' });
+    button.textContent = `${time} · ${entry.reviewKind === 'hint' ? '途中のヒント' : '解き終わりのレビュー'}`;
+    button.addEventListener('click', () => renderReviewResult({ ...entry.result, snapshot: entry.snapshot }));
+    list.append(button);
+  }
+}
+
+async function loadReviewHistory(noteId) {
+  if (!cloudAccount.userId || !noteId) { reviewHistory = []; renderReviewHistory(); return; }
+  try {
+    const payload = await apiJson(`/notes/${encodeURIComponent(noteId)}/reviews`);
+    if (notesStore.activeId !== noteId || !cloudAccount.userId) return;
+    reviewHistory = Array.isArray(payload.reviews) ? payload.reviews : [];
+    reviewHistoryNoteId = noteId;
+    renderReviewHistory();
+  } catch {
+    // 見直し履歴を取得できないだけで、ノートの入力・新規見直しは止めない。
+  }
+}
+
+function openReviewDialog({ focusProblem = true } = {}) {
+  const dialog = document.getElementById('review-dialog');
+  if (!dialog) return;
+  document.getElementById('review-result').hidden = true;
+  document.getElementById('review-setup').hidden = false;
+  setReviewStatus(cloudAccount.userId ? '問題文と、いまのノートの式を使います。' : '見直しにはログインが必要です。', !cloudAccount.userId);
+  document.getElementById('review-login').hidden = Boolean(cloudAccount.userId);
+  if (!dialog.open) dialog.showModal();
+  const noteId = notesStore.activeId;
+  if (noteId && (reviewHistoryNoteId !== noteId || !reviewHistory.length)) void loadReviewHistory(noteId);
+  if (focusProblem) setTimeout(() => document.getElementById('review-problem')?.focus(), 0);
+}
+
+async function submitReview() {
+  if (reviewSubmitting) return;
+  if (!cloudAccount.userId) { setReviewStatus('ログインしてから見直してください。入力内容はそのまま残ります。', true); return; }
+  const problem = document.getElementById('review-problem')?.value?.trim() || '';
+  const blocks = reviewBlocksSnapshot();
+  if (!problem) { setReviewStatus('問題文を入力してください。', true); return; }
+  if (!blocks.length) { setReviewStatus('見直す式をノートに入力してください。', true); return; }
+  reviewSubmitting = true;
+  const submit = document.getElementById('review-submit'); if (submit) submit.disabled = true;
+  setReviewStatus('ノートを保存してから見直しています…');
+  try {
+    saveCurrentNoteNow();
+    const queue = queueForAccount(cloudAccount.userId);
+    await drainCloudQueue(queue, cloudAccount.epoch);
+    const note = notesStore.notes.find((entry) => entry.id === notesStore.activeId);
+    const noteUpdatedAt = note?._cloudUpdatedAt || note?.updatedAt;
+    if (!note?.id || !noteUpdatedAt || queue.dirty.size) throw new Error('note_not_saved');
+    const result = await apiJson('/reviews', { method: 'POST', body: JSON.stringify({
+      noteId: note.id, noteUpdatedAt, problem,
+      conditions: document.getElementById('review-conditions')?.value?.trim() || '',
+      reviewKind: document.getElementById('review-kind')?.value || 'hint',
+      mode: document.getElementById('review-mode')?.value || 'pipeline',
+      blocks, idempotencyKey: `review-${crypto.randomUUID()}`,
+    }) });
+    renderReviewResult(result);
+    reviewHistory = [{ ...result, result }, ...reviewHistory.filter((entry) => entry.runId !== result.runId)].slice(0, 6);
+    reviewHistoryNoteId = note.id;
+    renderReviewHistory();
+  } catch (error) {
+    const code = error?.payload?.error || error?.message;
+    const message = code === 'review_not_configured' ? 'AI見直しはまだ設定されていません。' : code === 'note_stale' ? 'ノートが更新されたため、もう一度見直してください。' : code === 'note_not_saved' ? 'ノートを保存できませんでした。通信を確認してください。' : '見直しを完了できませんでした。';
+    setReviewStatus(message, true);
+  } finally {
+    reviewSubmitting = false;
+    if (submit) submit.disabled = false;
+  }
+}
+
 async function conversionProfileIdempotencyKey(profile) {
   const bytes = new TextEncoder().encode(JSON.stringify(profile));
   const digest = await crypto.subtle.digest('SHA-256', bytes);
@@ -5146,7 +5360,7 @@ function serializableNote(note) {
     rows,
     layout: layout.mode === 'canvas'
       ? layout
-      : { mode: 'rows', camera: layout.camera, blocks: [] },
+      : { mode: 'rows', camera: layout.camera, blocks: [], blockIds: layout.blockIds },
     revision: Number.isSafeInteger(note.revision) ? note.revision : 0,
     // 段階4: 名前・ソフトデリートもクラウドへ送る（0005_note_title_deleted.sqlでサーバに列を追加済み）。
     // サーバ側もクライアントと同じ丸め方（sanitizeNoteTitle/sanitizeNoteDeletedAt相当）で受ける。
@@ -5258,6 +5472,9 @@ async function drainCloudQueue(queue, epoch) {
         const current = notesStore.notes.find((entry) => entry.id === snapshot.id);
         if (current && current._cloudGeneration === generation && saved.note) {
           current.revision = saved.note.revision;
+          // 見直しはサーバで確定したsnapshotを参照する。表示用updatedAtは既存の
+          // 並び順ルールを崩さないため触らず、照合専用の時刻だけを別に保持する。
+          current._cloudUpdatedAt = saved.note.updatedAt;
           // updatedAtはサーバの時計で上書きしない。名前変更・削除・復元はローカルで
           // 意図的にupdatedAtを動かさない操作（一覧の並び順を崩さないため）なので、
           // 遅延して届くこの成功応答で並び順を後から変えてしまわないようにする。
@@ -5454,6 +5671,9 @@ async function switchToUserStore(userId, importAnonymous = false, operation = be
     const capped = failures.some((item) => item?.error?.status === 409 || item?.error?.payload?.error === 'note_limit');
     updateCloudStatus(capped ? 'limit' : 'error');
   } else updateCloudStatus('saved');
+  // 見直しから来たログインだけは、認証後に元のモーダルへ戻す。問題文などは
+  // review-dialogのDOMに残しているため、ここで入力を作り直したり自動実行したりしない。
+  if (reviewResumeAfterLogin) document.getElementById('account-dialog')?.close();
   return true;
 }
 
@@ -5632,6 +5852,32 @@ async function restoreCloudSession() {
 }
 
 document.getElementById('account-toggle')?.addEventListener('click', () => openAccountDialog());
+document.getElementById('review-toggle')?.addEventListener('click', openReviewDialog);
+document.getElementById('review-dialog-shell')?.addEventListener('submit', (event) => { event.preventDefault(); void submitReview(); });
+document.getElementById('review-dialog-close')?.addEventListener('click', () => document.getElementById('review-dialog')?.close());
+document.getElementById('review-again')?.addEventListener('click', () => openReviewDialog());
+document.getElementById('review-login')?.addEventListener('click', () => {
+  reviewResumeAfterLogin = true;
+  document.getElementById('review-dialog')?.close();
+  openAccountDialog('login');
+});
+document.getElementById('review-dialog')?.addEventListener('keydown', (event) => {
+  const dialog = event.currentTarget;
+  if (event.key === 'Escape') {
+    event.preventDefault(); event.stopPropagation(); dialog.close();
+    return;
+  }
+  if (event.key !== 'Tab') { event.stopPropagation(); return; }
+  const focusables = [...dialog.querySelectorAll('button:not([disabled]):not([hidden]), textarea:not([disabled]), select:not([disabled]), summary')]
+    .filter((item) => item instanceof HTMLElement && !item.closest('[hidden]'));
+  if (!focusables.length) return;
+  const current = document.activeElement;
+  const index = focusables.indexOf(current);
+  if (event.shiftKey && (index <= 0 || current === dialog)) { event.preventDefault(); focusables.at(-1)?.focus(); }
+  else if (!event.shiftKey && index === focusables.length - 1) { event.preventDefault(); focusables[0]?.focus(); }
+  event.stopPropagation();
+}, true);
+document.getElementById('review-dialog')?.addEventListener('close', () => setTimeout(() => focusActiveRow(), 0));
 document.querySelectorAll('.account-tab').forEach((tab) => tab.addEventListener('click', () => renderAccountDialog(tab.dataset.accountPanel)));
 document.getElementById('account-tabs')?.addEventListener('keydown', (event) => {
   const tabs = [...document.querySelectorAll('.account-tab:not([hidden])')];
@@ -5665,6 +5911,10 @@ document.getElementById('account-dialog')?.addEventListener('close', () => {
   if (pendingEditorRefresh) refreshEditorWhenAccountDialogCloses(false);
   clearTimeout(restoreFocusTimer);
   restoreFocusTimer = setTimeout(() => focusAfterAccountDialogClose(), 0);
+  if (reviewResumeAfterLogin && cloudAccount.userId) {
+    reviewResumeAfterLogin = false;
+    setTimeout(() => openReviewDialog({ focusProblem: false }), 0);
+  }
 });
 document.getElementById('recovery-code-done')?.addEventListener('click', () => { document.getElementById('recovery-code-panel').hidden = true; });
 document.getElementById('logout-submit')?.addEventListener('click', async () => {

@@ -1023,6 +1023,53 @@ body .modifier-key.is-physical {
 .note-dialog-actions { display: flex; justify-content: flex-end; padding-top: 4px; }
 .note-dialog-actions button { min-height: 38px; padding: 8px 18px; border: 1px solid #111; border-radius: 0; background: #111; color: #fff; cursor: pointer; font: 700 12px var(--font-jp), var(--font-en); }
 #account-dialog-shell { display: grid; gap: 12px; }
+
+/* ---------- AI見直し: 編集面を奪わない、必要な時だけ開く結果面 ---------- */
+#review-dialog { width: min(760px, calc(100vw - 28px)); max-height: min(760px, calc(100vh - 28px)); margin: auto; padding: 0; overflow: auto; border: 1px solid var(--ink); border-radius: 0; background: var(--paper); color: var(--ink); box-shadow: 12px 12px 0 rgba(17,17,17,.22); }
+#review-dialog::backdrop { background: rgba(16,16,16,.48); }
+#review-dialog-shell { display: grid; gap: 20px; padding: 22px; }
+.review-dialog-head { display: flex; align-items: start; justify-content: space-between; gap: 18px; padding-bottom: 14px; border-bottom: 1px solid var(--line); }
+.review-dialog-head p { margin: 0 0 3px; color: var(--muted); font: 700 10px/1 var(--font-en), var(--font-jp); letter-spacing: .1em; }
+.review-dialog-head h2 { margin: 0; font-size: 24px; }
+#review-dialog-close { width: 34px; height: 34px; border: 1px solid var(--line); border-radius: 0; background: transparent; color: inherit; cursor: pointer; font-size: 22px; }
+#review-setup { display: grid; gap: 14px; }
+#review-setup label { display: grid; gap: 5px; font-size: 12px; font-weight: 700; }
+#review-setup textarea, .review-controls select { width: 100%; border: 1px solid var(--line); border-radius: 0; background: #fff; color: #111; font: 400 14px/1.55 var(--font-jp), var(--font-en); }
+#review-setup textarea { min-height: 78px; resize: vertical; padding: 9px; }
+.review-controls { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+.review-controls select { min-height: 36px; padding: 6px; }
+#review-status { min-height: 1.5em; margin: -3px 0 0; color: var(--muted); font-size: 12px; }
+#review-status[data-error="true"] { color: #b3261e; }
+#review-submit, #review-again { min-height: 42px; border: 1px solid var(--ink); border-radius: 0; background: var(--ink); color: #fff; cursor: pointer; font: 700 13px var(--font-jp), var(--font-en); }
+#review-submit:disabled { cursor: wait; opacity: .65; }
+/* #review-result の display:grid が native [hidden] より強くなり、初期表示で
+   空の結果面が残る事故を防ぐ。 */
+#review-result { display: grid; gap: 10px; }
+#review-result[hidden], #review-setup[hidden], #review-history[hidden] { display: none; }
+.review-card { padding: 14px; border: 1px solid var(--line); background: rgba(255,255,255,.62); }
+.review-card h3 { margin: 0 0 8px; font-size: 12px; }
+.review-card ul { display: grid; gap: 5px; margin: 0; padding-left: 19px; font-size: 13px; }
+.review-card p { margin: 0; font-size: 14px; line-height: 1.65; }
+.review-next { border-color: var(--ink); background: #fff; }
+.review-correction { display: block; width: 100%; padding: 9px; border: 1px solid var(--line); border-radius: 0; background: #fff; color: #111; text-align: left; cursor: pointer; font: 400 13px/1.55 var(--font-jp), var(--font-en); }
+.review-correction + .review-correction { margin-top: 6px; }
+.review-correction:hover, .review-correction:focus-visible { border-color: var(--accent); color: var(--accent); outline: none; }
+#review-stale { margin: 0; padding: 8px 10px; border-left: 3px solid #b3261e; background: #fff0ef; color: #7f1d1d; font-size: 12px; }
+#review-trace { padding: 10px 12px; border: 1px solid var(--line); color: var(--muted); font-size: 12px; }
+#review-trace summary { cursor: pointer; color: var(--ink); font-weight: 700; }
+#review-trace ul { display: grid; gap: 4px; margin: 10px 0 0; padding-left: 19px; }
+.review-evaluation { border: 1px solid var(--line); padding: 9px 10px; font-size: 12px; }
+.review-evaluation summary { cursor: pointer; font-weight: 700; }
+.review-evaluation label { display: grid; gap: 5px; margin-top: 9px; }
+.review-evaluation p, .review-caution { margin: 8px 0 0; color: var(--muted); font-size: 11px; line-height: 1.5; }
+.review-caution { margin-top: -4px; }
+#review-login { min-height: 40px; border: 1px solid var(--ink); border-radius: 0; background: #fff; color: var(--ink); cursor: pointer; font: 700 13px var(--font-jp), var(--font-en); }
+#review-history { border-top: 1px solid var(--line); padding-top: 10px; font-size: 12px; }
+#review-history summary { cursor: pointer; font-weight: 700; }
+#review-history-list { display: grid; gap: 5px; margin-top: 8px; max-height: 164px; overflow: auto; }
+.review-history-item { min-height: 32px; padding: 6px 8px; border: 1px solid var(--line); border-radius: 0; background: #fff; color: var(--ink); text-align: left; cursor: pointer; font: 400 11px var(--font-jp), var(--font-en); }
+.review-history-item:hover, .review-history-item:focus-visible { border-color: var(--accent); outline: none; }
+@media (max-width: 520px) { #review-dialog-shell { padding: 16px; } .review-controls { grid-template-columns: 1fr; } }
 .account-dialog-head { position: sticky; top: 0; display: flex; align-items: center; justify-content: space-between; padding: 16px 0 10px; border-bottom: 1px solid #bbb; background: #f7f6f2; }
 .account-dialog-head h2 { margin: 0; font-size: 16px; }
 .account-close { border: 0; background: transparent; color: #111; font-size: 22px; cursor: pointer; }

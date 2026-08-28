@@ -124,6 +124,20 @@ describe('SHIKITYPE auth and notes', () => {
     expect((await call(`/api/notes/${unsafe.id}`, { method: 'PUT', body: JSON.stringify(unsafe) }, account.cookie)).status).toBe(400);
   });
 
+  it('adds stable block IDs to legacy notes without using their current row index as a review target', async () => {
+    const account = await signup('blockids');
+    const id = `note-${crypto.randomUUID()}`;
+    // blockIdsを持たない旧形式を受け入れ、読み出しで決定的な移行IDを補完する。
+    expect((await call(`/api/notes/${id}`, { method: 'PUT', body: JSON.stringify(note(id)) }, account.cookie)).status).toBe(200);
+    const first = await (await call('/api/notes', {}, account.cookie)).json<{ notes: Array<{ id: string; revision: number; layout: { blockIds: string[] } }> }>();
+    const saved = first.notes.find((entry) => entry.id === id);
+    expect(saved?.layout.blockIds).toEqual([expect.stringMatching(/^block-/)]);
+    const update = { ...note(id, saved?.revision), layout: { mode: 'rows', camera: { x: 72, y: 54, zoom: 1 }, blocks: [], blockIds: saved?.layout.blockIds } };
+    expect((await call(`/api/notes/${id}`, { method: 'PUT', body: JSON.stringify(update) }, account.cookie)).status).toBe(200);
+    const second = await (await call('/api/notes', {}, account.cookie)).json<{ notes: Array<{ id: string; layout: { blockIds: string[] } }> }>();
+    expect(second.notes.find((entry) => entry.id === id)?.layout.blockIds).toEqual(saved?.layout.blockIds);
+  });
+
   it('syncs note title and soft-delete across devices, and treats old rows lacking them as name-less and not deleted', async () => {
     const account = await signup('titledelete');
     const id = `note-${crypto.randomUUID()}`;

@@ -31,6 +31,7 @@
           <button type="button" id="export-note-latex-copy">LaTeXをコピー</button>
           <button type="button" id="export-note-latex-download">LaTeXをダウンロード（.tex）</button>
         </div>
+        <button type="button" id="review-toggle" aria-label="ノートを見直す" aria-haspopup="dialog"><span aria-hidden="true">✓</span><span>見直す</span></button>
         <button type="button" id="account-toggle" aria-label="ログインまたはアカウント作成" aria-haspopup="dialog"><span aria-hidden="true">◉</span><span>ログイン</span></button>
         <div id="sync-status" role="status" aria-live="polite">この端末に保存</div>
       </nav>
@@ -274,6 +275,33 @@
       <p>ノートは全単元のまま、キーガイドとパレットの表示順だけを選べます。</p>
       <div id="guide-unit-subject-choice" class="unit-modal-subject-choice" role="list" aria-label="キーガイドの科目"></div>
       <div id="guide-unit-choice" class="new-note-unit-choice" role="list" aria-label="キーガイドの単元"></div>
+    </form>
+  </dialog>
+
+  <dialog id="review-dialog" aria-labelledby="review-dialog-title">
+    <form id="review-dialog-shell" novalidate>
+      <div class="review-dialog-head"><div><p>AI 見直し</p><h2 id="review-dialog-title">解き方を確かめる</h2></div><button type="button" id="review-dialog-close" aria-label="閉じる">×</button></div>
+      <section id="review-setup">
+        <label>問題文<textarea id="review-problem" required maxlength="8000" placeholder="例：∫2x dx を求めよ"></textarea></label>
+        <label>条件・自分の方針（任意）<textarea id="review-conditions" maxlength="4000" placeholder="例：置換積分で解いた"></textarea></label>
+        <div class="review-controls">
+          <label>見直し方<select id="review-kind"><option value="hint">途中のヒント</option><option value="review">解き終わりのレビュー</option></select></label>
+        </div>
+        <details class="review-evaluation"><summary>比較評価</summary><label>評価用の見直し方<select id="review-mode"><option value="pipeline">検証あり（通常）</option><option value="single">1回で見直す（比較用）</option></select></label><p>検証ありは、別に解いてから答案を確かめます。比較用は精度と時間を比べるための1回だけの見直しです。</p></details>
+        <p class="review-caution">AIの見直しは誤ることがあります。</p>
+        <p id="review-status" role="status" aria-live="polite">問題文と、いまのノートの式を使います。</p>
+        <button type="button" id="review-login" hidden>ログインして見直す</button>
+        <button type="submit" id="review-submit">見直す</button>
+        <details id="review-history" hidden><summary>過去の見直し</summary><div id="review-history-list"></div></details>
+      </section>
+      <section id="review-result" hidden aria-live="polite">
+        <div class="review-card"><h3>できていること</h3><ul id="review-strengths"></ul></div>
+        <div class="review-card"><h3>直す箇所</h3><div id="review-corrections"></div></div>
+        <div class="review-card review-next"><h3>次の一手</h3><p id="review-next-step"></p></div>
+        <p id="review-stale" hidden>この結果の後にノートが編集されています。</p>
+        <details id="review-trace"><summary>検証の流れ</summary><ul id="review-stage-list"></ul></details>
+        <button type="button" id="review-again">別の見直しをする</button>
+      </section>
     </form>
   </dialog>
 
