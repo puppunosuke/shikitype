@@ -916,20 +916,13 @@ async function executeReviewPipeline(env: Env, runId: string, review: ReviewRequ
   await insertReviewStage(env, runId, 'solution_auditor', 'reference_solution_and_student_blocks', diagnosis, auditorResponse.usage, auditorResponse.durationMs);
   stages.push({ stage: 'solution_auditor', inputScope: 'reference_solution_and_student_blocks' });
 
-  let verified = diagnosis;
-  if (diagnosis.needsFalsifier || diagnosis.confidence < 0.75 || reference.confidence < 0.75) {
-    // Contract: falsifier sees summaries only, not the complete student answer.
-    const falsifierResponse = await responseJson(env, 'falsifier', { task: 'Try to refute the audit without inventing facts.', reference, diagnosis, output: 'Return verdict, disagreement, strengths, corrections, nextStep, confidence.' });
-    const falsifier = falsifierResponse.output;
-    const corrected = { ...diagnosis, strengths: boundedStringList(falsifier.strengths).length ? boundedStringList(falsifier.strengths) : diagnosis.strengths, corrections: reviewCorrections(falsifier.corrections, allowedIds).length ? reviewCorrections(falsifier.corrections, allowedIds) : diagnosis.corrections, confidence: boundedConfidence(falsifier.confidence) };
-    verified = corrected;
-    await insertReviewStage(env, runId, 'falsifier', 'reference_and_audit_summary', { verdict: typeof falsifier.verdict === 'string' ? falsifier.verdict.slice(0, 300) : '', disagreement: falsifier.disagreement === true, ...corrected }, falsifierResponse.usage, falsifierResponse.durationMs);
-    stages.push({ stage: 'falsifier', inputScope: 'reference_and_audit_summary' });
-  } else {
-    const reason = '独立解答と照合の信頼度が十分だったため省略';
-    await insertReviewStage(env, runId, 'falsifier', 'skipped_by_stage_conditions', { skipped: true, reason }, null, 0);
-    stages.push({ stage: 'falsifier', inputScope: 'skipped_by_stage_conditions', skipped: true, reason });
-  }
+  // Contract: pipeline mode always runs all four roles. The falsifier sees summaries only,
+  // never the complete student answer.
+  const falsifierResponse = await responseJson(env, 'falsifier', { task: 'Try to refute the audit without inventing facts.', reference, diagnosis, output: 'Return verdict, disagreement, strengths, corrections, nextStep, confidence.' });
+  const falsifier = falsifierResponse.output;
+  const verified = { ...diagnosis, strengths: boundedStringList(falsifier.strengths).length ? boundedStringList(falsifier.strengths) : diagnosis.strengths, corrections: reviewCorrections(falsifier.corrections, allowedIds).length ? reviewCorrections(falsifier.corrections, allowedIds) : diagnosis.corrections, confidence: boundedConfidence(falsifier.confidence) };
+  await insertReviewStage(env, runId, 'falsifier', 'reference_and_audit_summary', { verdict: typeof falsifier.verdict === 'string' ? falsifier.verdict.slice(0, 300) : '', disagreement: falsifier.disagreement === true, ...verified }, falsifierResponse.usage, falsifierResponse.durationMs);
+  stages.push({ stage: 'falsifier', inputScope: 'reference_and_audit_summary' });
 
   // Contract: tutor is deliberately denied the original problem, reference solution, full answer,
   // and the auditor's full record. Real API leakage-rate evaluation belongs in a separate eval,

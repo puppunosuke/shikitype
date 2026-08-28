@@ -24,7 +24,7 @@ let fakeRunId = 'run-fake-0001';
 const fakeStages = [
   { stage: 'independent_solver', inputScope: 'problem_and_conditions' },
   { stage: 'solution_auditor', inputScope: 'reference_solution_and_student_blocks' },
-  { stage: 'falsifier', inputScope: 'skipped_by_stage_conditions', skipped: true, reason: '独立解答と照合の信頼度が十分だったため省略' },
+  { stage: 'falsifier', inputScope: 'reference_and_audit_summary' },
   { stage: 'tutor', inputScope: 'safe_audit_handoff_only' },
 ];
 let savedReview = null; // 「保存されたレビュー」を模したサーバ状態(このプロセス内だけ)

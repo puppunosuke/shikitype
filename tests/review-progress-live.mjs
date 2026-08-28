@@ -16,7 +16,7 @@ const fakeCard = { strengths: ['置換の発想は正しいです。'], correcti
 const fakeStages = [
   { stage: 'independent_solver', inputScope: 'problem_and_conditions' },
   { stage: 'solution_auditor', inputScope: 'reference_solution_and_student_blocks' },
-  { stage: 'falsifier', inputScope: 'skipped_by_stage_conditions', skipped: true, reason: '信頼度が十分だったため省略' },
+  { stage: 'falsifier', inputScope: 'reference_and_audit_summary' },
   { stage: 'tutor', inputScope: 'safe_audit_handoff_only' },
 ];
 

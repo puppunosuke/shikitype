@@ -4,7 +4,7 @@
 // everything else is a minimal but real fetch round-trip through the app's own apiJson().
 import { chromium } from '../spike/node_modules/playwright/index.mjs';
 
-const base = 'http://127.0.0.1:8893/';
+const base = 'http://127.0.0.1:8894/';
 const mode = process.argv[2] || 'slow'; // slow | fail | success
 
 let userId = null;
@@ -59,7 +59,7 @@ async function setupRoutes(page) {
     return route.fulfill({ status: 201, contentType: 'application/json', body: JSON.stringify({
       runId: 'run-1', noteId: body.noteId, noteUpdatedAt: body.noteUpdatedAt, reviewKind: body.reviewKind, mode: body.mode,
       card: { strengths: ['置換の発想は正しいです。'], corrections: [{ blockId: null, text: '2行目の係数を見直してください。' }], nextStep: '置換後の微分を一行だけ確かめよう。' },
-      stages: [{ stage: 'independent_solver' }, { stage: 'solution_auditor' }, { stage: 'falsifier', skipped: true, reason: '省略' }, { stage: 'tutor' }],
+      stages: [{ stage: 'independent_solver' }, { stage: 'solution_auditor' }, { stage: 'falsifier' }, { stage: 'tutor' }],
       createdAt: new Date().toISOString(),
     }) });
   });

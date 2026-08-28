@@ -4,7 +4,7 @@
 import { chromium } from '../spike/node_modules/playwright/index.mjs';
 import fs from 'node:fs';
 
-const base = 'http://127.0.0.1:8893/';
+const base = 'http://127.0.0.1:8894/';
 const outDir = 'F:/12_Claude/Claude/neo-math-solution/tests/iroha-shots-ai-review';
 fs.mkdirSync(outDir, { recursive: true });
 
@@ -18,7 +18,7 @@ const fakeCard = {
 const fakeStages = [
   { stage: 'independent_solver' },
   { stage: 'solution_auditor' },
-  { stage: 'falsifier', skipped: true, reason: '独立解答と照合の信頼度が十分だったため省略' },
+  { stage: 'falsifier' },
   { stage: 'tutor' },
 ];
 

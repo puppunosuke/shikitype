@@ -37,12 +37,13 @@ async function account(): Promise<{ cookie: string; noteId: string; noteUpdatedA
 }
 
 describe('AI review pipeline', () => {
-  it('keeps the student answer out of the independent solver and tutor requests, while saving only structured stage results', async () => {
+  it('always runs the falsifier while keeping the full student answer out of the independent solver, falsifier, and tutor requests', async () => {
     const { cookie, noteId, noteUpdatedAt } = await account();
     const inputs: Record<string, unknown>[] = [];
     const outputs = [
       { referenceSteps: ['置換する'], checkpoints: ['微分を確認'], confidence: 0.92 },
       { strengths: ['置換の発想は正しい'], corrections: [{ blockId: 'block-1', text: '微分係数をもう一度確認' }], firstMismatchBlockId: 'block-1', issueTypes: ['係数'], hintDirection: '置換に伴う微分係数を見直す', correctSummary: '置換の方針は正しい', confidence: 0.91, needsFalsifier: false },
+      { verdict: '監査結果を支持', disagreement: false, strengths: ['置換の発想は正しい'], corrections: [{ blockId: 'block-1', text: '係数だけを見直して' }], nextStep: '微分係数を再確認', confidence: 0.9 },
       { strengths: ['置換の方針は合っています'], corrections: [{ blockId: 'block-1', text: '係数だけを見直して' }], nextStep: '置換後の微分を一行だけ確かめよう。', confidence: 0.91 },
     ];
     const realFetch = globalThis.fetch;
@@ -57,23 +58,27 @@ describe('AI review pipeline', () => {
       const response = await call('/api/reviews', { method: 'POST', body: JSON.stringify({ noteId, noteUpdatedAt, problem: '∫2x dx を求めよ', conditions: '高校数学の範囲', reviewKind: 'hint', mode: 'pipeline', blocks: [{ id: 'block-1', latex: '\\int 2x' }], idempotencyKey: `review-${crypto.randomUUID()}` }) }, cookie);
       expect(response.status).toBe(201);
       const created = await response.json<{ runId: string; mode: string; card: { nextStep: string }; stages: unknown[] }>();
-      expect(created).toEqual(expect.objectContaining({ mode: 'pipeline', card: expect.objectContaining({ nextStep: expect.any(String) }), stages: [{ stage: 'independent_solver', inputScope: 'problem_and_conditions' }, { stage: 'solution_auditor', inputScope: 'reference_solution_and_student_blocks' }, { stage: 'falsifier', inputScope: 'skipped_by_stage_conditions', skipped: true, reason: expect.any(String) }, { stage: 'tutor', inputScope: 'safe_audit_handoff_only' }] }));
+      expect(created).toEqual(expect.objectContaining({ mode: 'pipeline', card: expect.objectContaining({ nextStep: expect.any(String) }), stages: [{ stage: 'independent_solver', inputScope: 'problem_and_conditions' }, { stage: 'solution_auditor', inputScope: 'reference_solution_and_student_blocks' }, { stage: 'falsifier', inputScope: 'reference_and_audit_summary' }, { stage: 'tutor', inputScope: 'safe_audit_handoff_only' }] }));
       const history = await call(`/api/notes/${noteId}/reviews`, {}, cookie);
       expect(history.status).toBe(200);
       expect(await history.json()).toEqual({ reviews: [expect.objectContaining({ runId: created.runId, result: expect.objectContaining({ card: expect.objectContaining({ nextStep: expect.any(String) }) }) })] });
     } finally { vi.stubGlobal('fetch', realFetch); }
-    expect(inputs).toHaveLength(3);
+    expect(inputs).toHaveLength(4);
     expect(inputs[0]).toEqual(expect.objectContaining({ problem: '∫2x dx を求めよ' }));
     expect(inputs[0]).not.toHaveProperty('studentBlocks');
     expect(inputs[1]).toHaveProperty('studentBlocks');
-    expect(inputs[2]).toHaveProperty('safeHandoff');
-    expect(inputs[2]).not.toHaveProperty('problem');
-    expect(inputs[2]).not.toHaveProperty('reference');
-    expect(inputs[2].safeHandoff).toEqual(expect.objectContaining({ blockId: 'block-1', issueTypes: ['係数'], hintDirection: expect.any(String) }));
+    expect(inputs[2]).toEqual(expect.objectContaining({ reference: expect.any(Object), diagnosis: expect.any(Object) }));
+    expect(inputs[2]).not.toHaveProperty('studentBlocks');
+    expect(inputs[3]).toHaveProperty('safeHandoff');
+    expect(inputs[3]).not.toHaveProperty('problem');
+    expect(inputs[3]).not.toHaveProperty('reference');
+    expect(inputs[3]).not.toHaveProperty('diagnosis');
+    expect(inputs[3]).not.toHaveProperty('studentBlocks');
+    expect(inputs[3].safeHandoff).toEqual(expect.objectContaining({ blockId: 'block-1', issueTypes: ['係数'], hintDirection: expect.any(String) }));
     const stored = await env.DB.prepare('SELECT stage, input_scope, output_json, input_tokens, output_tokens, total_tokens, duration_ms FROM review_stages ORDER BY created_at DESC LIMIT 4').all<{ stage: string; input_scope: string; output_json: string; input_tokens: number | null; output_tokens: number | null; total_tokens: number | null; duration_ms: number | null }>();
-    expect(stored.results.map((row) => row.input_scope).sort()).toEqual(['problem_and_conditions', 'reference_solution_and_student_blocks', 'safe_audit_handoff_only', 'skipped_by_stage_conditions']);
+    expect(stored.results.map((row) => row.input_scope).sort()).toEqual(['problem_and_conditions', 'reference_and_audit_summary', 'reference_solution_and_student_blocks', 'safe_audit_handoff_only']);
     expect(stored.results.every((row) => !row.output_json.includes('hidden chain-of-thought'))).toBe(true);
-    expect(stored.results.filter((row) => row.stage !== 'falsifier').every((row) => row.total_tokens === 18 && typeof row.duration_ms === 'number')).toBe(true);
+    expect(stored.results.every((row) => row.total_tokens === 18 && typeof row.duration_ms === 'number')).toBe(true);
   });
 
   it('reports run progress through /api/reviews/status while it is completing, and the finished stages afterward', async () => {
@@ -87,6 +92,7 @@ describe('AI review pipeline', () => {
     const outputs = [
       { referenceSteps: ['置換する'], checkpoints: ['微分を確認'], confidence: 0.92 },
       { strengths: ['置換の発想は正しい'], corrections: [{ blockId: 'block-1', text: '微分係数をもう一度確認' }], firstMismatchBlockId: 'block-1', issueTypes: ['係数'], hintDirection: '置換に伴う微分係数を見直す', correctSummary: '置換の方針は正しい', confidence: 0.91, needsFalsifier: false },
+      { verdict: '監査結果を支持', disagreement: false, strengths: ['置換の発想は正しい'], corrections: [{ blockId: 'block-1', text: '係数だけを見直して' }], nextStep: '微分係数を再確認', confidence: 0.9 },
       { strengths: ['置換の方針は合っています'], corrections: [{ blockId: 'block-1', text: '係数だけを見直して' }], nextStep: '置換後の微分を一行だけ確かめよう。', confidence: 0.91 },
     ];
     const realFetch = globalThis.fetch;
@@ -98,14 +104,14 @@ describe('AI review pipeline', () => {
     expect(response.status).toBe(201);
     const created = await response.json<{ runId: string }>();
 
-    // 完了後は結果本体と、段階名・省略状態がstatus経由でも取れる（進行表示の土台）。
+    // 完了後は結果本体と、4段階すべての実行状態がstatus経由でも取れる（進行表示の土台）。
     const afterComplete = await call(`/api/reviews/status?key=${encodeURIComponent(key)}`, {}, cookie);
     expect(afterComplete.status).toBe(200);
     const statusBody = await afterComplete.json<{ status: string; stages: Array<{ stage: string; skipped: boolean }>; result: { runId: string } }>();
     expect(statusBody.status).toBe('completed');
     expect(statusBody.result.runId).toBe(created.runId);
     expect(statusBody.stages.map((s) => s.stage)).toEqual(['independent_solver', 'solution_auditor', 'falsifier', 'tutor']);
-    expect(statusBody.stages.find((s) => s.stage === 'falsifier')?.skipped).toBe(true);
+    expect(statusBody.stages.find((s) => s.stage === 'falsifier')?.skipped).toBe(false);
     expect(statusBody.stages.find((s) => s.stage === 'tutor')?.skipped).toBe(false);
   });
 
