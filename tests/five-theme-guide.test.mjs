@@ -87,16 +87,22 @@ async function main() {
   ok('次キーはギリシャ小文字υ', await latex(page) === '\\Gamma\\upsilon', await latex(page));
   ok('Altキーはガイドから廃止', await page.locator('[data-modifier="alt"]').count() === 0);
 
-  console.log('\n== 3. 画面のSpace / Enterが入力状態を保つ ==');
+  console.log('\n== 3. 画面のSpace / Enterが新しい構造操作を表示・実行する ==');
   await page.reload({ waitUntil: 'networkidle' });
   await startBlankNote(page);
   await page.click('.row math-field');
   await page.click('#key-guide-board .key-cap[data-code="KeyF"]');
   ok('括弧クリックでスロットが開く', await page.evaluate(() => window.__neoApp.getActiveRow().stack.length) === 1);
+  const labels = await page.evaluate(() => ({
+    space: document.querySelector('[data-special="Space"] small')?.textContent,
+    enter: document.querySelector('[data-special="Enter"] small')?.textContent,
+  }));
+  ok('画面Spaceは読みの区切りと表示する', labels.space === '読みの区切り', labels);
+  ok('画面Enterは構造を進めると表示する', labels.enter === '構造を進める', labels);
   await page.click('[data-special="Space"]');
-  ok('画面Spaceで1段閉じる', await page.evaluate(() => window.__neoApp.getActiveRow().stack.length) === 0);
+  ok('画面Spaceは開いた構造を閉じない', await page.evaluate(() => window.__neoApp.getActiveRow().stack.length) === 1);
   await page.click('[data-special="Enter"]');
-  ok('画面Enterで次行', await page.locator('.row').count() === 2);
+  ok('画面Enterで1段閉じる', await page.evaluate(() => window.__neoApp.getActiveRow().stack.length) === 0);
   const focused = await page.evaluate(() => {
     const mf = window.__neoApp.getActiveRow().mf;
     return document.activeElement === mf || mf.shadowRoot?.activeElement?.classList.contains('ML__keyboard-sink');

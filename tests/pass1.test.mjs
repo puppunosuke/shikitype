@@ -100,31 +100,31 @@ async function main() {
   assertEqual('root: slot context stays fully hidden', await visibleSlotContext(), []);
   await pressCode('KeyF');
   assertEqual('paren: slot context follows the active block only while open', await visibleSlotContext(), ['括弧内']);
-  await seq(['Digit1', 'Space']); // ( 1 space-close
+  await seq(['Digit1', 'Enter']); // ( 1 Enter-close
   assertEqual('paren: (1) closes correctly', await latex(), '\\left(1\\right)');
   assertEqual('root: slot context disappears after closing', await visibleSlotContext(), []);
 
   await resetLastRow();
-  await seq(['KeyL', 'Digit1', 'Space', 'Digit2', 'Space']); // n/alpha: 1/2
+  await seq(['KeyL', 'Digit1', 'Enter', 'Digit2', 'Enter']); // n/alpha: 1/2
   assertEqual('n/alpha: 1/2', await latex(), '\\dfrac12');
 
   await resetLastRow();
-  await seq(['Digit3', 'KeyJ', 'Digit4', 'Space']); // 3 then alpha/n -> 3/4
+  await seq(['Digit3', 'KeyJ', 'Digit4', 'Enter']); // 3 then alpha/n -> 3/4
   // MathLive serializes single-digit num/den compactly as \dfrac34 (mathematically identical to \dfrac{3}{4})
   assertEqual('alpha/n: 3/4 (previous digit term becomes numerator)', await latex(), '\\dfrac34');
 
   await resetLastRow();
   await switchLayer('latin'); await seq(['KeyX']); await switchLayer('symbol');
-  await seq(['KeyD', 'Digit2', 'Space']); // x^2
+  await seq(['KeyD', 'Digit2', 'Enter']); // x^2
   assertEqual('superscript: x^2', await latex(), 'x^2');
 
   await resetLastRow();
   await switchLayer('latin'); await seq(['KeyX']); await switchLayer('symbol');
-  await seq(['KeyK', 'Digit1', 'Space']); // x_1
+  await seq(['KeyK', 'Digit1', 'Enter']); // x_1
   assertEqual('subscript: x_1', await latex(), 'x_1');
 
   await resetLastRow();
-  await seq(['KeyA', Div('Digit9'), 'Space']); // sqrt(9)
+  await seq(['KeyA', Div('Digit9'), 'Enter']); // sqrt(9)
   assertEqual('sqrt: √9', await latex(), '\\sqrt9');
 
   // 2026-08-30 拓男指定でSemicolon→絶対値の割り当ては撤去した（音声指摘2件目）。
@@ -135,11 +135,11 @@ async function main() {
     const row = window.__neoApp.getActiveRow();
     window.__neoApp.dispatchAction(row, { type: 'open', kind: 'abs' });
   });
-  await seq([Div('KeyH'), 'Digit5', 'Space']); // |-5|  (KeyH = '-')
+  await seq([Div('KeyH'), 'Digit5', 'Enter']); // |-5|  (KeyH = '-')
   assertEqual('abs: |-5|', await latex(), '\\left|-5\\right|');
 
   // ---------------------------------------------------------------
-  console.log('\n== 2. space = close exactly one level (nested), N presses close N levels ==');
+  console.log('\n== 2. Enter = close exactly one level (nested), N presses close N levels ==');
 
   await resetLastRow();
   await seq(['KeyF']); // (
@@ -151,20 +151,20 @@ async function main() {
   assertEqual('nest step1: depth after ( + n/alpha', s.stackDepth, 2);
   assertEqual('nest step1: kinds', s.stackKinds, ['paren', 'nfrac']);
 
-  await seq(['Digit1', 'Space', 'Digit2']); // numerator 1, space->den, denom 2
+  await seq(['Digit1', 'Enter', 'Digit2']); // numerator 1, Enter->den, denom 2
   s = await rowState();
   assertEqual('nest step2: still depth 2 while in denominator', s.stackDepth, 2);
   assertEqual('nest step2: latex mid-nest', s.latex, '\\left(\\dfrac12\\right)');
 
-  await seq(['Space']); // close fraction: depth 2 -> 1
+  await seq(['Enter']); // close fraction: depth 2 -> 1
   s = await rowState();
-  assertEqual('nest step3: 1st space closes fraction only (depth 2->1)', s.stackDepth, 1);
+  assertEqual('nest step3: 1st Enter closes fraction only (depth 2->1)', s.stackDepth, 1);
   assertEqual('nest step3: kinds after 1st close', s.stackKinds, ['paren']);
   assertEqual('nest step3: latex unchanged by close (caret-only move)', s.latex, '\\left(\\dfrac12\\right)');
 
-  await seq(['Space']); // close paren: depth 1 -> 0
+  await seq(['Enter']); // close paren: depth 1 -> 0
   s = await rowState();
-  assertEqual('nest step4: 2nd space closes paren (depth 1->0)', s.stackDepth, 0);
+  assertEqual('nest step4: 2nd Enter closes paren (depth 1->0)', s.stackDepth, 0);
 
   await seq(['Space']); // nothing open: no-op
   s = await rowState();
@@ -172,59 +172,59 @@ async function main() {
   assertEqual('nest step5: latex unchanged by no-op space', s.latex, '\\left(\\dfrac12\\right)');
 
   // ---------------------------------------------------------------
-  console.log('\n== 3. Shift+Space reopens exactly one level ==');
+  console.log('\n== 3. Shift+Enter reopens exactly one level ==');
 
   await resetLastRow();
   await seq(['KeyA', 'Digit4']); // sqrt(4), still open
   s = await rowState();
   assertEqual('reopen setup: sqrt open, depth 1', s.stackDepth, 1);
-  await seq(['Space']); // close
+  await seq(['Enter']); // close
   s = await rowState();
   assertEqual('reopen: closed, depth 0', s.stackDepth, 0);
-  await seq([{ code: 'Space', shift: true }]); // reopen
+  await seq([{ code: 'Enter', shift: true }]); // reopen
   s = await rowState();
-  assertEqual('reopen: Shift+Space restores depth 1', s.stackDepth, 1);
+  assertEqual('reopen: Shift+Enter restores depth 1', s.stackDepth, 1);
   assertEqual('reopen: kinds restored', s.stackKinds, ['sqrt']);
 
   await resetLastRow();
-  await seq(['KeyA', 'Digit4', 'Space']);
+  await seq(['KeyA', 'Digit4', 'Enter']);
   await page.click('[data-modifier="shift"]');
-  await seq(['Space']);
-  assertEqual('画面Shift→物理Spaceでも1段開き直す', (await rowState()).stackDepth, 1);
+  await seq(['Enter']);
+  assertEqual('画面Shift→物理Enterでも1段開き直す', (await rowState()).stackDepth, 1);
 
   // ---------------------------------------------------------------
   console.log('\n== 4. previous-term ("直前の項") 4 patterns feeding alpha/n numerator ==');
 
   // pattern 1: closed bracket group as a whole
   await resetLastRow();
-  await seq(['KeyF', Div('Digit1'), 'KeyG', 'Digit2', 'Space']); // (1+2) closed
-  await seq(['KeyJ', 'Digit9', 'Space']); // alpha/n on the whole group
+  await seq(['KeyF', Div('Digit1'), 'KeyG', 'Digit2', 'Enter']); // (1+2) closed
+  await seq(['KeyJ', 'Digit9', 'Enter']); // alpha/n on the whole group
   assertEqual('pattern1 (closed group): frac{(1+2)}{9}', await latex(), '\\dfrac{\\left(1+2\\right)}{9}');
 
   // pattern 2: digit run
   await resetLastRow();
   await seq(['Digit1', 'Digit2', 'Digit3']); // 123
-  await seq(['KeyJ', 'Digit4', 'Space']); // alpha/n -> 123/4
+  await seq(['KeyJ', 'Digit4', 'Enter']); // alpha/n -> 123/4
   assertEqual('pattern2 (digit run): frac{123}{4}', await latex(), '\\dfrac{123}{4}');
 
   // pattern 3: variable + attached sup/sub, nothing between
   await resetLastRow();
   await switchLayer('latin'); await seq(['KeyA']); await switchLayer('symbol'); await seq(['KeyK']);
-  await switchLayer('latin'); await seq(['KeyN']); await switchLayer('symbol'); await seq(['Space']); // a_n
-  await seq(['KeyJ']); await switchLayer('latin'); await seq(['KeyM']); await switchLayer('symbol'); await seq(['Space']);
+  await switchLayer('latin'); await seq(['KeyN']); await switchLayer('symbol'); await seq(['Enter']); // a_n
+  await seq(['KeyJ']); await switchLayer('latin'); await seq(['KeyM']); await switchLayer('symbol'); await seq(['Enter']);
   // MathLive keeps braces around the single-char subscript when re-serialized: a_{n} (identical meaning to a_n)
   assertEqual('pattern3 (var+script): frac{a_n}{m}', await latex(), '\\dfrac{a_{n}}{m}');
 
   // pattern 4: function application (sin x)
   await resetLastRow();
   await seq(['KeyV']); await switchLayer('latin'); await seq(['KeyX']); await switchLayer('symbol'); // sin x
-  await seq(['KeyJ', Div('Digit2'), 'Space']); // alpha/n -> (sin x)/2
+  await seq(['KeyJ', Div('Digit2'), 'Enter']); // alpha/n -> (sin x)/2
   assertEqual('pattern4 (func app): frac{\\sin x}{2}', await latex(), '\\dfrac{\\sin x}{2}');
 
   // does NOT cross + - =
   await resetLastRow();
   await seq(['Digit1', 'KeyG', 'Digit2', 'Digit3']); // 1+23
-  await seq(['KeyJ', Div('Digit9'), 'Space']); // alpha/n should take only "23", not "1+23"
+  await seq(['KeyJ', Div('Digit9'), 'Enter']); // alpha/n should take only "23", not "1+23"
   assertEqual('boundary: term stops at "+" (takes 23 not 1+23)', await latex(), '1+\\dfrac{23}{9}');
 
   // ---------------------------------------------------------------
@@ -260,12 +260,12 @@ async function main() {
 
   await resetLastRow();
   await seq(['KeyY']); await switchLayer('latin'); await seq(['KeyN']); await switchLayer('symbol');
-  await seq(['KeyR', 'Slash', 'Space']);
+  await seq(['KeyR', 'Slash', 'Enter']);
   assertEqual('lim n->infty', await latex(), '\\lim_{n\\to\\infty}');
 
   await resetLastRow();
   await seq(['KeyO']); await switchLayer('latin'); await seq(['KeyK']); await switchLayer('symbol');
-  await seq(['KeyS', 'Digit1', 'Space']); await switchLayer('latin'); await seq(['KeyN']); await switchLayer('symbol'); await seq(['Space']);
+  await seq(['KeyS', 'Digit1', 'Enter']); await switchLayer('latin'); await seq(['KeyN']); await switchLayer('symbol'); await seq(['Enter']);
   assertEqual('sum k=1 -> n', await latex(), '\\sum_{k=1}^{n}');
 
   // ---------------------------------------------------------------
@@ -347,7 +347,7 @@ async function main() {
   assertEqual('rule3: stack popped', (await rowState()).stackDepth, 0);
 
   await resetLastRow();
-  await pressCode('KeyL'); await pressCode('Digit3'); await pressCode('Space'); // 分母へ
+  await pressCode('KeyL'); await pressCode('Digit3'); await pressCode('Enter'); // 分母へ
   await pressCode('Backspace');
   assertEqual('rule2: empty later slot steps back to the previous slot',
     (await rowState()).stackKinds, ['nfrac']);
@@ -370,19 +370,16 @@ async function main() {
   assertEqual('arrow: leaving the structure pops our stack', (await rowState()).stackDepth, 0);
 
   // =========================================================================
-  // 13. Enter は開いているスロットを閉じてから行を変える
-  // 追加理由: 既存テストが「行が増えたか」しか見ておらず、
-  // フォーカスが前の行に残る不具合を通してしまっていた。
+  // 13. Enter は開いているスロットを一段閉じ、最後に閉じた後だけ行を変える
   // =========================================================================
-  console.log('\n== 13. Enter closes slots and moves focus ==');
+  console.log('\n== 13. Enter closes one level before moving to a new row ==');
   await resetLastRow();
   await pressCode('KeyF'); await pressCode('Digit1');   // "(1" 開いたまま
   await pressCode('Enter');
   await pressCode('Digit2');
   const afterEnter = await page.evaluate(() => [...document.querySelectorAll('math-field')].map((m) => m.value));
-  assertEqual('Enter: typing lands on the NEW row, not the old one',
-    afterEnter[afterEnter.length - 1], '2');
-  assertEqual('Enter: the previous row got closed', afterEnter[afterEnter.length - 2], '\\left(1\\right)');
+  assertEqual('Enter: typing stays in the same row after one structural close',
+    afterEnter[afterEnter.length - 1], '\\left(1\\right)2');
   assertEqual('Enter: no slots left open', (await rowState()).stackDepth, 0);
 
   assertEqual('no [stack-mismatch] warnings logged during the whole run', consoleWarnings.filter((w) => w.includes('stack-mismatch')), []);

@@ -216,10 +216,10 @@ const GREEK_CANDIDATES = GREEK_LETTERS.flatMap(([name, lower, upper, reading]) =
   { id: `greek-${name}-upper`, greekName: name, label: upper, latex: GREEK_UPPER_LATEX[name] ?? `\\mathrm{${GREEK_UPPER_ROMAN[name]}}`, aliases: [`upper ${name}`, `${reading}だいもじ`, upper], categories: ['greek'], basePriority: 140 },
 ]);
 const MATH_CANDIDATE_DEFINITIONS = [
-  // 'fraction'（÷、わる/じょほう）は2026-08-30以降、確定するとBUILTIN_CONVERSION_ACTIONS
-  // 経由でα/n（afrac＝直前の項を分子・分母へカーソル移動）を呼ぶ構造入力になった。
-  // ここのlatex（\div）は互換・書き出し用の表示値であり、実行時には使われない。
-  ['product','∏','\\prod ','せき','product','prod'], ['fraction','÷','\\div ','わる','じょほう','division','divide'], ['approximately','≈','\\approx ','きんじ','ほぼ','approx'],
+  // 「わる」は直前項を分子に取り分母へ入る構造入力。候補表示も、結果を読む前に
+  // どちらの空欄へ入るか分かる a/□ にする。latex はCSV互換用で、実行時には
+  // BUILTIN_CONVERSION_ACTIONS の固定アクションしか使わない。
+  ['product','∏','\\prod ','せき','product','prod'], ['fraction','a/□','\\div ','わる','じょほう','division','divide','ぶんすう'], ['approximately','≈','\\approx ','きんじ','ほぼ','approx'],
   ['proportional','∝','\\propto ','ひれい','proportional','propto'], ['subset','⊂','\\subset ','ぶぶんしゅうごう','subset'],
   ['subset-equal','⊆','\\subseteq ','ぶぶんしゅうごういこーる','subseteq'], ['superset','⊃','\\supset ','ほうがん','superset'],
   ['superset-equal','⊇','\\supseteq ','ほうがんいこーる','supseteq'], ['not-belongs','∉','\\notin ','ぞくさない','notin'],
@@ -277,7 +277,11 @@ const HIGH_SCHOOL_EXAM_CANDIDATES = [
   withExamScope({ id: 'sqrt', label: '√', latex: '\\sqrt{}', aliases: ['るーと', 'へいほうこん', 'sqrt'], categories: ['general'], basePriority: 240 }, ['math1', 'math2']),
   // 構造入力は候補を確定した瞬間に既存のスロット操作へ渡す。latexはCSVの
   // 互換・書き出し用で、実行時にこの文字列を解釈して動かすことはしない。
-  withExamScope({ id: 'fraction-structure', label: 'a/b', latex: '\\dfrac{#0}{#0}', aliases: ['ぶんの', 'ぶんすう', 'fraction'], categories: ['general'], basePriority: 250 }, ['math1', 'math2', 'mathB', 'math3', 'mathC']),
+  // 「ぶんすう」は3種類を同時に出す。既存ID fraction-structure は学習履歴・CSV
+  // の互換性を保ったまま「B分のA（直前項を分母へ）」を表す。候補ごとに別IDなので
+  // 手動順位／選択履歴も混ざらない。
+  withExamScope({ id: 'fraction-structure', label: '□/a', latex: '\\dfrac{#0}{#0}', aliases: ['ぶんの', 'ぶんすう', 'fraction'], categories: ['general'], basePriority: 250 }, ['math1', 'math2', 'mathB', 'math3', 'mathC']),
+  withExamScope({ id: 'fraction-empty', label: '□/□', latex: '\\dfrac{#0}{#0}', aliases: ['ぶんすう', 'blank fraction'], categories: ['general'], basePriority: 240 }, ['math1', 'math2', 'mathB', 'math3', 'mathC']),
   withExamScope({ id: 'parentheses', label: '( )', latex: '\\left(#0\\right)', aliases: ['かっこ', 'かっこひらく', 'parentheses', 'paren'], categories: ['general'], basePriority: 235 }, ['math1', 'math2', 'mathB', 'math3', 'mathC']),
   withExamScope({ id: 'power', label: 'xⁿ', latex: 'x^{#0}', aliases: ['じょう', 'にじょう', 'さんじょう', 'power', 'exponent'], categories: ['general'], basePriority: 235 }, ['math1', 'math2', 'mathB', 'math3', 'mathC']),
   withExamScope({ id: 'power-n', label: 'xⁿ', latex: 'x^{n}', aliases: ['nじょう', 'njou'], categories: ['general'], basePriority: 245 }, ['math1', 'math2', 'mathB', 'math3', 'mathC']),

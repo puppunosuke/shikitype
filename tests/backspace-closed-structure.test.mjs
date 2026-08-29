@@ -1,5 +1,5 @@
 // 2026-08-30 修正の回帰テスト。
-// 対象: 「スペースで明示的に閉じた」複合構造（∫・Σ・分数・括弧）の直後でBackspaceを
+// 対象: 「Enterで明示的に閉じた」複合構造（∫・Σ・分数・括弧）の直後でBackspaceを
 // 1回押すと、構造ごと消えること（拓男の報告「インテグラルがBackspaceで消せない」の修正）。
 // 矢印キーで外へ出た場合は従来どおり1文字だけ消える（fix-regression.test.mjsが守る）ので
 // ここでは触らない。
@@ -49,8 +49,8 @@ async function main() {
     const row = window.__neoApp.getActiveRow();
     window.__neoApp.dispatchAction(row, { type: 'integral' });
   });
-  await pressCode('Digit0'); await pressCode('Space');
-  await pressCode('Digit1'); await pressCode('Space');
+  await pressCode('Digit0'); await pressCode('Enter');
+  await pressCode('Digit1'); await pressCode('Enter');
   assertEqual('∫の下限0・上限1を書いて閉じる', await latex(), '\\int_0^1');
   await pressCode('Backspace');
   assertEqual('閉じた∫はBackspace1回で構造ごと消える', await latex(), '');
@@ -59,8 +59,8 @@ async function main() {
   console.log('\n== Σ（KeyO）: 閉じた直後のBackspace ==');
   await resetRow();
   await pressCode('KeyO');
-  await pressCode('Digit1'); await pressCode('Space');
-  await pressCode('Digit2'); await pressCode('Space');
+  await pressCode('Digit1'); await pressCode('Enter');
+  await pressCode('Digit2'); await pressCode('Enter');
   assertEqual('Σの下限1・上限2を書いて閉じる', await latex(), '\\sum_1^2');
   await pressCode('Backspace');
   assertEqual('閉じたΣはBackspace1回で構造ごと消える', await latex(), '');
@@ -68,8 +68,8 @@ async function main() {
   console.log('\n== 分数（KeyL = n/α）: 閉じた直後のBackspace ==');
   await resetRow();
   await pressCode('KeyL');
-  await pressCode('Digit1'); await pressCode('Space');
-  await pressCode('Digit2'); await pressCode('Space');
+  await pressCode('Digit1'); await pressCode('Enter');
+  await pressCode('Digit2'); await pressCode('Enter');
   assertEqual('1/2を書いて閉じる', await latex(), '\\dfrac12');
   await pressCode('Backspace');
   assertEqual('閉じた分数はBackspace1回で構造ごと消える', await latex(), '');
@@ -80,8 +80,8 @@ async function main() {
   await pressCode('KeyA'); // a
   await page.evaluate(() => { while (window.__neoApp.getBaseLayer() !== 'symbol') window.__neoApp.cycleBaseLayer(); });
   await pressCode('KeyO'); // Σ
-  await pressCode('Digit1'); await pressCode('Space');
-  await pressCode('Digit2'); await pressCode('Space');
+  await pressCode('Digit1'); await pressCode('Enter');
+  await pressCode('Digit2'); await pressCode('Enter');
   assertEqual('a + Σ_1^2 を書いて閉じる', await latex(), 'a\\sum_1^2');
   await pressCode('Backspace');
   assertEqual('直前のΣだけ消え、aは残る', await latex(), 'a');

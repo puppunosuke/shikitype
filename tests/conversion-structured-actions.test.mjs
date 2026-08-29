@@ -48,56 +48,56 @@ await page.keyboard.press('Digit2');
 await confirm('bunno', 'fraction-structure');
 ok('2 → ぶんの は直前項を分母にして分子へ入る', (await stack())[0]?.kind === 'nfrac' && (await latex()).includes('\\dfrac{\\placeholder{}}{2}'), { latex: await latex(), stack: await stack() });
 await page.keyboard.press('Digit1');
-await page.keyboard.press('Space');
-ok('2 → ぶんの → 1 は 1/2 になり、Spaceで構造を閉じられる', (await latex()) === '\\dfrac12' && (await stack()).length === 0, { latex: await latex(), stack: await stack() });
+await page.keyboard.press('Enter');
+ok('2 → ぶんの → 1 は 1/2 になり、Enterで構造を閉じられる', (await latex()) === '\\dfrac12' && (await stack()).length === 0, { latex: await latex(), stack: await stack() });
 
 await reset();
 await confirm('x', 'latin-lower-x');
 await confirm('jou', 'power');
-await page.keyboard.press('Digit2'); await page.keyboard.press('Space');
+await page.keyboard.press('Digit2'); await page.keyboard.press('Enter');
 ok('x → じょう は直前のxに上付きスロットを開く', (await latex()) === 'x^2', { latex: await latex(), stack: await stack() });
 
 await reset();
 await confirm('x', 'latin-lower-x');
 await confirm('njou', 'power-n');
-await page.keyboard.press('Space');
+await page.keyboard.press('Enter');
 ok('x → nじょう はnを上付きに事前入力する', (await latex()) === 'x^{n}', { latex: await latex(), stack: await stack() });
 
 await reset();
 await confirm('x', 'latin-lower-x');
 await confirm('xjou', 'power-x');
-await page.keyboard.press('Space');
+await page.keyboard.press('Enter');
 ok('x → xじょう はxを上付きに事前入力する', (await latex()) === 'x^{x}', { latex: await latex(), stack: await stack() });
 
 await reset();
 await confirm('sqrt', 'sqrt');
-await page.keyboard.press('Digit9'); await page.keyboard.press('Space');
+await page.keyboard.press('Digit9'); await page.keyboard.press('Enter');
 ok('sqrt候補は根号スロットを開く', (await latex()) === '\\sqrt9', { latex: await latex(), stack: await stack() });
 
 await reset();
 await confirm('absolute', 'absolute');
-await page.keyboard.press('Digit5'); await page.keyboard.press('Space');
+await page.keyboard.press('Digit5'); await page.keyboard.press('Enter');
 ok('absolute候補は絶対値スロットを開く', (await latex()) === '\\left|5\\right|', { latex: await latex(), stack: await stack() });
 
 await reset();
 await confirm('paren', 'parentheses');
-await page.keyboard.press('Digit3'); await page.keyboard.press('Space');
+await page.keyboard.press('Digit3'); await page.keyboard.press('Enter');
 ok('paren候補は括弧スロットを開く', (await latex()) === '\\left(3\\right)', { latex: await latex(), stack: await stack() });
 
 await reset();
 await confirm('souwakigou', 'sum-operator');
-await page.keyboard.press('Digit1'); await page.keyboard.press('Space'); await page.keyboard.press('Digit2'); await page.keyboard.press('Space');
+await page.keyboard.press('Digit1'); await page.keyboard.press('Enter'); await page.keyboard.press('Digit2'); await page.keyboard.press('Enter');
 ok('総和記号候補は下限→上限を編集できる', (await latex()) === '\\sum_1^2', { latex: await latex(), stack: await stack() });
 
 await reset();
 await confirm('integral', 'integral');
-await page.keyboard.press('Digit0'); await page.keyboard.press('Space'); await page.keyboard.press('Digit1'); await page.keyboard.press('Space');
+await page.keyboard.press('Digit0'); await page.keyboard.press('Enter'); await page.keyboard.press('Digit1'); await page.keyboard.press('Enter');
 ok('積分候補は下限→上限を編集できる', (await latex()) === '\\int_0^1', { latex: await latex(), stack: await stack() });
 
 await reset();
 await confirm('lim', 'limit');
 await confirm('n', 'latin-lower-n');
-await page.keyboard.press('Space');
+await page.keyboard.press('Enter');
 ok('lim候補は極限の下付きスロットを開く', (await latex()) === '\\lim_{n}', { latex: await latex(), stack: await stack() });
 
 await reset();

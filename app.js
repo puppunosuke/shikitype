@@ -245,7 +245,7 @@ class RowState {
     this.id = isBlockId(id) ? id : makeBlockId();
     this.mf = mf;
     this.stack = [];       // 開いているスロットのスタック（自前の権威）
-    this.history = [];     // Shift+Space で1段開き直すための履歴
+    this.history = [];     // Shift+Enter で1段開き直すための履歴
     this.run = [];         // 現在アクティブなレベルの「項ラン」（直前の項判定に使う）
     this.runStack = [];    // 親レベルの run を退避するスタック（stack と対応）
     // 矢印で一時的に外へ出た、自分で開いた構造。復元LaTeX由来のunknownと区別し、
@@ -563,9 +563,9 @@ function openIntegral(row) {
   checkDepth(row);
 }
 
-/** スペース: 最も内側の未確定スロットを1段だけ閉じる（多スロットなら次スロットへ送るだけ） */
+/** Enter: 最も内側の未確定スロットを1段だけ閉じる（多スロットなら次スロットへ送るだけ） */
 function closeOneLevel(row) {
-  if (row.stack.length === 0) return; // 全部閉じきった状態でのスペースは何もしない
+  if (row.stack.length === 0) return;
   const frame = row.stack[row.stack.length - 1];
   row.history.push(snapshotForHistory(row));
 
@@ -599,7 +599,7 @@ function closeOneLevel(row) {
     frame.mergeTarget.end = closePos;
     frame.mergeTarget.kind = 'varScript';
   } else {
-    // viaClose: true は「スペースで明示的に閉じた直後」の目印。矢印キーで外へ出た
+    // viaClose: true は「Enterで明示的に閉じた直後」の目印。矢印キーで外へ出た
     // ときのgroupトークン（reconcileStack側）にはこの目印を付けない。同じ形の
     // groupトークンでも、Backspaceの挙動を分けたいのはここだけの違いによる
     // （下のBackspace側コメント参照）。
@@ -613,7 +613,7 @@ function closeOneLevel(row) {
  * 規則は3つだけ（打つ前に考えなくて済むよう、場合分けを増やさない）:
  *   1. いまのスロットに中身がある → 1つ消す
  *   2. いまのスロットが空で、多スロット構造の2つ目以降にいる → 前のスロットへ戻る
- *      （スペースの「次のスロットへ送る」のちょうど逆）
+ *      （Enterの「次のスロットへ送る」のちょうど逆）
  *   3. いまのスロットが空で、構造の先頭にいる → 構造ごと無かったことにする
  * 3が要点。押し間違えた `n/α` や `√` を、1回のBackspaceで取り消せる。
  */
@@ -684,7 +684,7 @@ function backspace(row) {
     }
   }
 
-  // 規則1.5: **スペースで明示的に閉じた**直後の複合構造（分数・括弧・Σ・∫ など
+  // 規則1.5: **Enterで明示的に閉じた**直後の複合構造（分数・括弧・Σ・∫ など
   // 2箇所以上の入力欄を持つもの）をまたぐBackspaceは、素の deleteBackward だと
   // 1回で消えない（2026-08-30 実機再現。拓男の報告「インテグラルがBackspaceで
   // 消せない」の原因＝∫やΣはMathLiveの内部で複数アトムに分かれており、外から
@@ -739,7 +739,7 @@ function backspace(row) {
  * そこで「深さだけは必ず合わせ、種類は分かる範囲だけ名乗る」方針にする:
  *   - 浅くなった（構造の外へ出た） → その分スタックをpopする
  *   - 深くなった（閉じた構造の中へ入った） → 種類不明のフレームを積む（パンくずには「?」と出す）
- * これでスペースの「1段閉じる」は移動後も正しく効く（moveAfterParent は種類に依らないため）。
+ * これでEnterの「1段閉じる」は移動後も正しく効く（moveAfterParent は種類に依らないため）。
  */
 function moveCaret(row, dir) {
   row.mf.executeCommand(dir < 0 ? 'moveToPreviousChar' : 'moveToNextChar');
@@ -786,7 +786,7 @@ function moveRow(dir) {
   claimRowFocus(rows[next]);
 }
 
-/** Shift+Space: 直前のスペース操作を1段開き直す */
+/** Shift+Enter: 直前のEnter操作を1段開き直す */
 function reopenOneLevel(row) {
   if (row.history.length === 0) return;
   const snap = row.history.pop();
@@ -1684,7 +1684,7 @@ function openConversion(row = activeRow(), focus = true) {
 function insertConversionLatex(row, latex) {
   row.mf.executeCommand(['insert', latex, { insertionMode: 'insertAfter', format: 'latex' }]);
   // 変換候補は演算子・文字・構造を横断するため、既存の項ランを引き継がない。
-  // RowStateそのものと開いているスロットは残るので、直後のBackspace/Spaceは既存経路で扱える。
+  // RowStateそのものと開いているスロットは残るので、直後のBackspace/Enterは既存経路で扱える。
   clearRun(row);
   checkDepth(row);
   // 候補確定後、自前キャレット（scheduleConversionCaret）を呼ばずに終える経路が
@@ -1698,6 +1698,7 @@ function insertConversionLatex(row, latex) {
 // 実行しない。ここに固定した内蔵IDだけが既存の構造アクションへ到達できる。
 const BUILTIN_CONVERSION_ACTIONS = Object.freeze({
   'fraction-structure': { type: 'nfrac-previous-denominator' },
+  'fraction-empty': { type: 'nfrac' },
   // 割り算（÷、読み「わる」）は2026-08-30拓男指定（音声指摘4件目）でα/nと同じ挙動に
   // 変えた＝直前の項を分子に取り分母へカーソル移動。パレットの÷（PALETTE_STRUCTURAL_
   // ACTIONS）と同じ理由・同じ afrac アクションへ寄せる。
@@ -3247,8 +3248,8 @@ function routeShikitypeImeKey(event) {
       stopCapturedKey(event);
       return true;
     }
-    // 候補選択中だけ矢印／Enterを専用IMEが持つ。読みが空、または候補ナビゲーション
-    // ではないときは後続の既存数式処理（矢印=キャレット、上下=行移動、Enter=改行）へ渡す。
+    // 候補選択中だけ矢印／Enterを専用IMEが持つ。読みが空なら後続の数式処理へ渡し、
+    // Enterは開いた構造を一段進めてから、全て閉じているときだけ次行を作る。
     if (!handled) return false;
     stopCapturedKey(event);
     return true;
@@ -3480,17 +3481,26 @@ document.addEventListener('keydown', (e) => {
 
   if (e.code === 'Enter') {
     tickKeystroke();
-    newRowAfterActive();
+    // Shift+Enter is the inverse of the immediately preceding structural Enter.
+    // Conversion text owns Enter first (routeShikitypeImeKey), so this never steals
+    // candidate confirmation while a reading is being edited.
+    if (effectiveShift) {
+      reopenOneLevel(row);
+      renderBreadcrumb();
+      scheduleConversionCaret(row);
+    } else if (row.stack.length) {
+      closeOneLevel(row);
+      renderBreadcrumb();
+      scheduleConversionCaret(row);
+    } else newRowAfterActive();
     clearVirtualShift();
     return;
   }
 
   if (e.code === 'Space') {
     tickKeystroke();
-    if (effectiveShift) reopenOneLevel(row);
-    else closeOneLevel(row);
-    renderBreadcrumb();
-    scheduleConversionCaret(row);
+    // Space は変換読みの区切り以外では何もしない。構造の進行は Enter に一本化して、
+    // 数式中の空白キーが「閉じる」隠し操作にならないようにする。
     clearVirtualShift();
     return;
   }
@@ -3531,11 +3541,8 @@ document.addEventListener('keydown', (e) => {
   // いないため。Shift+8/9・Shift+[/] は物理キーの位置（event.code）で判定するので
   // JIS/US配列のどちらでも同じ指の動きになる。
   // 開く側（Shift+8, Shift+[）は既存のKeyF・独自の中括弧アクションと同じ「スロットを
-  // 開く」動作にする。閉じる側（Shift+9, Shift+]）はこのアプリのSpaceと全く同じ
-  // 「最も内側の未確定スロットを1段閉じる」を呼ぶだけで、新しい閉じ方のルールは
-  // 増やさない（aineo-math-solution.mdの「例外を作らない」を守るため、Spaceの
-  // 別名として扱う。中身が無い状態で押しても何もしない、という既定動作もSpaceと
-  // 完全に共有される）。レイヤーを問わず常に効く（数字キー自体が全レイヤー共通のため）。
+  // 開く」動作にする。閉じる側（Shift+9, Shift+]）はJIS配列の対応する閉じ括弧として
+  // 最も内側を閉じる。主操作をEnterへ統一しても、文字キー本来の閉じ括弧は残す。
   if (effectiveShift && (e.code === 'Digit8' || e.code === 'BracketLeft')) {
     tickKeystroke();
     dispatchAction(row, { type: 'open', kind: e.code === 'Digit8' ? 'paren' : 'curly' });
@@ -3607,7 +3614,7 @@ function dispatchAction(row, action) {
       else if (action.kind === 'abs') openSingleSlot(row, 'abs', '\\left|#0\\right|');
       else if (action.kind === 'sup') openSingleSlot(row, 'sup');
       else if (action.kind === 'sub') openSingleSlot(row, 'sub');
-      // 中括弧。丸括弧と同じ単一スロット構造（スペースで閉じる）。JIS配列の鍵括弧
+      // 中括弧。丸括弧と同じ単一スロット構造（Enterで閉じる）。JIS配列の鍵括弧
       // キー位置（Shift+BracketLeft/Right）専用の新規追加（2026-08-30、項目1）。
       else if (action.kind === 'curly') openSingleSlot(row, 'curly', '\\{#0\\}');
       break;
@@ -4200,9 +4207,14 @@ function handleVirtualSpecial(code, invokedRow = activeRow()) {
     }
     else if (code === 'Enter' || code === 'Escape') {
       const handled = handleConversionKey(row, { code, isComposing: false, keyCode: 0 });
-      // rawが空のEnterは従来どおり次行。rawが残るEnterはhandle側が所有し、
-      // 候補なしでも意図せず改行しない。
-      if (code === 'Enter' && !handled) { tickKeystroke(); newRowAfterActive(); }
+      // rawが空のEnterは構造を一段進め、全て閉じているときだけ次行へ進む。
+      // rawが残るEnterはhandle側が所有し、候補なしでも意図せず改行しない。
+      if (code === 'Enter' && !handled) {
+        tickKeystroke();
+        if (physicalShift || virtualShift) { reopenOneLevel(row); renderBreadcrumb(); scheduleConversionCaret(row); }
+        else if (row.stack.length) { closeOneLevel(row); renderBreadcrumb(); scheduleConversionCaret(row); }
+        else newRowAfterActive();
+      }
     }
     else if (code === 'Space') appendConversionText(row, ' ');
     flashSpecial(code);
@@ -4215,12 +4227,12 @@ function handleVirtualSpecial(code, invokedRow = activeRow()) {
     cycleBaseLayer(false);
   } else if (code === 'Space') {
     tickKeystroke();
-    if (physicalShift || virtualShift) reopenOneLevel(row);
-    else closeOneLevel(row);
-    renderBreadcrumb();
+    // 物理Spaceと同じく、通常の数式層では構造を進めない。
   } else if (code === 'Enter') {
     tickKeystroke();
-    newRowAfterActive();
+    if (physicalShift || virtualShift) { reopenOneLevel(row); renderBreadcrumb(); scheduleConversionCaret(row); }
+    else if (row.stack.length) { closeOneLevel(row); renderBreadcrumb(); scheduleConversionCaret(row); }
+    else newRowAfterActive();
   } else if (code === 'Escape') {
     tickKeystroke();
     togglePalette(true);
@@ -4659,7 +4671,9 @@ function renderOperationsGuide() {
   const conversionTabNote = '候補があるときは候補選択を切替。候補がないときは変換とギリシャ文字を切り替える。';
   const entries = [
     ['Tab', inputSystem === 'conversion' ? conversionTabNote : (tabMethod?.note ?? 'レイヤーを切り替える、または変換候補をトグルする。')],
-    ['Enter', '変換候補を確定する。文（\\text{}）の中では文を閉じる。'],
+    ['Enter', '変換候補を確定する。開いた数式は次の欄へ進むか1段閉じる。文（\\text{}）の中では文を閉じる。'],
+    ['Shift+Enter', '直前にEnterで進めた数式の欄を1段だけ開き直す。'],
+    ['Space', '変換中は読みの区切りに使う。数式の構造は進めない。'],
     ['矢印キー', '数式内でカーソルを移動する。候補一覧を出しているときは候補間を移動する。'],
     ['Escape', '記号層へ戻す。パレット（ギリシャ文字・低頻度記号）を開閉する。'],
     ['Backspace', '通常は1文字戻す。確定した直後だけは、確定結果を読みへ戻して打ち直せる（段階2で追加）。'],

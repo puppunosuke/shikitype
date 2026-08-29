@@ -109,7 +109,7 @@ async function main() {
   await resetLastRow();
   await pressCode('KeyL');                       // n/α
   await pressCode('Digit1');
-  await pressCode('Space');                      // 分母へ
+  await pressCode('Enter');                      // 分母へ
   await pressCode('KeyG');                       // +
   const denBefore = await latex();
   assertEqual('setup: fraction with + in denominator', denBefore, '\\dfrac{1}{+}');

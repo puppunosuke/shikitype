@@ -2,7 +2,7 @@
 // 「括弧も中括弧も、JIS配列と同じ打ち方ができるようになってほしい」を実装した回帰テスト。
 // Shift+Digit8/9 は丸括弧、Shift+BracketLeft/Right は中括弧を、物理キー位置（event.code）
 // で開閉する。既存のKeyF（丸括弧）は残したまま併存させる方針（根拠はapp.js側のコメント）。
-// 閉じる側は新しい「閉じ方のルール」を増やさず、Spaceと同じcloseOneLevelを呼ぶだけにする。
+// 閉じる側は文字キー本来の閉じ括弧としてcloseOneLevelを呼ぶ。主操作のEnterとは別の直接経路。
 import { chromium } from '../spike/node_modules/playwright/index.mjs';
 
 const BASE = 'http://localhost:8893/app.html';
@@ -61,8 +61,8 @@ async function main() {
   await resetRow();
   await press('KeyF');
   await press('Digit7');
-  await press('Space');
-  assertEqual('KeyF → 7 → Space でも従来どおり (7)', await latex(), '\\left(7\\right)');
+  await press('Enter');
+  assertEqual('KeyF → 7 → Enter で (7)', await latex(), '\\left(7\\right)');
 
   console.log('\n== Shiftなしの Digit8/9 は従来どおり数字 ==');
   await resetRow();

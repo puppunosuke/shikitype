@@ -68,7 +68,7 @@ async function main() {
     row.run.push({ kind: 'digits', start: 0, end: 1 });
   });
   await typeRaw('waru');
-  assertEqual('わる は fraction 候補を出す（表示は÷のまま）', await candidateIds(), ['fraction']);
+  assertEqual('わる は fraction 候補を出す（表示はa/□）', await candidateIds(), ['fraction']);
   await confirm();
   assertEqual('わる確定で7が分母に入り分子へカーソルが動く', await latex(), '\\dfrac{7}{\\placeholder{}}');
   assertEqual('stackはafrac', await stack(), ['afrac']);
