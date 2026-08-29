@@ -1794,7 +1794,9 @@ let noteSaveTimer = null;
 let restoringNote = false;
 let notesFilterQuery = '';
 let notesTrashOpen = false;
-let cloudAccount = { userId: null, state: 'local', epoch: 0 };
+// displayName: サーバpublicAccount()のuser.name（Google表示名）。無ければidをそのまま表示に使う。
+// googleLinked: サーバpublicAccount()のuser.googleLinked。true なら「連携」導線を隠す。
+let cloudAccount = { userId: null, state: 'local', epoch: 0, displayName: null, googleLinked: false };
 const cloudQueues = new Map();
 let cloudGeneration = 0;
 let accountOperation = 0;
@@ -5812,11 +5814,16 @@ function retireCloudAccount() {
   cloudAccount.epoch += 1;
 }
 
-async function switchToUserStore(userId, importAnonymous = false, operation = beginAccountOperation()) {
+async function switchToUserStore(userId, importAnonymous = false, operation = beginAccountOperation(), accountMeta = null) {
   if (!isCurrentAccountOperation(operation)) return false;
   saveCurrentNoteNow();
   retireCloudAccount();
   cloudAccount.userId = userId;
+  // サーバpublicAccount()の name/googleLinked をここで一括反映する。呼び出し元
+  // （Google連携ログイン・ID/パスワードログイン・セッション復元）が個別に
+  // 表示欄を書き換えると、片方だけ直る事故になるためここを唯一の反映口にする。
+  cloudAccount.displayName = accountMeta?.name || null;
+  cloudAccount.googleLinked = Boolean(accountMeta?.googleLinked);
   // 前回このアカウントで「完全に削除」がサーバへ届かず終わっていたら、
   // ログイン（再ログイン・セッション復元）のタイミングで自動的に追いつかせる。
   void drainPendingDeletes(userId);
@@ -5890,6 +5897,8 @@ async function switchToAnonymousStore(operation = beginAccountOperation()) {
   saveCurrentNoteNow();
   retireCloudAccount();
   cloudAccount.userId = null;
+  cloudAccount.displayName = null;
+  cloudAccount.googleLinked = false;
   updateConversionDictionaryStorageStatus('local');
   readConversionLocalProfile(null);
   renderConversionProfileAfterLoad();
@@ -5911,11 +5920,15 @@ function updateAccountToggleLabel() {
   if (!toggle) return;
   const label = toggle.querySelector('span:last-child');
   const userId = cloudAccount.userId;
-  if (label) label.textContent = userId || 'ログイン';
+  // Google連携アカウントは login_id が `g_` + ハッシュの自動生成IDのため、
+  // そのまま出すと読めない文字列になる。表示名（Googleの氏名）があれば
+  // それを優先し、無い（＝ID/パスワード登録）場合だけ従来通りidを出す。
+  const shownName = cloudAccount.displayName || userId;
+  if (label) label.textContent = shownName || 'ログイン';
   // アカウントダイアログの「◯◯ としてログイン中」と同じ言い回しにして、
   // ボタンとダイアログの表示が矛盾しないようにする。
-  toggle.setAttribute('aria-label', userId ? `${userId} としてログイン中。アカウントを管理` : 'ログインまたはアカウント作成');
-  toggle.title = userId ? `${userId} としてログイン中` : '';
+  toggle.setAttribute('aria-label', shownName ? `${shownName} としてログイン中。アカウントを管理` : 'ログインまたはアカウント作成');
+  toggle.title = shownName ? `${shownName} としてログイン中` : '';
 }
 
 function renderAccountDialog(panel) {
@@ -5929,7 +5942,14 @@ function renderAccountDialog(panel) {
     tab.tabIndex = selected ? 0 : -1;
     tab.hidden = signedIn;
   });
-  document.getElementById('account-user-id').textContent = cloudAccount.userId || '';
+  document.getElementById('account-user-id').textContent = cloudAccount.displayName || cloudAccount.userId || '';
+  // Google連携済みなら「連携する」ボタンは意味を持たない（もう連携済みで押す
+  // 理由がない）ので、ここで確実に隠す。未連携の場合はprepareGoogleLogin()が
+  // スクリプト読込後にボタンを出す経路をそのまま残す（ここでは触らない）。
+  const linked = signedIn && cloudAccount.googleLinked;
+  if (linked) document.getElementById('google-link-submit')?.setAttribute('hidden', '');
+  const linkStatus = document.getElementById('google-link-status');
+  if (linkStatus) linkStatus.hidden = !linked;
   updateAccountToggleLabel();
   updateCloudStatus();
 }
@@ -5979,11 +5999,13 @@ async function completeGoogleLogin(credential) {
     });
     if (!isCurrentAccountOperation(operation)) return;
     if (googleAuth.intent === 'link') {
+      cloudAccount.googleLinked = true;
+      if (data.user?.name) cloudAccount.displayName = data.user.name;
       setAccountMessage('Googleアカウントを連携しました。');
       renderAccountDialog();
       return;
     }
-    const switched = await switchToUserStore(data.user.id, true, operation);
+    const switched = await switchToUserStore(data.user.id, true, operation, { name: data.user.name, googleLinked: data.user.googleLinked });
     if (!switched || !isCurrentAccountOperation(operation, data.user.id)) return;
     setAccountMessage('Googleでログインしました。');
     renderAccountDialog();
@@ -6014,7 +6036,9 @@ async function prepareGoogleLogin() {
         window.google.accounts.id.renderButton(mount, { theme: 'outline', size: 'large', text: 'signin_with', shape: 'rectangular', width: Math.min(340, Math.max(220, mount.parentElement?.clientWidth - 4 || 300)) });
       }
       document.getElementById('google-login-panel')?.removeAttribute('hidden');
-      document.getElementById('google-link-submit')?.removeAttribute('hidden');
+      // 既にGoogle連携済みのアカウントには「連携する」ボタンを出さない
+      // （renderAccountDialog()の常時ガードに加え、ここでも無条件解除しない）。
+      if (!cloudAccount.googleLinked) document.getElementById('google-link-submit')?.removeAttribute('hidden');
     } catch {
       hideGoogleLogin();
     } finally {
@@ -6047,7 +6071,7 @@ async function submitAccount(action) {
       document.getElementById('recovery-code').textContent = data.recoveryCode;
       document.getElementById('recovery-code-panel').hidden = false;
     }
-    const switched = await switchToUserStore(data.user.id, true, operation);
+    const switched = await switchToUserStore(data.user.id, true, operation, { name: data.user.name, googleLinked: data.user.googleLinked });
     if (!switched || !isCurrentAccountOperation(operation, data.user.id)) return;
     setAccountMessage(action === 'recover' ? 'パスワードを再設定しました。' : 'ログインしました。');
     renderAccountDialog();
@@ -6065,7 +6089,7 @@ async function restoreCloudSession() {
     const data = await apiJson('/auth/me', { signal: operation.signal });
     if (!isCurrentAccountOperation(operation)) return;
     if (data.user?.id) {
-      const switched = await switchToUserStore(data.user.id, true, operation);
+      const switched = await switchToUserStore(data.user.id, true, operation, { name: data.user.name, googleLinked: data.user.googleLinked });
       // セッション復元はダイアログを開かないため、通常のログイン経路で行う
       // 描画をここでも明示する。保存先は切り替わっていても表示だけ匿名のまま、
       // というreload直後の不整合を残さない。
@@ -6288,4 +6312,10 @@ window.__neoApp = {
   // 段階2（矩形選択・ブロックdrag・ブロックコピー貼り付け）のE2E回帰用。
   getSelectedRowIds: () => [...selectedRows].map((row) => row.id),
   getBlockClipboard: () => (blockClipboard ? structuredClone(blockClipboard) : null),
+  // 実際のGoogle OAuth資格情報が無いローカル/CI環境向けのテスト専用フック。
+  // completeGoogleLogin()/restoreCloudSession()が実際に書き込む先
+  // （cloudAccount.displayName / googleLinked）へ直接値を入れて再描画し、
+  // サーバのpublicAccount()レスポンスを受け取った後の表示だけを検証する。
+  getCloudAccount: () => ({ ...cloudAccount }),
+  setCloudAccountForTest: (patch) => { Object.assign(cloudAccount, patch); renderAccountDialog(); },
 };

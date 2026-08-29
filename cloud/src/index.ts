@@ -516,19 +516,22 @@ async function signup(request: Request, env: Env): Promise<Response> {
 async function login(request: Request, env: Env): Promise<Response> {
   validateOrigin(request); await rateLimit(request, env, 'login');
   const body = await boundedJson(request); const id = loginId(body); const pass = password(body, 'password');
-  const user = await env.DB.prepare('SELECT id, login_id, password_hash, password_salt, recovery_hash FROM users WHERE login_id = ?').bind(id).first<UserRow>();
+  const user = await env.DB.prepare('SELECT id, login_id, password_hash, password_salt, recovery_hash, google_sub, google_name FROM users WHERE login_id = ?').bind(id).first<UserRow>();
   const dummySalt = await sha256(`missing-user-salt\u0000${env.AUTH_PEPPER}`);
   const dummyHash = await derivePasswordHash('missing-user-password', dummySalt, env.AUTH_PEPPER);
   const calculated = await derivePasswordHash(pass, user?.password_salt || dummySalt, env.AUTH_PEPPER);
   if (!user || !(await safeEqual(calculated, user?.password_hash || dummyHash))) throw new ApiError(401, 'invalid_credentials');
   const token = await createSession(user.id, env);
-  return json({ user: { id: user.login_id } }, 200, { 'Set-Cookie': sessionCookie(token) });
+  // パスワードログインでも、事前にGoogle連携済みのアカウントならその情報を返す。
+  // ここを{id}だけにすると、連携済みユーザーがパスワードでログインし直した
+  // 直後だけ「連携」ボタンが誤って再表示される（次のリロード＝/auth/meで直るまでの間だけ）。
+  return json({ user: publicAccount(user) }, 200, { 'Set-Cookie': sessionCookie(token) });
 }
 
 async function recover(request: Request, env: Env): Promise<Response> {
   validateOrigin(request); await rateLimit(request, env, 'recover');
   const body = await boundedJson(request); const id = loginId(body); const code = stringField(body, 'recoveryCode', 160); const next = password(body, 'newPassword');
-  const user = await env.DB.prepare('SELECT id, login_id, password_hash, password_salt, recovery_hash FROM users WHERE login_id = ?').bind(id).first<UserRow>();
+  const user = await env.DB.prepare('SELECT id, login_id, password_hash, password_salt, recovery_hash, google_sub, google_name FROM users WHERE login_id = ?').bind(id).first<UserRow>();
   const provided = await sha256(`${code}\u0000${env.AUTH_PEPPER}`);
   const dummyRecovery = await sha256(`missing-recovery\u0000${env.AUTH_PEPPER}`);
   if (!user || !(await safeEqual(provided, user?.recovery_hash || dummyRecovery))) throw new ApiError(401, 'invalid_credentials');
@@ -540,7 +543,7 @@ async function recover(request: Request, env: Env): Promise<Response> {
     env.DB.prepare('DELETE FROM sessions WHERE user_id = ?').bind(user.id),
     env.DB.prepare('INSERT INTO sessions (id, user_id, token_hash, expires_at, created_at) VALUES (?, ?, ?, ?, ?)').bind(session.id, user.id, session.tokenHash, session.expires, session.now),
   ]);
-  return json({ user: { id: user.login_id }, recoveryCode }, 200, { 'Set-Cookie': sessionCookie(session.token) });
+  return json({ user: publicAccount(user), recoveryCode }, 200, { 'Set-Cookie': sessionCookie(session.token) });
 }
 
 async function listNotes(request: Request, env: Env): Promise<Response> {
