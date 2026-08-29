@@ -251,6 +251,11 @@ const examMathCandidateIds = new Set([
   'fraction', 'approximately', 'proportional', 'subset', 'subset-equal', 'superset', 'superset-equal', 'not-belongs',
   'equivalent', 'implies', 'degree', 'prime', 'percent', 'factorial', 'absolute', 'derivative', 'probability', 'expectation', 'variance', 'coordinate', 'vector',
 ]);
+// 監査メモ（2026-08-29）: ¬（negation）/∧（and）/∨（or）は当初「⇒⇔と同じ単元だから
+// 昇格すべき」と判断しかけたが、既存テスト（conversion-core.test.mjs「大学専門寄り・
+// 低頻度の候補は既定辞書に出さない」内の 'ろんりせき'）が意図的に既定除外としていた。
+// 現行課程の数I「命題と条件」は⇒⇔（ならば・同値）は記号で教えるが、∧∨（かつ・または）
+// は言葉で教え記号は使わないのが実態に近いため、既存判断どおり据え置く。
 const examMathCandidates = MATH_CANDIDATES
   .filter((candidate) => examMathCandidateIds.has(candidate.id))
   .map((candidate) => withExamScope(candidate, candidate.id === 'derivative' || candidate.id === 'prime' ? ['math2', 'math3']
@@ -291,6 +296,33 @@ const HIGH_SCHOOL_EXAM_CANDIDATES = [
   withExamScope({ id: 'parallel', label: '∥', latex: '\\parallel ', aliases: ['へいこう'], categories: ['general'], basePriority: 150 }, ['math1', 'mathA']),
   withExamScope({ id: 'perpendicular', label: '⊥', latex: '\\perp ', aliases: ['すいちょく'], categories: ['general'], basePriority: 150 }, ['math1', 'mathA']),
   withExamScope({ id: 'angle', label: '∠', latex: '\\angle ', aliases: ['かく'], categories: ['general'], basePriority: 145 }, ['math1', 'mathA']),
+  // 三角比・三角関数（sin/cos/tan）と対数（log）は物理キー（KeyV/B/N/M）には
+  // 割り当て済みだが、読みからの変換候補には一件も無かった（2026-08-29 拓男報告）。
+  // sin/cos/tanは物理キーと同じ「\sin 」等の裸のコマンドで揃える（引数はそのまま
+  // 続けて書くローマン体表記が高校教科書の書式で、物理キーの挙動とも一致する）。
+  withExamScope({ id: 'sin', label: 'sin', latex: '\\sin ', aliases: ['さいん', 'sin'], categories: ['general'], basePriority: 260 }, ['math1', 'math2', 'math3']),
+  withExamScope({ id: 'cos', label: 'cos', latex: '\\cos ', aliases: ['こさいん', 'cos'], categories: ['general'], basePriority: 260 }, ['math1', 'math2', 'math3']),
+  withExamScope({ id: 'tan', label: 'tan', latex: '\\tan ', aliases: ['たんじぇんと', 'tan'], categories: ['general'], basePriority: 260 }, ['math1', 'math2', 'math3']),
+  // logだけは教科書どおり底を明示する \log_a b 形にする（lnは現行課程に無いため
+  // 既定辞書へ入れない＝意図的に不採用。物理キーのKeyMは底なしの裸\log を書くが、
+  // これは矛盾ではなく「素早い入力（底は後で自分で下付きを足す）」と
+  // 「読みからの入力（最初から底と真数の2スロットを開く）」で解像度が違うだけ。
+  withExamScope({ id: 'log', label: 'log', latex: '\\log_{#0} #0', aliases: ['ろぐ', 'たいすう', 'log'], categories: ['general'], basePriority: 260 }, ['math2', 'math3']),
+  // 順列・組み合わせ（数A 場合の数と確率）。拓男の追加指定＝nPr必須、nCrは同じ単元の
+  // 既存確認要求だったが辞書には無かったので合わせて追加。
+  withExamScope({ id: 'combination', label: 'nCr', latex: '{}_{n}\\mathrm{C}_{r}', aliases: ['くみあわせ', 'こんびねーしょん', 'ncr'], categories: ['general'], basePriority: 220 }, ['mathA']),
+  withExamScope({ id: 'permutation', label: 'nPr', latex: '{}_{n}\\mathrm{P}_{r}', aliases: ['じゅんれつ', 'ぱーみゅてーしょん', 'npr'], categories: ['general'], basePriority: 220 }, ['mathA']),
+  // 図形の性質（数A）＝相似・合同は必修の基本記号。合同は整数の合同式(≡)と
+  // 記号を分けるため、この辞書でも既存パレット（app.js PALETTE_ITEMS）と同じ
+  // \cong を図形の合同に割り当てる（≡はmod合同式向けとして温存、今回は不採用＝要確認）。
+  withExamScope({ id: 'similar-figure', label: '∽', latex: '\\backsim ', aliases: ['そうじ'], categories: ['general'], basePriority: 200 }, ['mathA']),
+  withExamScope({ id: 'congruent-figure', label: '≅', latex: '\\cong ', aliases: ['ごうどう'], categories: ['general'], basePriority: 200 }, ['mathA']),
+  // ベクトル（数C）の内積。既存パレットは a⃗・b⃗ の完成形しか持たないため、
+  // 単体の演算子として読みから打てる形を追加する。
+  withExamScope({ id: 'vector-dot', label: '·', latex: '\\cdot ', aliases: ['ないせき', 'どっと'], categories: ['general'], basePriority: 190 }, ['mathC']),
+  // 補集合（数I 集合）・余事象（数A 確率）は同じ上線記法。どちらの単元からも
+  // 引けるよう両方の読みを持たせる。
+  withExamScope({ id: 'complement', label: 'A̅', latex: '\\overline{#0}', aliases: ['ほしゅうごう', 'よじしょう'], categories: ['general'], basePriority: 190 }, ['math1', 'mathA']),
   ...LETTER_CANDIDATES.map((candidate) => withExamScope(candidate, HIGH_SCHOOL_EXAM_SCOPE.units)),
   ...examGreekCandidates,
   ...examMathCandidates,

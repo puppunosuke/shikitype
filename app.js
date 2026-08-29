@@ -1691,11 +1691,19 @@ function handleConversionKey(row, event) {
   if (!state || state.composing || event.isComposing || event.keyCode === 229) return false;
   if (event.code === 'Tab') {
     // 候補が無い空の変換層でまでTabを奪うと、ギリシャ文字層への遷移を
-    // 失う。候補が出ている間だけ候補選択をトグルし、それ以外は層切替へ渡す。
+    // 失う。候補が出ている間だけTabを候補選択に使い、それ以外は層切替へ渡す。
     if (!state.candidates.length && !state.navigation) return false;
-    state.navigation = !state.navigation;
-    if (state.navigation && state.candidates.length) state.selectedIndex = 0;
-    renderConversionCandidates(row);
+    // 旧実装は navigation の真偽値を反転させるだけだった（state.navigation = !state.navigation）。
+    // そのため2回目のTabで選択が消え、3回目でまたselectedIndex=0に戻り、
+    // 2番目以降の候補へは物理Tabだけでは絶対に届かなかった（実機動画で再現・2026-08-29）。
+    // 「Tabで候補を選択」という表示文言どおり、Tabは矢印キーと同じく次候補へ進める。
+    if (!state.navigation) {
+      state.navigation = true;
+      state.selectedIndex = 0;
+      renderConversionCandidates(row);
+    } else {
+      moveConversionSelection(row, event.shiftKey ? -1 : 1);
+    }
     return true;
   }
   if (state.navigation && ['ArrowLeft', 'ArrowUp', 'ArrowRight', 'ArrowDown'].includes(event.code)) {
