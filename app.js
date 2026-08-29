@@ -361,7 +361,9 @@ function conversionTrayViewportBounds() {
   if (!rect) return null;
   const left = Math.max(4, rect.left + 6);
   const right = Math.min(window.innerWidth - 4, rect.right - 6);
-  return right > left ? { left, right } : null;
+  const top = Math.max(4, rect.top + 6);
+  const bottom = Math.min(window.innerHeight - 4, rect.bottom - 6);
+  return right > left && bottom > top ? { left, right, top, bottom } : null;
 }
 
 function positionConversionCandidateTray(row = activeRow()) {
@@ -380,10 +382,10 @@ function positionConversionCandidateTray(row = activeRow()) {
   // 行モードはキャレットの高さだけを基準にすると、行の下端（罫線・余白）より上で
   // パレットが始まり、罫線へ重なって表示される（実機で再現・2026-08-29）。行の箱
   // 全体（.row=row.wrap、罫線を含む）の下端を基準にし、常に罫線の下から出す。
-  // canvasのblockはユーザーが任意の高さ・位置に置くため、行の箱全体を基準にすると
-  // 小さいviewportの端でtrayが画面外まで押し出される（回帰実測・2026-08-29）。
-  // canvasは従来どおりキャレット基準のままにする。
-  const rowRect = layoutMode !== 'canvas' ? row.wrap?.getBoundingClientRect() : null;
+  // canvasでも候補は編集blockの外に置く。caretを基準にすると、背の高いblockの
+  // 内側（読みプレビューや数式）へ候補が重なってしまう。下に収まらないときだけ
+  // block上側へ逃がすので、いずれも現在の編集blockを覆わない。
+  const rowRect = row.wrap?.getBoundingClientRect();
   if (!bounds || !fieldRect) return;
   const anchorLeft = caretRect?.left ?? fieldRect.left;
   const anchorBottom = rowRect?.bottom ?? caretRect?.bottom ?? fieldRect.bottom;
@@ -391,7 +393,18 @@ function positionConversionCandidateTray(row = activeRow()) {
   const left = Math.max(bounds.left, Math.min(anchorLeft, bounds.right - width));
   shell.style.width = `${Math.round(width)}px`;
   shell.style.left = `${Math.round(left)}px`;
-  shell.style.top = `${Math.round(anchorBottom + 6)}px`;
+  let top = anchorBottom + 8;
+  if (layoutMode === 'canvas' && rowRect) {
+    // widthを先に確定して実寸の高さを取る。候補のstatusは視覚的には絶対配置なので、
+    // 候補ボタン列の高さだけで上下の空き判定を行える。
+    const trayHeight = Math.max(1, shell.getBoundingClientRect().height || 44);
+    if (top + trayHeight > bounds.bottom) {
+      const above = rowRect.top - 8 - trayHeight;
+      if (above >= bounds.top) top = above;
+      else top = Math.max(bounds.top, Math.min(top, bounds.bottom - trayHeight));
+    }
+  }
+  shell.style.top = `${Math.round(top)}px`;
   // 端へ移動した直後も、まず先頭候補を必ず読める位置から表示する。
   state.list.scrollLeft = 0;
 }
@@ -519,6 +532,34 @@ function openSum(row) {
   // moveToSuperscript は「直前のアトムに新しい上付きを付ける」動作なので、既に下付きの中にいる状態だと
   // 下付きの中身（例: "1"）に入れ子でぶら下がってしまい兄弟にならない（実測で確認）。
   row.stack.push({ kind: 'sum', slots: ['sub', 'sup'], slotIndex: 0, openPos: posBefore, latexBefore, latexAfterOpen: row.mf.value, mergeTarget: null, advanceCommands: ['moveToOpposite'] });
+  checkDepth(row);
+}
+
+/** 「B 分の A」: 直前の項Bを分母に移し、分子Aへカーソルを置く。 */
+function openPreviousTermAsDenominator(row) {
+  const term = lastTerm(row);
+  if (!term) { openNfrac(row); return; }
+  const posBefore = row.mf.position;
+  const latexBefore = row.mf.value;
+  row.runStack.push(row.run);
+  row.run = [];
+  row.mf.selection = { ranges: [[term.start, term.end]] };
+  // #?（分子）を編集対象、#@（分母）を選択済みの直前項に置く。分母は既に
+  // 完成しているため、この経路では分子だけを未確定スロットとして管理する。
+  row.mf.executeCommand(['insert', '\\dfrac{#?}{#@}', { format: 'latex' }]);
+  row.stack.push({ kind: 'nfrac', slots: ['num'], slotIndex: 0, openPos: posBefore, latexBefore, latexAfterOpen: row.mf.value, mergeTarget: null });
+  checkDepth(row);
+}
+
+/** ∫: 下限と上限の2スロットを開く。和と同じく、下限→上限の順に確定する。 */
+function openIntegral(row) {
+  const posBefore = row.mf.position;
+  const latexBefore = row.mf.value;
+  row.runStack.push(row.run);
+  row.run = [];
+  row.mf.executeCommand(['insert', '\\int', { insertionMode: 'insertAfter', format: 'latex' }]);
+  row.mf.executeCommand('moveToSubscript');
+  row.stack.push({ kind: 'integral', slots: ['sub', 'sup'], slotIndex: 0, openPos: posBefore, latexBefore, latexAfterOpen: row.mf.value, mergeTarget: null, advanceCommands: ['moveToOpposite'] });
   checkDepth(row);
 }
 
@@ -747,7 +788,7 @@ function checkDepth(row) {
 
 const SLOT_KIND_CONTEXT_LABELS = {
   paren: '括弧内', sup: '上付き', sub: '下付き', sqrt: '根号内', abs: '絶対値内',
-  unknown: '式の中', nfrac: '分子', afrac: '分母', lim: '極限の中', sum: '下付き', text: '文の中',
+  unknown: '式の中', nfrac: '分子', afrac: '分母', lim: '極限の中', sum: '下付き', integral: '下限', text: '文の中',
 };
 
 // 内部スロットを2つ以上持つものだけ、いま何番目のスロットにいるかを出す。
@@ -755,7 +796,7 @@ const SLOT_KIND_CONTEXT_LABELS = {
 // （押す回数を数えさせない）が半分しか果たせないため。
 // スロットが1つしかないもの（括弧・上付き・根号等）には無意味な括弧書きを足さない。
 const SLOT_NAME_LABELS = {
-  num: '分子', den: '分母', sub: '下', sup: '上',
+  num: '分子', den: '分母', sub: '下限', sup: '上限',
 };
 
 function slotLabel(frame) {
@@ -1625,6 +1666,38 @@ function insertConversionLatex(row, latex) {
   scheduleNoteSave();
 }
 
+// CSVは利用者が編集できるデータなので、そこに書かれたlatexやIDを命令として
+// 実行しない。ここに固定した内蔵IDだけが既存の構造アクションへ到達できる。
+const BUILTIN_CONVERSION_ACTIONS = Object.freeze({
+  'fraction-structure': { type: 'nfrac-previous-denominator' },
+  power: { type: 'open', kind: 'sup' },
+  'power-n': { type: 'power-prefill', value: 'n' },
+  'power-x': { type: 'power-prefill', value: 'x' },
+  sqrt: { type: 'open', kind: 'sqrt' },
+  absolute: { type: 'open', kind: 'abs' },
+  parentheses: { type: 'open', kind: 'paren' },
+  'sum-operator': { type: 'sum' },
+  integral: { type: 'integral' },
+  limit: { type: 'lim' },
+});
+
+function insertConfirmedConversionCandidate(row, candidate) {
+  const action = BUILTIN_CONVERSION_ACTIONS[candidate.id];
+  if (action) {
+    dispatchAction(row, action);
+    scheduleNoteSave();
+    return;
+  }
+  // 変数・ギリシャ文字は直前の項として記録し、直後に「ぶんの」「累乗」を
+  // 確定しても既存のafrac/supがその項を正確に掴めるようにする。
+  if (candidate.categories?.some((category) => category === 'latin' || category === 'greek')) {
+    insertVariable(row, candidate.latex);
+    scheduleNoteSave();
+    return;
+  }
+  insertConversionLatex(row, candidate.latex);
+}
+
 function commitConversionCandidate(row, candidateId) {
   const candidate = row?.conversion?.candidates?.find((item) => item.id === candidateId)
     ?? getConversionCandidate(candidateId, activeConversionCandidates());
@@ -1638,7 +1711,7 @@ function commitConversionCandidate(row, candidateId) {
   const latexBefore = row.mf.value;
   const positionBefore = row.mf.position;
   const rawBefore = row.conversion?.raw ?? ''; // 見せる文字は常に物理キーどおりの英字（raw）
-  insertConversionLatex(row, candidate.latex);
+  insertConfirmedConversionCandidate(row, candidate);
   row.lastConfirm = {
     latexBefore, positionBefore, raw: rawBefore,
     latexAfter: row.mf.value, positionAfter: row.mf.position,
@@ -2365,7 +2438,26 @@ function clearRowsForNote() {
   // これを省くと次のfieldをfocusした瞬間に、切断済みモデルのonBlurが走る。
   if (focusedSink instanceof HTMLElement) focusedSink.blur();
   if (focusedField?.isConnected) focusedField.blur();
-  rows.forEach((row) => row.caret?.remove());
+  // 候補trayはcanvasのclip回避でapp-stageへportalされる。row本体を外すだけでは
+  // portalが旧ノートのraw/ownerを持ったまま残るので、行を再構築する前に明示破棄する。
+  rows.forEach((row) => {
+    const state = row.conversion;
+    if (state) {
+      clearConversionReading(state);
+      state.list.replaceChildren();
+      state.shell.hidden = true;
+      delete state.shell.dataset.ownerRow;
+      state.shell.remove();
+    }
+    row.caret?.remove();
+  });
+  // 既にrowとの紐付けが外れたportalも残さない。新しいrowはこの後に作るため、
+  // ここでstage直下の旧trayを全て片付けても新ノートの表示を巻き込まない。
+  document.querySelectorAll('#app-stage > .conversion-candidate-tray').forEach((shell) => {
+    shell.hidden = true;
+    delete shell.dataset.ownerRow;
+    shell.remove();
+  });
   rows.splice(0, rows.length);
   blockEl.replaceChildren();
   activeRowIndex = 0;
@@ -3458,10 +3550,16 @@ function dispatchAction(row, action) {
       else if (action.kind === 'sub') openSingleSlot(row, 'sub');
       break;
     case 'nfrac': openNfrac(row); break;
+    case 'nfrac-previous-denominator': openPreviousTermAsDenominator(row); break;
     case 'afrac': openAfrac(row); break;
+    case 'power-prefill':
+      openSingleSlot(row, 'sup');
+      insertVariable(row, action.value);
+      break;
     case 'lim': openSingleSlot(row, 'lim', '\\lim_{#0}'); break;
     case 'text': openText(row); break;
     case 'sum': openSum(row); break;
+    case 'integral': openIntegral(row); break;
     case 'op': insertOperator(row, action.symbol); break;
     case 'literal': insertLiteral(row, action.latex); break;
     case 'term-literal': insertTermLiteral(row, action.latex); break;

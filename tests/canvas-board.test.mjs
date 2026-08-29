@@ -143,15 +143,15 @@ await page.evaluate(() => window.__neoApp.setInputSystem('conversion', false));
 await page.keyboard.type('shi');
 const candidateGeometry = await page.evaluate(() => {
   const row = window.__neoApp.getActiveRow();
-  const field = row.mf.getBoundingClientRect(); const tray = row.conversion.shell.getBoundingClientRect();
+  const block = row.wrap.getBoundingClientRect(); const tray = row.conversion.shell.getBoundingClientRect();
   const viewport = document.getElementById('canvas-viewport').getBoundingClientRect();
   return {
-    below: tray.top >= field.bottom - 1,
+    outsideBlock: tray.top >= block.bottom - 1 || tray.bottom <= block.top + 1,
     inViewport: tray.left >= viewport.left + 5 && tray.right <= viewport.right - 5,
     owner: row.conversion.shell.dataset.ownerRow === row.id,
   };
 });
-ok('変換候補はキャンバス上でも対象blockの直下・viewport内へ追従する', candidateGeometry.below && candidateGeometry.inViewport && candidateGeometry.owner, candidateGeometry);
+ok('変換候補はキャンバス上でも対象blockの外・viewport内へ追従する', candidateGeometry.outsideBlock && candidateGeometry.inViewport && candidateGeometry.owner, candidateGeometry);
 
 const canvasCaret = await page.evaluate(() => {
   const row = window.__neoApp.getActiveRow(); const block = row.wrap.getBoundingClientRect(); const caret = row.caret.getBoundingClientRect();
@@ -182,6 +182,7 @@ async function edgeTrayGeometry(x, y) {
   return page.evaluate(() => {
     const row = window.__neoApp.getActiveRow();
     const viewport = document.getElementById('canvas-viewport').getBoundingClientRect();
+    const block = row.wrap.getBoundingClientRect();
     const tray = row.conversion.shell.getBoundingClientRect();
     const list = row.conversion.list;
     const first = list.querySelector('.conversion-candidate')?.getBoundingClientRect();
@@ -189,7 +190,7 @@ async function edgeTrayGeometry(x, y) {
     const last = list.querySelector('.conversion-candidate:last-child')?.getBoundingClientRect();
     return {
       viewport, tray, first, last,
-      belowCaret: tray.top >= row.caret.getBoundingClientRect().bottom - 1,
+      outsideBlock: tray.top >= block.bottom - 1 || tray.bottom <= block.top + 1,
       owner: row.conversion.shell.dataset.ownerRow === row.id,
       firstVisible: first?.left >= viewport.left + 5 && first?.right <= viewport.right - 5,
       lastVisible: last?.left >= viewport.left + 5 && last?.right <= viewport.right - 5,
@@ -198,10 +199,10 @@ async function edgeTrayGeometry(x, y) {
   });
 }
 const leftEdgeTray = await edgeTrayGeometry(narrowViewportBox.x + 10, narrowViewportBox.y + 150);
-ok('360px canvasの左端blockでも候補先頭はclipせず、caret直下に出る', leftEdgeTray.trayVisible && leftEdgeTray.firstVisible && leftEdgeTray.lastVisible && leftEdgeTray.belowCaret && leftEdgeTray.owner, leftEdgeTray);
+ok('360px canvasの左端blockでも候補先頭はclipせず、block外に出る', leftEdgeTray.trayVisible && leftEdgeTray.firstVisible && leftEdgeTray.lastVisible && leftEdgeTray.outsideBlock && leftEdgeTray.owner, leftEdgeTray);
 await page.keyboard.press('Escape');
 const rightEdgeTray = await edgeTrayGeometry(narrowViewportBox.x + narrowViewportBox.width - 10, narrowViewportBox.y + 300);
-ok('360px canvasの右端blockでも候補末尾までviewport内で読める', rightEdgeTray.trayVisible && rightEdgeTray.firstVisible && rightEdgeTray.lastVisible && rightEdgeTray.belowCaret && rightEdgeTray.owner, rightEdgeTray);
+ok('360px canvasの右端blockでも候補末尾までviewport内で読める', rightEdgeTray.trayVisible && rightEdgeTray.firstVisible && rightEdgeTray.lastVisible && rightEdgeTray.outsideBlock && rightEdgeTray.owner, rightEdgeTray);
 await page.keyboard.press('Escape');
 const narrowDelete = await page.evaluate(() => {
   const row = window.__neoApp.getActiveRow();
@@ -224,6 +225,30 @@ const emptyCanvasSaved = await page.evaluate(() => {
 await page.reload({ waitUntil: 'networkidle' });
 const emptyCanvasRestored = await page.evaluate(() => ({ mode: window.__neoApp.getLayoutMode(), rows: window.__neoApp.rows.length, blocks: window.__neoApp.getCanvasBlocks() }));
 ok('既存canvasの最後の×削除は0 blockとして保存・再読込できる', emptyCanvasSaved.rows === 0 && emptyCanvasSaved.note?.rows.length === 0 && emptyCanvasSaved.note?.layout?.blocks.length === 0 && emptyCanvasRestored.mode === 'canvas' && emptyCanvasRestored.rows === 0 && emptyCanvasRestored.blocks.length === 0, { emptyCanvasSaved, emptyCanvasRestored });
+
+await page.evaluate(() => window.__neoApp.setInputSystem('conversion', false));
+const lifecycleViewport = await viewport.boundingBox();
+if (!lifecycleViewport) throw new Error('canvas viewport missing for conversion lifecycle');
+await page.mouse.click(lifecycleViewport.x + 20, lifecycleViewport.y + 120);
+await page.keyboard.press('KeyA');
+await page.waitForTimeout(80);
+const beforeNewNote = await page.evaluate(() => {
+  const row = window.__neoApp.getActiveRow();
+  return { raw: row.conversion.raw, owner: row.conversion.shell.dataset.ownerRow, rowId: row.id, visible: !row.conversion.shell.hidden };
+});
+await page.click('#new-note'); await page.click('#new-note-create'); await page.waitForTimeout(100);
+const afterNewNote = await page.evaluate(() => {
+  const row = window.__neoApp.getActiveRow();
+  const trays = [...document.querySelectorAll('.conversion-candidate-tray')];
+  return {
+    raw: row.conversion.raw,
+    candidates: row.conversion.candidates.length,
+    owner: row.conversion.shell.dataset.ownerRow ?? null,
+    visible: trays.filter((tray) => !tray.hidden).length,
+    stageTrays: document.querySelectorAll('#app-stage > .conversion-candidate-tray').length,
+  };
+});
+ok('新しいノートへ切り替えると旧候補tray・raw・ownerを残さない', beforeNewNote.raw === 'a' && beforeNewNote.visible && beforeNewNote.owner === beforeNewNote.rowId && afterNewNote.raw === '' && afterNewNote.candidates === 0 && afterNewNote.owner === null && afterNewNote.visible === 0 && afterNewNote.stageTrays === 0, { beforeNewNote, afterNewNote });
 ok('画面エラーなし', errors.length === 0, errors);
 
 await browser.close();

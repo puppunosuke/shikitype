@@ -272,6 +272,13 @@ const HIGH_SCHOOL_EXAM_CANDIDATES = [
   withExamScope({ id: 'limit', label: 'lim', latex: '\\lim ', aliases: ['りみっと', 'きょくげん', 'lim', 'limit'], categories: ['general'], basePriority: 260 }, ['math3']),
   withExamScope({ id: 'infinity', label: '∞', latex: '\\infty ', aliases: ['むげん', 'むげんだい', 'infinity'], categories: ['general'], basePriority: 250 }, ['math3']),
   withExamScope({ id: 'sqrt', label: '√', latex: '\\sqrt{}', aliases: ['るーと', 'へいほうこん', 'sqrt'], categories: ['general'], basePriority: 240 }, ['math1', 'math2']),
+  // 構造入力は候補を確定した瞬間に既存のスロット操作へ渡す。latexはCSVの
+  // 互換・書き出し用で、実行時にこの文字列を解釈して動かすことはしない。
+  withExamScope({ id: 'fraction-structure', label: 'a/b', latex: '\\dfrac{#0}{#0}', aliases: ['ぶんの', 'ぶんすう', 'fraction'], categories: ['general'], basePriority: 250 }, ['math1', 'math2', 'mathB', 'math3', 'mathC']),
+  withExamScope({ id: 'parentheses', label: '( )', latex: '\\left(#0\\right)', aliases: ['かっこ', 'かっこひらく', 'parentheses', 'paren'], categories: ['general'], basePriority: 235 }, ['math1', 'math2', 'mathB', 'math3', 'mathC']),
+  withExamScope({ id: 'power', label: 'xⁿ', latex: 'x^{#0}', aliases: ['じょう', 'にじょう', 'さんじょう', 'power', 'exponent'], categories: ['general'], basePriority: 235 }, ['math1', 'math2', 'mathB', 'math3', 'mathC']),
+  withExamScope({ id: 'power-n', label: 'xⁿ', latex: 'x^{n}', aliases: ['nじょう', 'njou'], categories: ['general'], basePriority: 245 }, ['math1', 'math2', 'mathB', 'math3', 'mathC']),
+  withExamScope({ id: 'power-x', label: 'xˣ', latex: 'x^{x}', aliases: ['xじょう', 'xjou'], categories: ['general'], basePriority: 245 }, ['math1', 'math2', 'mathB', 'math3', 'mathC']),
   withExamScope({ id: 'pi', label: 'π', latex: '\\pi ', aliases: ['ぱい', 'えんしゅうりつ', 'pai', 'pi'], categories: ['greek'], basePriority: 230 }, ['math1', 'math2']),
   withExamScope({ id: 'latin-uppercase-p', label: 'P', latex: 'P', aliases: ['p', 'ぴー', 'ぴい', 'pi-', 'pii'], categories: ['latin'], basePriority: 300 }, ['mathA', 'mathB']),
   withExamScope({ id: 'greek-alpha', label: 'α', latex: '\\alpha ', aliases: ['あるふぁ', 'alpha'], categories: ['greek'], basePriority: 220 }, ['math1', 'math2']),
