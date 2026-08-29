@@ -599,7 +599,11 @@ function closeOneLevel(row) {
     frame.mergeTarget.end = closePos;
     frame.mergeTarget.kind = 'varScript';
   } else {
-    pushToken(row, { kind: 'group', start: frame.openPos, end: closePos });
+    // viaClose: true は「スペースで明示的に閉じた直後」の目印。矢印キーで外へ出た
+    // ときのgroupトークン（reconcileStack側）にはこの目印を付けない。同じ形の
+    // groupトークンでも、Backspaceの挙動を分けたいのはここだけの違いによる
+    // （下のBackspace側コメント参照）。
+    pushToken(row, { kind: 'group', start: frame.openPos, end: closePos, viaClose: true });
   }
   checkDepth(row);
 }
@@ -678,6 +682,30 @@ function backspace(row) {
       checkDepth(row);
       return;
     }
+  }
+
+  // 規則1.5: **スペースで明示的に閉じた**直後の複合構造（分数・括弧・Σ・∫ など
+  // 2箇所以上の入力欄を持つもの）をまたぐBackspaceは、素の deleteBackward だと
+  // 1回で消えない（2026-08-30 実機再現。拓男の報告「インテグラルがBackspaceで
+  // 消せない」の原因＝∫やΣはMathLiveの内部で複数アトムに分かれており、外から
+  // 素のdeleteBackwardを打つと1回目は中へ潜るだけで見た目が変わらず、以後も
+  // 上限→下限の断片を1つずつ拾って壊れた状態で止まる）。
+  // closeOneLevel が row.run へ積む「group」トークン（viaClose:true・開始位置〜
+  // 閉じ位置の範囲）をカーソル直前で見つけたら、その範囲だけをMathLiveの選択に
+  // してdeleteBackwardへ渡す。選択がある状態のdeleteBackwardは選択範囲を丸ごと
+  // 消す（実測で確認済み）ので、構造が何であっても常に1回のBackspaceで構造ごと
+  // 消える＝括弧やnfracと同じ体験になる。
+  // viaClose を付けない理由＝矢印キーで外へ出た直後のgroupトークン（reconcileStack側）
+  // には適用しない。そちらは「1文字だけ消えて構造は残る」が既存の意図的な挙動
+  // （fix-regression.test.mjs の "arrow-out + Backspace keeps the structure" が守る）。
+  const lastRunToken = row.run[row.run.length - 1];
+  if (lastRunToken?.kind === 'group' && lastRunToken.viaClose && lastRunToken.end === row.mf.position) {
+    row.mf.selection = { ranges: [[lastRunToken.start, lastRunToken.end]] };
+    row.mf.executeCommand('deleteBackward');
+    row.run.pop();
+    reconcileStack(row);
+    checkDepth(row);
+    return;
   }
 
   // 規則1: 通常の1つ削除。削除でカーソルより後ろになった項は「直前の項」から外す。
