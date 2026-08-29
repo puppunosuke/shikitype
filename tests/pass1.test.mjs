@@ -127,8 +127,15 @@ async function main() {
   await seq(['KeyA', Div('Digit9'), 'Space']); // sqrt(9)
   assertEqual('sqrt: √9', await latex(), '\\sqrt9');
 
+  // 2026-08-30 拓男指定でSemicolon→絶対値の割り当ては撤去した（音声指摘2件目）。
+  // 絶対値そのもの（'abs'スロット）は生きているので、実際に使う経路
+  // （サイドバーのキー再割当・変換方式の読み「ぜったいち」）と同じdispatchActionで検証する。
   await resetLastRow();
-  await seq(['Semicolon', Div('KeyH'), 'Digit5', 'Space']); // |-5|  (KeyH = '-')
+  await page.evaluate(() => {
+    const row = window.__neoApp.getActiveRow();
+    window.__neoApp.dispatchAction(row, { type: 'open', kind: 'abs' });
+  });
+  await seq([Div('KeyH'), 'Digit5', 'Space']); // |-5|  (KeyH = '-')
   assertEqual('abs: |-5|', await latex(), '\\left|-5\\right|');
 
   // ---------------------------------------------------------------

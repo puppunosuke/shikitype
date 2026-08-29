@@ -7,7 +7,13 @@ const SYMBOLS = {
   KeyG: { type: 'op', symbol: '+' }, KeyH: { type: 'op', symbol: '-' },
   KeyD: { type: 'open', kind: 'sup' }, KeyK: { type: 'open', kind: 'sub' },
   KeyS: { type: 'op', symbol: '=' }, KeyL: { type: 'nfrac' },
-  KeyA: { type: 'open', kind: 'sqrt' }, Semicolon: { type: 'open', kind: 'abs' },
+  KeyA: { type: 'open', kind: 'sqrt' },
+  // Semicolon（絶対値）は2026-08-30 拓男指定で撤去（音声指摘2件目）。「セミコロンの
+  // キーを押したら絶対値が発動するのがキモい」という理由で、素キーからは完全に外す。
+  // 絶対値そのものは (1) サイドバーのキー割当設定（ASSIGNABLE、app.js）から任意の
+  // キーへ割り当て直せる (2) 変換方式の読み「ぜったいち」（conversion.jsのid:absolute→
+  // app.jsのBUILTIN_CONVERSION_ACTIONS）から出せる、の2経路を残したので、消しても
+  // 絶対値そのものが打てなくなるわけではない。
   KeyQ: { type: 'term-literal', latex: '\\,dx' }, KeyW: { type: 'literal', latex: '\\frac{d}{dx}' },
   KeyE: { type: 'term-literal', latex: 'e' }, KeyR: { type: 'term-literal', latex: '\\to ' },
   KeyT: { type: 'literal', latex: '\\cdot ' }, KeyY: { type: 'lim' },
@@ -70,7 +76,7 @@ export const ALL_UNITS_ID = 'all';
 // （out-of-unit）。キー自体は消さない・動かさない。
 export const unitTags = {
   KeyF: 'common', KeyJ: 'common', KeyG: 'common', KeyH: 'common', KeyD: 'common',
-  KeyK: 'common', KeyS: 'common', KeyL: 'common', KeyA: 'common', Semicolon: 'common',
+  KeyK: 'common', KeyS: 'common', KeyL: 'common', KeyA: 'common',
   KeyQ: ['s2-bibunsekibun', 's3-sekibun'], KeyW: ['s2-bibunsekibun', 's3-bibun'],
   KeyE: ['s2-shisutaisu', 's3-bibun', 's3-sekibun'], KeyR: ['s3-kyokugen', 'sb-suuretsu'],
   KeyT: 'common',
@@ -93,7 +99,7 @@ export function isKeyInUnit(code, unit) {
 
 const SYMBOL_LABELS = {
   KeyF: '(…)', KeyJ: 'α/n', KeyG: '+', KeyH: '-', KeyD: '^', KeyK: '_',
-  KeyS: '=', KeyL: 'n/α', KeyA: '√', Semicolon: '|…|', KeyQ: 'dx', KeyW: 'd/dx',
+  KeyS: '=', KeyL: 'n/α', KeyA: '√', KeyQ: 'dx', KeyW: 'd/dx',
   KeyE: 'e', KeyR: '→', KeyT: '·', KeyY: 'lim', KeyU: '∫', KeyI: 'i',
   KeyO: 'Σ', KeyP: 'π', KeyZ: '≦', KeyX: '≧', KeyC: '≠', KeyV: 'sin',
   KeyB: 'cos', KeyN: 'tan', KeyM: 'log', Comma: ',', Period: '.', Slash: '∞',
