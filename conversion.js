@@ -14,9 +14,9 @@ const ROMAJI_ALIASES = {
 const ROMAJI_KANA = {
   kya: 'きゃ', kyu: 'きゅ', kyo: 'きょ',
   gya: 'ぎゃ', gyu: 'ぎゅ', gyo: 'ぎょ',
-  sha: 'しゃ', shu: 'しゅ', sho: 'しょ', shi: 'し', si: 'し',
-  ja: 'じゃ', ju: 'じゅ', jo: 'じょ', ji: 'じ', zi: 'じ',
-  cha: 'ちゃ', chu: 'ちゅ', cho: 'ちょ', chi: 'ち', ti: 'ち',
+  sha: 'しゃ', shu: 'しゅ', sho: 'しょ', shi: 'し', si: 'し', she: 'しぇ',
+  ja: 'じゃ', ju: 'じゅ', jo: 'じょ', ji: 'じ', zi: 'じ', je: 'じぇ',
+  cha: 'ちゃ', chu: 'ちゅ', cho: 'ちょ', chi: 'ち', ti: 'ち', che: 'ちぇ',
   nya: 'にゃ', nyu: 'にゅ', nyo: 'にょ',
   hya: 'ひゃ', hyu: 'ひゅ', hyo: 'ひょ',
   bya: 'びゃ', byu: 'びゅ', byo: 'びょ',
@@ -302,7 +302,15 @@ const HIGH_SCHOOL_EXAM_CANDIDATES = [
   // 続けて書くローマン体表記が高校教科書の書式で、物理キーの挙動とも一致する）。
   withExamScope({ id: 'sin', label: 'sin', latex: '\\sin ', aliases: ['さいん', 'sin'], categories: ['general'], basePriority: 260 }, ['math1', 'math2', 'math3']),
   withExamScope({ id: 'cos', label: 'cos', latex: '\\cos ', aliases: ['こさいん', 'cos'], categories: ['general'], basePriority: 260 }, ['math1', 'math2', 'math3']),
-  withExamScope({ id: 'tan', label: 'tan', latex: '\\tan ', aliases: ['たんじぇんと', 'tan'], categories: ['general'], basePriority: 260 }, ['math1', 'math2', 'math3']),
+  // 「たんじぇんと」は単打（tanjento）なら上のROMAJI_KANAへ追加したje/she/cheで
+  // そのまま「たんじぇんと」に変換できる（2026-08-29 拓男報告：じぇが物理キーで
+  // 打てない問題への対応）。ただし「ん」を習慣的に二重打鍵する話者（tannjento /
+  // tannjennto）は、この専用IMEの促音・撥音判定が「んに続く子音」ごとに毎回
+  // 「ん」を確定させる既存仕様（convertRomajiRunのnn分岐、tan以外の語でも
+  // 同様に発生する既存挙動）により「たんんじぇんと」「たんんじぇんんと」という
+  // 撥音が二重の読みになる。ROMAJI_KANAの共通ロジックを変えると全語への影響が
+  // 広いため、この語だけ実打鍵で確認できた二重撥音つづりをaliasとして追加する。
+  withExamScope({ id: 'tan', label: 'tan', latex: '\\tan ', aliases: ['たんじぇんと', 'たんんじぇんと', 'たんんじぇんんと', 'tan'], categories: ['general'], basePriority: 260 }, ['math1', 'math2', 'math3']),
   // logだけは教科書どおり底を明示する \log_a b 形にする（lnは現行課程に無いため
   // 既定辞書へ入れない＝意図的に不採用。物理キーのKeyMは底なしの裸\log を書くが、
   // これは矛盾ではなく「素早い入力（底は後で自分で下付きを足す）」と
@@ -314,9 +322,14 @@ const HIGH_SCHOOL_EXAM_CANDIDATES = [
   withExamScope({ id: 'permutation', label: 'nPr', latex: '{}_{n}\\mathrm{P}_{r}', aliases: ['じゅんれつ', 'ぱーみゅてーしょん', 'npr'], categories: ['general'], basePriority: 220 }, ['mathA']),
   // 図形の性質（数A）＝相似・合同は必修の基本記号。合同は整数の合同式(≡)と
   // 記号を分けるため、この辞書でも既存パレット（app.js PALETTE_ITEMS）と同じ
-  // \cong を図形の合同に割り当てる（≡はmod合同式向けとして温存、今回は不採用＝要確認）。
+  // \cong を図形の合同に割り当てる（≡はmod合同式専用として下のcongruence-modで別途登録）。
   withExamScope({ id: 'similar-figure', label: '∽', latex: '\\backsim ', aliases: ['そうじ'], categories: ['general'], basePriority: 200 }, ['mathA']),
   withExamScope({ id: 'congruent-figure', label: '≅', latex: '\\cong ', aliases: ['ごうどう'], categories: ['general'], basePriority: 200 }, ['mathA']),
+  // 合同式（数A 整数の性質）。当初は教科書により発展扱いか本文かが割れるとして
+  // 見送っていたが、受験テクニックとして頻出かつ青チャート等の主要参考書にも
+  // 掲載されているため範囲内として追加する（2026-08-29 拓男の明示指定）。
+  // a \equiv b \pmod{n} の3スロットをlogやcoordinateと同じ#0プレースホルダで開く。
+  withExamScope({ id: 'congruence-mod', label: 'a≡b(modn)', latex: '#0 \\equiv #0 \\pmod{#0}', aliases: ['ごうどうしき', 'もっど', 'mod'], categories: ['general'], basePriority: 200 }, ['mathA']),
   // ベクトル（数C）の内積。既存パレットは a⃗・b⃗ の完成形しか持たないため、
   // 単体の演算子として読みから打てる形を追加する。
   withExamScope({ id: 'vector-dot', label: '·', latex: '\\cdot ', aliases: ['ないせき', 'どっと'], categories: ['general'], basePriority: 190 }, ['mathC']),
