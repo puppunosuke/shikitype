@@ -816,7 +816,7 @@ function checkDepth(row) {
 
 const SLOT_KIND_CONTEXT_LABELS = {
   paren: '括弧内', sup: '上付き', sub: '下付き', sqrt: '根号内', abs: '絶対値内',
-  unknown: '式の中', nfrac: '分子', afrac: '分母', lim: '極限の中', sum: '下付き', integral: '下限', text: '文の中',
+  unknown: '式の中', nfrac: '分子', afrac: '分母', lim: '極限の中', sum: '下付き', integral: '下限', text: '文の中', curly: '中括弧内',
 };
 
 // 内部スロットを2つ以上持つものだけ、いま何番目のスロットにいるかを出す。
@@ -3521,6 +3521,33 @@ document.addEventListener('keydown', (e) => {
     return;
   }
 
+  // JIS配列と同じ打ち方で括弧・中括弧を打てるようにする（2026-08-30、拓男指定・項目1）。
+  // 既存の KeyF（括弧）は残したまま「併存」させる。拓男は「JIS配列と同じ打ち方が
+  // できるようになってほしい」と言っており、既存の割り当てを消してよいとは言って
+  // いないため。Shift+8/9・Shift+[/] は物理キーの位置（event.code）で判定するので
+  // JIS/US配列のどちらでも同じ指の動きになる。
+  // 開く側（Shift+8, Shift+[）は既存のKeyF・独自の中括弧アクションと同じ「スロットを
+  // 開く」動作にする。閉じる側（Shift+9, Shift+]）はこのアプリのSpaceと全く同じ
+  // 「最も内側の未確定スロットを1段閉じる」を呼ぶだけで、新しい閉じ方のルールは
+  // 増やさない（aineo-math-solution.mdの「例外を作らない」を守るため、Spaceの
+  // 別名として扱う。中身が無い状態で押しても何もしない、という既定動作もSpaceと
+  // 完全に共有される）。レイヤーを問わず常に効く（数字キー自体が全レイヤー共通のため）。
+  if (effectiveShift && (e.code === 'Digit8' || e.code === 'BracketLeft')) {
+    tickKeystroke();
+    dispatchAction(row, { type: 'open', kind: e.code === 'Digit8' ? 'paren' : 'curly' });
+    renderBreadcrumb();
+    clearVirtualShift();
+    return;
+  }
+  if (effectiveShift && (e.code === 'Digit9' || e.code === 'BracketRight')) {
+    tickKeystroke();
+    closeOneLevel(row);
+    renderBreadcrumb();
+    scheduleConversionCaret(row);
+    clearVirtualShift();
+    return;
+  }
+
   const action = resolveAction(e.code, activeInputLayer(), effectiveShift);
   if (!action) return; // 未割り当てキー: 既定動作は既に止めてあるので何もしない
 
@@ -3576,6 +3603,9 @@ function dispatchAction(row, action) {
       else if (action.kind === 'abs') openSingleSlot(row, 'abs', '\\left|#0\\right|');
       else if (action.kind === 'sup') openSingleSlot(row, 'sup');
       else if (action.kind === 'sub') openSingleSlot(row, 'sub');
+      // 中括弧。丸括弧と同じ単一スロット構造（スペースで閉じる）。JIS配列の鍵括弧
+      // キー位置（Shift+BracketLeft/Right）専用の新規追加（2026-08-30、項目1）。
+      else if (action.kind === 'curly') openSingleSlot(row, 'curly', '\\{#0\\}');
       break;
     case 'nfrac': openNfrac(row); break;
     case 'nfrac-previous-denominator': openPreviousTermAsDenominator(row); break;
