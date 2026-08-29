@@ -34,6 +34,12 @@ try {
   console.log(`  step: signup response ${signup.status()} in ${Date.now() - signupStartedAt}ms`);
   if (!signup.ok()) throw new Error(`signup failed ${signup.status()}: ${await signup.text()}`);
   await page.waitForFunction((id) => document.getElementById('account-user-id').textContent === id, user);
+  const toggleAfterSignup = await page.evaluate(() => ({
+    text: document.getElementById('account-toggle').textContent,
+    ariaLabel: document.getElementById('account-toggle').getAttribute('aria-label'),
+  }));
+  ok('ログイン成功直後、入口ボタンの表示が「ログイン」のままにならない', toggleAfterSignup.text.includes(user) && !toggleAfterSignup.text.includes('ログイン'), toggleAfterSignup);
+  ok('入口ボタンのaria-labelもログイン中の状態を示す', toggleAfterSignup.ariaLabel.includes(user), toggleAfterSignup);
   if (await page.locator('#account-dialog').evaluate((dialog) => dialog.open)) await page.locator('.account-close').click();
 
   console.log('  step: canvas save');
@@ -65,8 +71,10 @@ try {
     mode: window.__neoApp.getLayoutMode(),
     camera: window.__neoApp.getCanvasCamera(),
     blocks: window.__neoApp.getCanvasBlocks(),
+    toggleText: document.getElementById('account-toggle').textContent,
   }));
   ok('reload後もアカウントIDを表示する', restored.displayedUser === user, restored);
+  ok('reload(セッション復元)後も入口ボタンがログイン中の表示を保つ', restored.toggleText.includes(user) && !restored.toggleText.includes('ログイン'), restored);
   ok('reload後もクラウドのキャンバスノートを復元する', restored.mode === 'canvas' && restored.blocks.some((block) => block.latex.includes('x^2')) && restored.camera.zoom === saved.camera.zoom, { saved, restored });
 
   while (await page.locator('.row-delete').count()) {
@@ -104,6 +112,8 @@ try {
   await page.click('#logout-submit');
   await page.waitForFunction(() => document.getElementById('account-user-id').textContent === '' && !document.getElementById('account-dialog').open);
   ok('復元済みセッションからログアウトできる', true);
+  const toggleAfterLogout = await page.evaluate(() => document.getElementById('account-toggle').textContent);
+  ok('ログアウト後、入口ボタンの表示が「ログイン」へ戻る', toggleAfterLogout.includes('ログイン'), toggleAfterLogout);
   ok('画面エラーなし', errors.length === 0, errors);
   await context.close();
 } finally {

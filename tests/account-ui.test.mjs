@@ -34,6 +34,35 @@ const main = async () => {
   await page.click('[data-account-panel="recover"]');
   ok('回復へ切り替えられる', await page.locator('[data-panel="recover"]').evaluate((el) => !el.hidden));
   ok('通常のローカル画面で通信エラーを出さない', errors.length === 0, errors);
+  await page.locator('.account-close').click();
+
+  // ログイン中はaccount-toggleの表示文字がログインIDへ変わる（バグ修正: 従来は
+  // 「ログイン」固定のままだった）。長いIDでもサイドバー・ヘッダーからはみ出さない
+  // ことを、実際のネットワークを使わずDOM直操作で全テーマ・両幅で確認する。
+  const longUserId = 'very-long-example-login-id-12345';
+  for (const width of [360, 1280]) {
+    await page.setViewportSize({ width, height: 760 });
+    for (const theme of themes) {
+      await page.evaluate(({ theme, id }) => {
+        window.__neoApp.applyTheme(theme);
+        document.getElementById('account-toggle').querySelector('span:last-child').textContent = id;
+      }, { theme, id: longUserId });
+      const state = await page.evaluate(() => {
+        const shell = document.getElementById('app-shell');
+        const toggle = document.getElementById('account-toggle');
+        return {
+          shellScrollWidth: shell.scrollWidth,
+          shellClientWidth: shell.clientWidth,
+          toggleScrollWidth: toggle.scrollWidth,
+          toggleClientWidth: toggle.clientWidth,
+        };
+      });
+      ok(`${width}px/${theme}: 長いログインIDでもアプリ全体が横スクロールしない`, state.shellScrollWidth <= state.shellClientWidth + 1, state);
+      ok(`${width}px/${theme}: 長いログインIDはaccount-toggle内で省略され、ボタン自体は幅からはみ出さない`, state.toggleScrollWidth <= state.toggleClientWidth + 1, state);
+    }
+  }
+  await page.evaluate(() => window.__neoApp.applyTheme('09'));
+
   await browser.close();
   console.log(`\n=== RESULT: ${passed} passed, ${failures.length} failed ===`);
   if (failures.length) process.exit(1);

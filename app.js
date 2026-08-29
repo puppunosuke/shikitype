@@ -5902,6 +5902,22 @@ async function switchToAnonymousStore(operation = beginAccountOperation()) {
   return true;
 }
 
+// 入口ボタン（#account-toggle）の表示は、ここ（renderAccountDialog）だけで
+// 書き換える。ログイン(ID/Google)・ログアウト・セッション復元・タブ切替の
+// 全経路が最終的にrenderAccountDialog()を呼ぶため、ここを唯一の書き換え口に
+// すれば「同期は動いたのにボタン表示だけ古い」を経路ごとに気にしなくて済む。
+function updateAccountToggleLabel() {
+  const toggle = document.getElementById('account-toggle');
+  if (!toggle) return;
+  const label = toggle.querySelector('span:last-child');
+  const userId = cloudAccount.userId;
+  if (label) label.textContent = userId || 'ログイン';
+  // アカウントダイアログの「◯◯ としてログイン中」と同じ言い回しにして、
+  // ボタンとダイアログの表示が矛盾しないようにする。
+  toggle.setAttribute('aria-label', userId ? `${userId} としてログイン中。アカウントを管理` : 'ログインまたはアカウント作成');
+  toggle.title = userId ? `${userId} としてログイン中` : '';
+}
+
 function renderAccountDialog(panel) {
   activeAccountPanel = panel || activeAccountPanel || 'login';
   const signedIn = Boolean(cloudAccount.userId);
@@ -5914,6 +5930,7 @@ function renderAccountDialog(panel) {
     tab.hidden = signedIn;
   });
   document.getElementById('account-user-id').textContent = cloudAccount.userId || '';
+  updateAccountToggleLabel();
   updateCloudStatus();
 }
 
