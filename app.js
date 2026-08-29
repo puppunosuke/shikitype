@@ -377,9 +377,16 @@ function positionConversionCandidateTray(row = activeRow()) {
   const bounds = conversionTrayViewportBounds();
   const caretRect = row.caret?.getBoundingClientRect();
   const fieldRect = row.mf?.getBoundingClientRect();
+  // 行モードはキャレットの高さだけを基準にすると、行の下端（罫線・余白）より上で
+  // パレットが始まり、罫線へ重なって表示される（実機で再現・2026-08-29）。行の箱
+  // 全体（.row=row.wrap、罫線を含む）の下端を基準にし、常に罫線の下から出す。
+  // canvasのblockはユーザーが任意の高さ・位置に置くため、行の箱全体を基準にすると
+  // 小さいviewportの端でtrayが画面外まで押し出される（回帰実測・2026-08-29）。
+  // canvasは従来どおりキャレット基準のままにする。
+  const rowRect = layoutMode !== 'canvas' ? row.wrap?.getBoundingClientRect() : null;
   if (!bounds || !fieldRect) return;
   const anchorLeft = caretRect?.left ?? fieldRect.left;
-  const anchorBottom = caretRect?.bottom ?? fieldRect.bottom;
+  const anchorBottom = rowRect?.bottom ?? caretRect?.bottom ?? fieldRect.bottom;
   const width = Math.min(416, Math.max(1, bounds.right - bounds.left));
   const left = Math.max(bounds.left, Math.min(anchorLeft, bounds.right - width));
   shell.style.width = `${Math.round(width)}px`;
@@ -1580,6 +1587,10 @@ function closeConversion(row = activeRow(), { clear = true, focus = true } = {})
   renderConversionCandidates(row);
   renderKeyGuide();
   if (focus) focusActiveRow();
+  // 読み編集（Backspaceでの1文字戻し等）はrow.mf.position自体を動かさないが、
+  // 表示上のキャレットはEscape/確定で候補パレットが閉じるまで古い位置に
+  // 取り残されることがある（実機動画で再現・2026-08-29）。閉じた直後に必ず追従させる。
+  scheduleConversionCaret(row);
 }
 
 function openConversion(row = activeRow(), focus = true) {
@@ -1607,6 +1618,10 @@ function insertConversionLatex(row, latex) {
   // RowStateそのものと開いているスロットは残るので、直後のBackspace/Spaceは既存経路で扱える。
   clearRun(row);
   checkDepth(row);
+  // 候補確定後、自前キャレット（scheduleConversionCaret）を呼ばずに終える経路が
+  // あり、次の打鍵まで表示上のキャレットが確定前の位置に取り残されていた
+  // （実機動画で再現・2026-08-29）。挿入直後に必ず追従させる。
+  scheduleConversionCaret(row);
   scheduleNoteSave();
 }
 
@@ -1658,6 +1673,7 @@ function tryReconvertLastConfirm(row) {
   row.conversion.navigation = false;
   row.conversion.selectedIndex = 0;
   renderConversionCandidates(row);
+  scheduleConversionCaret(row);
   scheduleNoteSave();
   return true;
 }
@@ -3303,6 +3319,7 @@ document.addEventListener('keydown', (e) => {
     closeOneLevel(row);
     renderBreadcrumb();
     focusProxyAfterNativeClose(row);
+    scheduleConversionCaret(row);
     return;
   }
 
@@ -3339,6 +3356,7 @@ document.addEventListener('keydown', (e) => {
     if (effectiveShift) reopenOneLevel(row);
     else closeOneLevel(row);
     renderBreadcrumb();
+    scheduleConversionCaret(row);
     clearVirtualShift();
     return;
   }
@@ -3355,6 +3373,7 @@ document.addEventListener('keydown', (e) => {
     if (tryReconvertLastConfirm(row)) { renderBreadcrumb(); return; }
     backspace(row);
     renderBreadcrumb();
+    scheduleConversionCaret(row);
     return;
   }
 
