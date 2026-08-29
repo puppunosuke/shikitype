@@ -107,6 +107,19 @@ function clampScrollPosition(position, scrollSize, viewportSize) {
   return Math.max(0, Math.min(position, Math.max(0, scrollSize - viewportSize)));
 }
 
+// exportConversionDictionaryCsv() は表計算ソフトでの数式評価を防ぐため、symbol/latex
+// などが `=` `+` `-` `@` で始まる値に `'` を1つ前置して書き出す（csvCell、conversion.js
+// と同じ保護）。conversion.js側のCSV取り込み（csvValue→unprotectCsvCell）はこれを
+// 剥がして読むが、このエディタ独自のcsvTextToRowsは今まで剥がしておらず、symbol/latexが
+// `+` `-` `=` で始まる候補（2026-08-30に追加した「たす/ひく/いこーる」で初めて発生）を
+// 編集表が `'+` のような形のまま表示し、safeLatexPattern に弾かれて保存ボタンが
+// 永久に無効化される回帰があった（実機Playwrightで再現・確認）。conversion.js側と
+// 同じ保護記号を剥がしてから行モデルへ入れることで、表示・保存とも素の記号に戻す。
+function unprotectCsvCell(value) {
+  const text = String(value ?? '');
+  return /^'[=+\-@]/.test(text) ? text.slice(1) : text;
+}
+
 // CSVの1行 = version,operation,candidate_id,symbol,latex,reading,base_priority を、
 // このエディタの行モデル（version固定・operationはUI項目）へ変換する。
 function csvTextToRows(csvText) {
@@ -115,8 +128,8 @@ function csvTextToRows(csvText) {
     key: makeKey(),
     operation: normalizeOperation(cells.operation) ?? 'upsert',
     candidate_id: String(cells.candidate_id ?? '').trim().toLowerCase(),
-    symbol: String(cells.symbol ?? '').trim(),
-    latex: String(cells.latex ?? '').trim(),
+    symbol: unprotectCsvCell(cells.symbol ?? '').trim(),
+    latex: unprotectCsvCell(cells.latex ?? '').trim(),
     reading: String(cells.reading ?? '').trim(),
     base_priority: String(cells.base_priority ?? '').trim(),
   }));

@@ -216,6 +216,9 @@ const GREEK_CANDIDATES = GREEK_LETTERS.flatMap(([name, lower, upper, reading]) =
   { id: `greek-${name}-upper`, greekName: name, label: upper, latex: GREEK_UPPER_LATEX[name] ?? `\\mathrm{${GREEK_UPPER_ROMAN[name]}}`, aliases: [`upper ${name}`, `${reading}だいもじ`, upper], categories: ['greek'], basePriority: 140 },
 ]);
 const MATH_CANDIDATE_DEFINITIONS = [
+  // 'fraction'（÷、わる/じょほう）は2026-08-30以降、確定するとBUILTIN_CONVERSION_ACTIONS
+  // 経由でα/n（afrac＝直前の項を分子・分母へカーソル移動）を呼ぶ構造入力になった。
+  // ここのlatex（\div）は互換・書き出し用の表示値であり、実行時には使われない。
   ['product','∏','\\prod ','せき','product','prod'], ['fraction','÷','\\div ','わる','じょほう','division','divide'], ['approximately','≈','\\approx ','きんじ','ほぼ','approx'],
   ['proportional','∝','\\propto ','ひれい','proportional','propto'], ['subset','⊂','\\subset ','ぶぶんしゅうごう','subset'],
   ['subset-equal','⊆','\\subseteq ','ぶぶんしゅうごういこーる','subseteq'], ['superset','⊃','\\supset ','ほうがん','superset'],
@@ -289,6 +292,17 @@ const HIGH_SCHOOL_EXAM_CANDIDATES = [
   withExamScope({ id: 'greek-mu', label: 'μ', latex: '\\mu ', aliases: ['みゅー', 'mu'], categories: ['greek'], basePriority: 190 }, ['mathB']),
   withExamScope({ id: 'greek-rho', label: 'ρ', latex: '\\rho ', aliases: ['ろー', 'rho'], categories: ['greek'], basePriority: 180 }, ['math3']),
   withExamScope({ id: 'greek-omega', label: 'ω', latex: '\\omega ', aliases: ['おめが', 'omega'], categories: ['greek'], basePriority: 180 }, ['math3']),
+  // 2026-08-30 拓男指定（音声指摘3件目）: CSV/既定辞書に「たす」「ひく」（+ −）が無く
+  // 変換方式から出せなかった。ついでに基本演算子（かける・わる・いこーる）も
+  // 揃っているか確認したところ、÷（'fraction'）は既にあったが、+ − × = は1件も
+  // 無かったため、この4つをまとめて追加する。latexは物理キー割り当て
+  // （KeyG='+', KeyH='-', KeyS='=', KeyT='\\cdot '）と完全に一致させ、変換で
+  // 出しても物理キーで打っても同じ見た目になるようにした。全単元で使う記号なので
+  // 数I〜数IIIすべてに公開する。
+  withExamScope({ id: 'plus', label: '+', latex: '+', aliases: ['たす', 'ぷらす', 'plus', 'add'], categories: ['general'], basePriority: 200 }, ['math1', 'mathA', 'math2', 'mathB', 'mathC', 'math3']),
+  withExamScope({ id: 'minus', label: '-', latex: '-', aliases: ['ひく', 'まいなす', 'minus', 'subtract'], categories: ['general'], basePriority: 200 }, ['math1', 'mathA', 'math2', 'mathB', 'mathC', 'math3']),
+  withExamScope({ id: 'multiply', label: '·', latex: '\\cdot ', aliases: ['かける', 'multiply', 'times'], categories: ['general'], basePriority: 200 }, ['math1', 'mathA', 'math2', 'mathB', 'mathC', 'math3']),
+  withExamScope({ id: 'equals', label: '=', latex: '=', aliases: ['いこーる', 'ひとしい', 'equals', 'equal'], categories: ['general'], basePriority: 200 }, ['math1', 'mathA', 'math2', 'mathB', 'mathC', 'math3']),
   withExamScope({ id: 'plus-minus', label: '±', latex: '\\pm ', aliases: ['ぷらすまいなす', 'せいふ'], categories: ['general'], basePriority: 180 }, ['math1', 'math2']),
   withExamScope({ id: 'not-equal', label: '≠', latex: '\\ne ', aliases: ['のっといこーる', 'ひとしくない', 'ふとうごう'], categories: ['general'], basePriority: 180 }, ['math1', 'math2']),
   withExamScope({ id: 'less-equal', label: '≤', latex: '\\le ', aliases: ['しょうなりいこーる', 'いか'], categories: ['general'], basePriority: 185 }, ['math1', 'math2']),

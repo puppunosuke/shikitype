@@ -1698,6 +1698,10 @@ function insertConversionLatex(row, latex) {
 // 実行しない。ここに固定した内蔵IDだけが既存の構造アクションへ到達できる。
 const BUILTIN_CONVERSION_ACTIONS = Object.freeze({
   'fraction-structure': { type: 'nfrac-previous-denominator' },
+  // 割り算（÷、読み「わる」）は2026-08-30拓男指定（音声指摘4件目）でα/nと同じ挙動に
+  // 変えた＝直前の項を分子に取り分母へカーソル移動。パレットの÷（PALETTE_STRUCTURAL_
+  // ACTIONS）と同じ理由・同じ afrac アクションへ寄せる。
+  fraction: { type: 'afrac' },
   power: { type: 'open', kind: 'sup' },
   'power-n': { type: 'power-prefill', value: 'n' },
   'power-x': { type: 'power-prefill', value: 'x' },
@@ -4326,19 +4330,29 @@ function renderPalette() {
   });
 }
 
+// 2026-08-30 拓男指定（音声指摘4件目）: 割り算キー（パレットの÷）は記号を挿入する
+// だけでなく「直前の項を分子に取り、分母へカーソル移動する」＝分数を作る挙動へ変える。
+// これはopenAfrac（α/n、既存のKeyJと同じ処理）とまったく同じ意味なので新しい関数は
+// 増やさず、パレットのラベルで見分けてdispatchActionへ委譲する。
+const PALETTE_STRUCTURAL_ACTIONS = Object.freeze({ '÷': { type: 'afrac' } });
+
 function insertPaletteItem(index) {
   const item = paletteOrder[index];
   if (!item) return;
-  const [, latex] = item;
+  const [label, latex] = item;
   const row = activeRow();
-  if (row) {
+  if (!row) return;
+  const structuralAction = PALETTE_STRUCTURAL_ACTIONS[label];
+  if (structuralAction) {
+    dispatchAction(row, structuralAction);
+  } else {
     row.mf.executeCommand(['insert', latex, { insertionMode: 'insertAfter', format: 'latex' }]);
     clearRun(row);
-    // パレットのボタンをクリックした後は、MathLive のホスト要素だけへ focus() しても
-    // 実際のキーボード受け口（shadow DOM 内）まで戻らないことがある。次の物理キーを
-    // 落とさないよう、他の画面操作と同じ復元経路へ統一する。
-    focusActiveRow();
   }
+  // パレットのボタンをクリックした後は、MathLive のホスト要素だけへ focus() しても
+  // 実際のキーボード受け口（shadow DOM 内）まで戻らないことがある。次の物理キーを
+  // 落とさないよう、他の画面操作と同じ復元経路へ統一する。
+  focusActiveRow();
 }
 
 function highlightPalette() {
