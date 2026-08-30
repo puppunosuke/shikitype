@@ -2,7 +2,7 @@
 // OpenAI 応答だけは route で差し替え、履歴→結果、別の見直し、進行表示の遷移を実DOMで通す。
 import { chromium } from '../spike/node_modules/playwright/index.mjs';
 
-const base = 'http://127.0.0.1:8788/';
+const base = process.env.REVIEW_SCROLL_BASE || 'http://127.0.0.1:8788/';
 let passed = 0;
 const failures = [];
 function ok(label, value, detail = value) {
