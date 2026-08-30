@@ -298,12 +298,13 @@
         <ol id="review-progress-stages" aria-live="polite"></ol>
         <button type="button" id="review-progress-close" class="review-link-button">閉じて他の操作をする（終わったら見直すボタンに戻ります）</button>
       </section>
-      <section id="review-result" hidden aria-live="polite">
+      <section id="review-result" hidden>
         <div class="review-card"><h3>できていること</h3><ul id="review-strengths"></ul></div>
         <div class="review-card"><h3>直す箇所</h3><div id="review-corrections"></div></div>
         <div class="review-card review-next"><h3>次の一手</h3><p id="review-next-step"></p></div>
         <p id="review-stale" hidden>この結果の後にノートが編集されています。</p>
-        <details id="review-trace"><summary>検証の流れ</summary><ul id="review-stage-list"></ul></details>
+        <section id="review-conversation" aria-labelledby="review-conversation-title"><h3 id="review-conversation-title">AI同士の検証会話（要約）</h3><ol id="review-conversation-list"></ol></section>
+        <section id="review-chat" aria-labelledby="review-chat-title"><h3 id="review-chat-title">この見直しについて聞く</h3><div id="review-chat-messages" role="log" aria-live="off"></div><p id="review-chat-status" role="status" aria-live="polite"></p><label class="review-chat-label" for="review-chat-input">質問</label><textarea id="review-chat-input" maxlength="800" rows="3" placeholder="次にどこを確かめればいい？"></textarea><button type="button" id="review-chat-send">送信</button></section>
         <button type="button" id="review-again">別の見直しをする</button>
         <button type="button" id="review-back-to-list" class="review-link-button">過去の見直し一覧に戻る</button>
       </section>

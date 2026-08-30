@@ -27,6 +27,12 @@ const fakeStages = [
   { stage: 'falsifier', inputScope: 'reference_and_audit_summary' },
   { stage: 'tutor', inputScope: 'safe_audit_handoff_only' },
 ];
+const fakeConversation = [
+  { role: 'solver', label: '解法担当', message: '問題と条件から、照合に使う観点を整理しました。' },
+  { role: 'auditor', label: '照合担当', message: '前の行からのつながりを確認します。' },
+  { role: 'falsifier', label: '反証担当', message: '照合の方向を再確認しました。' },
+  { role: 'tutor', label: 'ヒント担当', message: fakeCard.nextStep },
+];
 let savedReview = null; // 「保存されたレビュー」を模したサーバ状態(このプロセス内だけ)
 
 async function main() {
@@ -35,8 +41,11 @@ async function main() {
   const page = await context.newPage();
   const consoleErrors = [];
   page.on('pageerror', (error) => consoleErrors.push(String(error)));
-  page.on('console', (message) => { if (message.type() === 'error') consoleErrors.push(message.text()); });
-  page.on('response', (response) => { if (response.status() >= 400) consoleErrors.push(`${response.status()} ${response.request().method()} ${response.url()}`); });
+  page.on('console', (message) => { if (message.type() === 'error' && !message.text().includes('503 (Service Unavailable)') && !message.text().includes('409 (Conflict)')) consoleErrors.push(message.text()); });
+  page.on('response', (response) => {
+    // 質問の失敗表示を確認するために意図して返す503は、画面の未処理エラーではない。
+    if (response.status() >= 400 && !([503, 409].includes(response.status()) && response.url().includes('/api/reviews/chat'))) consoleErrors.push(`${response.status()} ${response.request().method()} ${response.url()}`);
+  });
 
   // /api/reviews と .../reviews 一覧だけ差し替える。他のAPI・静的ファイルは実サーバへ通す。
   await page.route('**/api/reviews', async (route) => {
@@ -46,13 +55,22 @@ async function main() {
       runId: fakeRunId, noteId: body.noteId, noteUpdatedAt: body.noteUpdatedAt,
       reviewKind: body.reviewKind, mode: body.mode, createdAt: new Date().toISOString(), completedAt: new Date().toISOString(),
       snapshot: body.blocks,
-      result: { runId: fakeRunId, noteId: body.noteId, noteUpdatedAt: body.noteUpdatedAt, reviewKind: body.reviewKind, mode: body.mode, card: fakeCard, stages: fakeStages, createdAt: new Date().toISOString() },
+      result: { runId: fakeRunId, noteId: body.noteId, noteUpdatedAt: body.noteUpdatedAt, reviewKind: body.reviewKind, mode: body.mode, card: fakeCard, stages: fakeStages, conversation: fakeConversation, chat: [], createdAt: new Date().toISOString() },
     };
     await route.fulfill({ status: 201, contentType: 'application/json', body: JSON.stringify(savedReview.result) });
   });
   await page.route('**/api/notes/*/reviews', async (route) => {
     if (route.request().method() !== 'GET') return route.continue();
     await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ reviews: savedReview ? [savedReview] : [] }) });
+  });
+  await page.route('**/api/reviews/chat', async (route) => {
+    if (route.request().method() !== 'POST') return route.continue();
+    const body = JSON.parse(route.request().postData() || '{}');
+    if (body.message === '失敗を確認') return route.fulfill({ status: 503, contentType: 'application/json', body: JSON.stringify({ error: 'review_unavailable' }) });
+    if (body.message === '上限を確認') return route.fulfill({ status: 409, contentType: 'application/json', body: JSON.stringify({ error: 'review_chat_limit' }) });
+    const message = '前の行から変わったところを一つだけ確認してみましょう。';
+    if (savedReview) savedReview.result.chat = [...savedReview.result.chat, { role: 'user', message: body.message }, { role: 'assistant', message }];
+    await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ message }) });
   });
 
   await page.goto(base, { waitUntil: 'networkidle' });
@@ -96,10 +114,36 @@ async function main() {
     strengths: document.getElementById('review-strengths').textContent,
     corrections: document.getElementById('review-corrections').textContent,
     nextStep: document.getElementById('review-next-step').textContent,
-    stagesCount: document.querySelectorAll('#review-stage-list li').length,
+    conversationCount: document.querySelectorAll('#review-conversation-list li').length,
   }));
   ok('結果カードが実DOMへ描画される', rendered.strengths.includes('置換の発想は正しい') && rendered.nextStep.includes('置換後の微分'), rendered);
-  ok('検証の流れ(4段階)が描画される', rendered.stagesCount === 4, rendered);
+  ok('AI同士の検証会話(4役)が描画される', rendered.conversationCount === 4, rendered);
+
+  // --- 追加質問: 送信・失敗・Enter・保存済み履歴の復元 ---
+  await page.fill('#review-chat-input', '一行目');
+  await page.focus('#review-chat-input');
+  await page.keyboard.press('Shift+Enter');
+  await page.keyboard.type('二行目');
+  ok('Shift+Enterは送信せず質問欄を改行する', await page.inputValue('#review-chat-input') === '一行目\n二行目');
+  await page.fill('#review-chat-input', '失敗を確認');
+  await page.click('#review-chat-send');
+  await page.waitForFunction(() => document.getElementById('review-chat-status')?.textContent.includes('返答を受け取れませんでした'));
+  ok('質問の失敗理由が入力欄の近くに出る', await page.evaluate(() => document.getElementById('review-chat-status')?.textContent.includes('返答を受け取れませんでした')));
+  await page.fill('#review-chat-input', '次はどこを見る？');
+  await page.focus('#review-chat-input');
+  await page.keyboard.press('Enter');
+  await page.waitForFunction(() => document.querySelectorAll('.review-chat-message').length === 2);
+  const chatRendered = await page.evaluate(() => ({ messages: document.querySelectorAll('.review-chat-message').length, assistant: document.querySelector('.review-chat-assistant')?.textContent, overflow: document.documentElement.scrollWidth > document.documentElement.clientWidth }));
+  ok('Enterで質問を送り、返答を会話として表示する', chatRendered.messages === 2 && chatRendered.assistant.includes('一つだけ確認'), chatRendered);
+  await page.fill('#review-chat-input', '上限を確認');
+  await page.click('#review-chat-send');
+  await page.waitForFunction(() => document.getElementById('review-chat-status')?.textContent.includes('ここまでです'));
+  const limitState = await page.evaluate(() => ({ input: document.getElementById('review-chat-input').disabled, send: document.getElementById('review-chat-send').disabled }));
+  ok('質問上限では再送できない状態にする', limitState.input && limitState.send, limitState);
+  await page.setViewportSize({ width: 390, height: 760 });
+  const narrowConversation = await page.evaluate(() => ({ page: document.documentElement.scrollWidth > document.documentElement.clientWidth, dialog: document.getElementById('review-dialog').scrollWidth > document.getElementById('review-dialog').clientWidth }));
+  ok('390pxでも会話と質問欄が横切れしない', !narrowConversation.page && !narrowConversation.dialog, narrowConversation);
+  await page.setViewportSize({ width: 1024, height: 800 });
 
   // --- ダイアログを閉じて数式へフォーカスが戻る ---
   await page.click('#review-dialog-close');
@@ -135,6 +179,8 @@ async function main() {
     await page.waitForSelector('#review-result:not([hidden])', { timeout: 5000 });
     const reopened = await page.evaluate(() => document.getElementById('review-next-step').textContent);
     ok('履歴から過去の見直し結果を開き直せる', reopened.includes('置換後の微分'), reopened);
+    const restoredChat = await page.evaluate(() => document.querySelectorAll('.review-chat-message').length);
+    ok('開き直しても追加質問を復元する', restoredChat === 2, restoredChat);
   }
 
   ok('画面エラーなし', consoleErrors.length === 0, consoleErrors);

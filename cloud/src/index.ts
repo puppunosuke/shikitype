@@ -18,6 +18,8 @@ const MAX_REVIEW_CONDITIONS_CHARS = 4_000;
 const MAX_REVIEW_BLOCKS = 80;
 const MAX_REVIEW_BLOCK_CHARS = 4_000;
 const MAX_OPENAI_RESPONSE_BYTES = 64 * 1024;
+const MAX_REVIEW_CHAT_CHARS = 800;
+const MAX_REVIEW_CHAT_MESSAGES = 12;
 
 type UserRow = { id: string; login_id: string; password_hash: string; password_salt: string; recovery_hash: string; google_sub?: string | null; google_name?: string | null };
 type SessionRow = { user_id: string; expires_at: string };
@@ -40,6 +42,8 @@ type ReviewStageRow = { stage: ReviewStage; input_scope: string; output_json: st
 type ReviewCard = { strengths: string[]; corrections: Array<{ blockId: string | null; text: string }>; nextStep: string; confidence: number };
 type ReviewUsage = { inputTokens: number | null; outputTokens: number | null; totalTokens: number | null };
 type ReviewResponse = { output: Record<string, unknown>; usage: ReviewUsage; durationMs: number };
+type ReviewConversationEntry = { role: 'solver' | 'auditor' | 'falsifier' | 'tutor'; label: string; message: string };
+type ReviewChatEntry = { role: 'user' | 'assistant'; message: string; idempotencyKey?: string; fingerprint?: string };
 
 class ApiError extends Error {
   constructor(readonly status: number, readonly code: string) { super(code); }
@@ -780,6 +784,70 @@ function normalizeReviewCard(value: unknown, allowedIds: Set<string>): ReviewCar
   return { strengths: boundedStringList(item.strengths), corrections: reviewCorrections(item.corrections, allowedIds), nextStep, confidence: boundedConfidence(item.confidence) };
 }
 
+// `review_stages` は診断用の内部記録であり、画面へそのまま渡してはいけない。
+// 会話に使う可変文は、契約上「答えを含まない」hintDirectionだけに狭め、
+// 数式・数値・答えを示す語を含む場合は固定文へ退避する。
+function safeHintDirection(value: unknown): string {
+  const text = typeof value === 'string' ? value.replace(/\u0000/g, '').trim().slice(0, 180) : '';
+  if (!text || /[\\=0-9０-９]|答え|解答|最終|結果|最小|最大|になる|求める/.test(text)) return '答案のつながりを、次の一手につながる範囲で確認します。';
+  return text;
+}
+
+function safeReviewChatMessage(value: string): string {
+  // モデルへの指示だけに頼らず、答えや式らしい返答は固定の最小ヒントへ退避する。
+  // この経路では数値・数式・最終値の説明を必要としない。
+  if (!value || /[\\=0-9０-９]|答え|解答|最終|結果|最小|最大|正しい値|解は|になる|求める/.test(value)) return '見直しカードの「次の一手」で示した箇所だけを、前の行とのつながりで確かめましょう。';
+  return value;
+}
+
+function stageOutput(rows: ReviewStageRow[], stage: ReviewStage): Record<string, unknown> {
+  const row = rows.find((entry) => entry.stage === stage);
+  if (!row) return {};
+  try {
+    const parsed: unknown = JSON.parse(row.output_json);
+    return parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? parsed as Record<string, unknown> : {};
+  } catch { return {}; }
+}
+
+async function buildReviewConversation(env: Env, runId: string, mode: ReviewRequest['mode'], card: ReviewCard): Promise<ReviewConversationEntry[]> {
+  const stored = await env.DB.prepare('SELECT stage, input_scope, output_json, created_at FROM review_stages WHERE run_id = ? ORDER BY created_at ASC').bind(runId).all<ReviewStageRow>();
+  if (mode === 'single') return [{ role: 'tutor', label: 'ヒント担当', message: '最小のヒントを、「次の一手」に整理しました。' }];
+  const auditor = stageOutput(stored.results, 'solution_auditor');
+  const falsifier = stageOutput(stored.results, 'falsifier');
+  const challenged = falsifier.disagreement === true;
+  return [
+    { role: 'solver', label: '解法担当', message: '問題と条件から、照合に使う観点を整理しました。' },
+    { role: 'auditor', label: '照合担当', message: safeHintDirection(auditor.hintDirection) },
+    { role: 'falsifier', label: '反証担当', message: challenged ? '別の見方も確認し、次の一手を優先して確かめることにしました。' : '照合の方向を再確認し、次の一手へ進めることを確かめました。' },
+    // 実際の最終ヒントは直上の「次の一手」カードに一度だけ出す。
+    // ここは会話上の受け渡しを表し、同じ文を二重に読ませない。
+    { role: 'tutor', label: 'ヒント担当', message: '最小のヒントを、「次の一手」に整理しました。' },
+  ];
+}
+
+function reviewChatFromUnknown(value: Record<string, unknown>): { runId: string; message: string; idempotencyKey: string } {
+  const runId = reviewText(value.runId, 120, true);
+  if (!/^rev_[a-z0-9-]{8,120}$/i.test(runId)) throw new ApiError(400, 'invalid_review_chat');
+  const message = reviewText(value.message, MAX_REVIEW_CHAT_CHARS, true);
+  const idempotencyKey = reviewText(value.idempotencyKey, 120, true);
+  if (!/^[a-z0-9_-]{16,120}$/i.test(idempotencyKey)) throw new ApiError(400, 'invalid_review_chat');
+  return { runId, message, idempotencyKey };
+}
+
+function reviewChatHistory(value: unknown): ReviewChatEntry[] {
+  if (!Array.isArray(value)) return [];
+  const entries: ReviewChatEntry[] = [];
+  for (const raw of value.slice(-MAX_REVIEW_CHAT_MESSAGES)) {
+    if (!raw || typeof raw !== 'object' || Array.isArray(raw)) continue;
+    const item = raw as Record<string, unknown>;
+    const role = item.role === 'user' || item.role === 'assistant' ? item.role : null;
+    const message = typeof item.message === 'string' ? item.message.replace(/\u0000/g, '').trim().slice(0, MAX_REVIEW_CHAT_CHARS) : '';
+    if (!role || !message) continue;
+    entries.push({ role, message, ...(typeof item.idempotencyKey === 'string' ? { idempotencyKey: item.idempotencyKey } : {}), ...(typeof item.fingerprint === 'string' ? { fingerprint: item.fingerprint } : {}) });
+  }
+  return entries.slice(-MAX_REVIEW_CHAT_MESSAGES);
+}
+
 async function boundedResponseJson(response: Response): Promise<unknown> {
   if (Number(response.headers.get('Content-Length') || '0') > MAX_OPENAI_RESPONSE_BYTES) throw new ApiError(502, 'review_response_too_large');
   if (!response.body) throw new ApiError(502, 'review_invalid_response');
@@ -872,6 +940,35 @@ async function responseJson(env: Env, stage: ReviewStage, input: Record<string, 
   return { output: parsed as Record<string, unknown>, usage: responseUsage(payload), durationMs: Date.now() - startedAt };
 }
 
+async function reviewChatResponse(env: Env, context: Record<string, unknown>): Promise<string> {
+  if (!env.OPENAI_API_KEY) throw new ApiError(503, 'review_not_configured');
+  let response: Response;
+  try {
+    response = await fetch('https://api.openai.com/v1/responses', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${env.OPENAI_API_KEY}` },
+      body: JSON.stringify({
+        model: 'gpt-5.6-terra', store: false,
+        text: { format: { type: 'json_schema', name: 'shikitype_review_chat', strict: true, schema: { type: 'object', additionalProperties: false, properties: { message: { type: 'string' } }, required: ['message'] } } },
+        input: [
+          { role: 'developer', content: [{ type: 'input_text', text: 'You answer a follow-up question about a Japanese high-school mathematics review. Return only JSON. Use only the supplied final card, safe conversation summary, limited chat history, and question. Never reveal or infer the original problem, student answer, independent solution, reference steps, correct summary, a worked solution, formula, or final answer. Give one small, plain-language next action.' }] },
+          { role: 'user', content: [{ type: 'input_text', text: JSON.stringify(context) }] },
+        ],
+      }),
+    });
+  } catch { throw new ApiError(503, 'review_unavailable'); }
+  if (!response.ok) throw new ApiError(response.status === 401 || response.status === 403 ? 503 : 502, 'review_unavailable');
+  const extracted = responseText(await boundedResponseJson(response));
+  if (extracted.refused) throw new ApiError(422, 'review_refused');
+  try {
+    const parsed: unknown = JSON.parse(extracted.text);
+    const candidate = parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? (parsed as Record<string, unknown>).message : null;
+    const message = typeof candidate === 'string' ? candidate.replace(/\u0000/g, '').trim().slice(0, MAX_REVIEW_CHAT_CHARS) : '';
+    if (!message) throw new Error();
+    return safeReviewChatMessage(message);
+  } catch { throw new ApiError(502, 'review_invalid_response'); }
+}
+
 async function insertReviewStage(env: Env, runId: string, stage: ReviewStage, inputScope: string, output: unknown, usage: ReviewUsage | null = null, durationMs: number | null = null): Promise<void> {
   await env.DB.prepare('INSERT INTO review_stages (id, run_id, stage, input_scope, output_json, input_tokens, output_tokens, total_tokens, duration_ms, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)')
     .bind(`rvs_${crypto.randomUUID()}`, runId, stage, inputScope, JSON.stringify(output), usage?.inputTokens ?? null, usage?.outputTokens ?? null, usage?.totalTokens ?? null, durationMs, new Date().toISOString()).run();
@@ -962,7 +1059,9 @@ async function createReview(request: Request, env: Env): Promise<Response> {
     .bind(runId, userId, review.noteId, review.noteUpdatedAt, JSON.stringify(review.blocks), review.problem, review.conditions, review.reviewKind, review.mode, 'running', review.idempotencyKey, fingerprint, now).run();
   try {
     const executed = await executeReviewPipeline(env, runId, review);
-    const result = { runId, noteId: review.noteId, noteUpdatedAt: review.noteUpdatedAt, reviewKind: review.reviewKind, mode: review.mode, card: executed.card, stages: executed.stages, createdAt: now };
+    // 会話は内部stageの出力を返さず、保存済み出力から安全な受け渡し要約だけを組み立てる。
+    const conversation = await buildReviewConversation(env, runId, review.mode, executed.card);
+    const result = { runId, noteId: review.noteId, noteUpdatedAt: review.noteUpdatedAt, reviewKind: review.reviewKind, mode: review.mode, card: executed.card, stages: executed.stages, conversation, chat: [], createdAt: now };
     await env.DB.prepare("UPDATE review_runs SET status = 'completed', result_json = ?, completed_at = ? WHERE id = ? AND user_id = ?").bind(JSON.stringify(result), new Date().toISOString(), runId, userId).run();
     return json(result, 201);
   } catch (error) {
@@ -970,6 +1069,34 @@ async function createReview(request: Request, env: Env): Promise<Response> {
     await env.DB.prepare("UPDATE review_runs SET status = 'failed', error_code = ?, completed_at = ? WHERE id = ? AND user_id = ?").bind(code, new Date().toISOString(), runId, userId).run();
     throw error;
   }
+}
+
+async function reviewChat(request: Request, env: Env): Promise<Response> {
+  validateOrigin(request); const userId = await authenticatedUser(request, env);
+  const chatRequest = reviewChatFromUnknown(await boundedJson(request));
+  const run = await env.DB.prepare("SELECT id, status, result_json FROM review_runs WHERE id = ? AND user_id = ?").bind(chatRequest.runId, userId).first<{ id: string; status: string; result_json: string | null }>();
+  if (!run) throw new ApiError(404, 'review_not_found');
+  if (run.status !== 'completed' || !run.result_json) throw new ApiError(409, 'review_not_completed');
+  let result: Record<string, unknown>;
+  try { result = JSON.parse(run.result_json) as Record<string, unknown>; } catch { throw new ApiError(409, 'review_not_completed'); }
+  const history = reviewChatHistory(result.chat);
+  const fingerprint = await sha256(JSON.stringify({ runId: chatRequest.runId, message: chatRequest.message }));
+  const prior = history.find((entry) => entry.role === 'user' && entry.idempotencyKey === chatRequest.idempotencyKey);
+  if (prior) {
+    if (prior.fingerprint !== fingerprint) throw new ApiError(409, 'idempotency_conflict');
+    const index = history.indexOf(prior); const reply = history[index + 1];
+    if (reply?.role === 'assistant') return json({ message: reply.message });
+    throw new ApiError(409, 'review_chat_in_progress');
+  }
+  if (history.length > MAX_REVIEW_CHAT_MESSAGES - 2) throw new ApiError(409, 'review_chat_limit');
+  const card = result.card && typeof result.card === 'object' && !Array.isArray(result.card) ? result.card : {};
+  const conversation = Array.isArray(result.conversation) ? result.conversation : [];
+  // 元問題・答案・stage出力などの秘密情報をこの文脈に加えない。保存済みの公開結果だけを渡す。
+  const message = await reviewChatResponse(env, { card, conversation, history: history.map(({ role, message: text }) => ({ role, message: text })), question: chatRequest.message });
+  const chat = [...history, { role: 'user' as const, message: chatRequest.message, idempotencyKey: chatRequest.idempotencyKey, fingerprint }, { role: 'assistant' as const, message }];
+  result.chat = chat;
+  await env.DB.prepare('UPDATE review_runs SET result_json = ? WHERE id = ? AND user_id = ? AND status = ?').bind(JSON.stringify(result), run.id, userId, 'completed').run();
+  return json({ message });
 }
 
 async function listReviews(request: Request, env: Env, noteId: string): Promise<Response> {
@@ -1019,6 +1146,7 @@ async function api(request: Request, env: Env, path: string): Promise<Response> 
   if (path === '/api/conversion-profile' && request.method === 'GET') return listConversionProfile(request, env);
   if (path === '/api/conversion-profile' && request.method === 'PUT') return putConversionProfile(request, env);
   if (path === '/api/reviews' && request.method === 'POST') return createReview(request, env);
+  if (path === '/api/reviews/chat' && request.method === 'POST') return reviewChat(request, env);
   if (path === '/api/reviews/status' && request.method === 'GET') return reviewStatus(request, env);
   const reviewMatch = /^\/api\/notes\/([^/]+)\/reviews$/.exec(path);
   if (reviewMatch && request.method === 'GET') return listReviews(request, env, decodeURIComponent(reviewMatch[1]));

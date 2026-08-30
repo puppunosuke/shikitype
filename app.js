@@ -5418,14 +5418,75 @@ function renderReviewResult(result) {
   } else corrections.textContent = '直す箇所は見つかりませんでした。';
   document.getElementById('review-next-step').textContent = card.nextStep || '';
   refreshReviewStaleState();
-  const trace = document.getElementById('review-stage-list');
-  trace.replaceChildren();
-  for (const stage of result.stages || []) {
-    const item = document.createElement('li');
-    item.textContent = stage.skipped ? `${REVIEW_STAGE_LABELS[stage.stage] || stage.stage}（${stage.reason || '条件を満たさず省略'}）` : (REVIEW_STAGE_LABELS[stage.stage] || stage.stage);
-    trace.append(item);
+  renderReviewConversation(result.conversation);
+  renderReviewChat(result.chat);
+}
+
+function renderReviewConversation(conversation) {
+  const section = document.getElementById('review-conversation');
+  const list = document.getElementById('review-conversation-list');
+  if (!section || !list) return;
+  list.replaceChildren();
+  const entries = Array.isArray(conversation) ? conversation : [];
+  for (const entry of entries) {
+    if (!entry || typeof entry.message !== 'string') continue;
+    const item = document.createElement('li'); item.className = 'review-conversation-entry';
+    const label = document.createElement('strong'); label.textContent = typeof entry.label === 'string' ? entry.label : '確認担当';
+    const message = document.createElement('p'); message.textContent = entry.message;
+    item.append(label, message); list.append(item);
   }
-  document.getElementById('review-trace').hidden = !(result.stages?.length);
+  section.hidden = list.childElementCount === 0;
+}
+
+function renderReviewChat(chat) {
+  const section = document.getElementById('review-chat');
+  const list = document.getElementById('review-chat-messages');
+  const input = document.getElementById('review-chat-input');
+  const send = document.getElementById('review-chat-send');
+  if (!section || !list || !input || !send) return;
+  list.replaceChildren();
+  const messages = Array.isArray(chat) ? chat : [];
+  if (!messages.length) {
+    const empty = document.createElement('p'); empty.className = 'review-chat-empty'; empty.textContent = '気になるところを短く聞けます。答えそのものは表示しません。'; list.append(empty);
+  } else {
+    for (const entry of messages) {
+      if (!entry || typeof entry.message !== 'string') continue;
+      const item = document.createElement('article'); item.className = `review-chat-message review-chat-${entry.role === 'assistant' ? 'assistant' : 'user'}`;
+      const label = document.createElement('strong'); label.textContent = entry.role === 'assistant' ? 'AI' : 'あなた';
+      const text = document.createElement('p'); text.textContent = entry.message;
+      item.append(label, text); list.append(item);
+    }
+  }
+  const limitReached = messages.length >= 12;
+  const canChat = Boolean(latestReviewResult?.runId && cloudAccount.userId && !limitReached);
+  section.hidden = !latestReviewResult?.runId;
+  input.disabled = !canChat; send.disabled = !canChat;
+  document.getElementById('review-chat-status').textContent = limitReached ? 'この見直しでの質問はここまでです。' : (canChat ? '' : '質問するにはログインが必要です。');
+}
+
+async function submitReviewChat() {
+  const input = document.getElementById('review-chat-input');
+  const send = document.getElementById('review-chat-send');
+  const status = document.getElementById('review-chat-status');
+  if (!input || !send || !latestReviewResult?.runId || !cloudAccount.userId) return;
+  const message = input.value.trim();
+  if (!message) { status.textContent = '質問を入力してください。'; return; }
+  send.disabled = true; input.disabled = true; status.textContent = '返答を作成しています…';
+  try {
+    const response = await apiJson('/reviews/chat', { method: 'POST', body: JSON.stringify({ runId: latestReviewResult.runId, message, idempotencyKey: `review-chat-${crypto.randomUUID()}` }) });
+    const chat = Array.isArray(latestReviewResult.chat) ? latestReviewResult.chat : [];
+    latestReviewResult.chat = [...chat, { role: 'user', message }, { role: 'assistant', message: response.message }];
+    input.value = ''; renderReviewChat(latestReviewResult.chat); status.textContent = '返答を追加しました。';
+    const historyEntry = reviewHistory.find((entry) => entry.runId === latestReviewResult.runId);
+    if (historyEntry?.result) historyEntry.result.chat = latestReviewResult.chat;
+  } catch (error) {
+    const code = error?.payload?.error || error?.message;
+    if (code === 'review_chat_limit') {
+      status.textContent = 'この見直しでの質問はここまでです。'; input.disabled = true; send.disabled = true;
+    } else {
+      status.textContent = '返答を受け取れませんでした。もう一度送信してください。'; input.disabled = false; send.disabled = false;
+    }
+  }
 }
 
 function renderReviewHistory() {
@@ -6304,6 +6365,10 @@ document.getElementById('review-again')?.addEventListener('click', () => openRev
 // 迷わず戻れない（同じ画面へ遷移するのに新規見直しにしか見えないラベルだった）。
 // 挙動はopenReviewDialog()そのままで、ラベルだけ「一覧に戻る」目的を正直に示す。
 document.getElementById('review-back-to-list')?.addEventListener('click', () => openReviewDialog({ focusProblem: false }));
+document.getElementById('review-chat-send')?.addEventListener('click', () => void submitReviewChat());
+document.getElementById('review-chat-input')?.addEventListener('keydown', (event) => {
+  if (event.key === 'Enter' && !event.shiftKey) { event.preventDefault(); void submitReviewChat(); }
+});
 document.getElementById('review-login')?.addEventListener('click', () => {
   reviewResumeAfterLogin = true;
   document.getElementById('review-dialog')?.close();
@@ -6313,6 +6378,12 @@ document.getElementById('review-dialog')?.addEventListener('keydown', (event) =>
   const dialog = event.currentTarget;
   if (event.key === 'Escape') {
     event.preventDefault(); event.stopPropagation(); dialog.close();
+    return;
+  }
+  // dialogのcaptureで全キーをMathLiveから隔離しているため、質問欄のEnterだけは
+  // ここで明示的に通す。Shift+Enterはtextareaの通常の改行を残す。
+  if (event.key === 'Enter' && !event.shiftKey && event.target?.id === 'review-chat-input') {
+    event.preventDefault(); event.stopPropagation(); void submitReviewChat();
     return;
   }
   if (event.key !== 'Tab') { event.stopPropagation(); return; }
