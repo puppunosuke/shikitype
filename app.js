@@ -5369,6 +5369,26 @@ function reviewResultIsStale() {
     || Boolean(latestReviewResult.noteUpdatedAt && note._cloudUpdatedAt && latestReviewResult.noteUpdatedAt !== note._cloudUpdatedAt);
 }
 
+// 見直しダイアログは dialog 自体が縦スクロールを持つ。結果の末尾（会話や質問欄）を
+// 見たまま閉じると、次に別の面を開いたときもその位置を再利用して見出しが消えていた。
+// window ではなく実際の scroll container を戻し、フォーカスでブラウザが再スクロール
+// してしまう一拍後にももう一度戻す。
+function resetReviewDialogToTop(focusTarget = null) {
+  const dialog = document.getElementById('review-dialog');
+  if (!dialog) return;
+  const reset = () => { dialog.scrollTop = 0; dialog.scrollLeft = 0; };
+  reset();
+  requestAnimationFrame(() => {
+    if (focusTarget instanceof HTMLElement) {
+      try { focusTarget.focus({ preventScroll: true }); }
+      catch { focusTarget.focus(); }
+    }
+    reset();
+    // hidden の切替や focus() の後に native dialog が位置を補正するブラウザがある。
+    requestAnimationFrame(reset);
+  });
+}
+
 function refreshReviewStaleState() {
   const stale = document.getElementById('review-stale');
   if (!stale || !latestReviewResult) return;
@@ -5420,6 +5440,7 @@ function renderReviewResult(result) {
   refreshReviewStaleState();
   renderReviewConversation(result.conversation);
   renderReviewChat(result.chat);
+  resetReviewDialogToTop();
 }
 
 function renderReviewConversation(conversation) {
@@ -5572,8 +5593,8 @@ function showReviewProgressPanel() {
   if (progress) progress.hidden = false;
   // 送信ボタンがhiddenになると、開いたままのdialog内でフォーカスがbodyへ抜けてしまう
   // （showModal()は既に開いているdialogへは再適用されない）。状態原則どおり、隠した分は
-  // 自前でフォーカス先を補い、SR利用者にも「見直しを実行しています」を即読ませる。
-  setTimeout(() => document.getElementById('review-progress-status')?.focus(), 0);
+  // 自前でフォーカス先を補い、見出しを押し流さずSR利用者にも進行を即読ませる。
+  setTimeout(() => resetReviewDialogToTop(document.getElementById('review-progress-status')), 0);
 }
 
 function startReviewProgress(key, mode) {
@@ -5622,7 +5643,10 @@ function openReviewDialog({ focusProblem = true } = {}) {
   if (!dialog.open) dialog.showModal();
   const noteId = notesStore.activeId;
   if (noteId && (reviewHistoryNoteId !== noteId || !reviewHistory.length)) void loadReviewHistory(noteId);
-  if (focusProblem && !reviewSubmitting && !showingResult) setTimeout(() => document.getElementById('review-problem')?.focus(), 0);
+  const focusTarget = focusProblem && !reviewSubmitting && !showingResult ? document.getElementById('review-problem') : null;
+  // 結果の開き直し、履歴からの切替、進行表示、新規見直しのどの経路でも、まず
+  // 「解き方を確かめる」から読める位置へ戻す。
+  setTimeout(() => resetReviewDialogToTop(focusTarget), 0);
 }
 
 async function submitReview() {

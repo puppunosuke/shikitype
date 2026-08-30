@@ -70,6 +70,47 @@ async function main() {
   }));
   ok('狭幅でも見直しモーダルを横スクロールさせない', !narrow.pageOverflow && !narrow.dialogOverflow, narrow);
 
+  // dialog は window ではなく自身が縦スクロールする。会話や質問欄まで読んだあと、
+  // 「一覧に戻る」と次に開く入力面の両方で見出しから読めることを固定する。
+  await page.evaluate(() => {
+    const result = document.getElementById('review-result');
+    const setup = document.getElementById('review-setup');
+    const filler = document.createElement('div');
+    filler.id = 'review-scroll-reset-filler'; filler.style.height = '1600px';
+    result.append(filler); setup.hidden = true; result.hidden = false;
+    const dialog = document.getElementById('review-dialog');
+    dialog.scrollTop = dialog.scrollHeight;
+  });
+  await page.click('#review-back-to-list');
+  await page.waitForTimeout(80);
+  const returnedToSetupTop = await page.evaluate(() => {
+    const dialog = document.getElementById('review-dialog');
+    const title = document.getElementById('review-dialog-title');
+    const dialogBox = dialog.getBoundingClientRect();
+    const titleBox = title.getBoundingClientRect();
+    return { scrollTop: dialog.scrollTop, titleOffset: titleBox.top - dialogBox.top, setupVisible: !document.getElementById('review-setup').hidden };
+  });
+  ok('結果の末尾から一覧へ戻ると、実スクロール領域を先頭へ戻して見出しを表示する', returnedToSetupTop.setupVisible && returnedToSetupTop.scrollTop === 0 && returnedToSetupTop.titleOffset >= 0 && returnedToSetupTop.titleOffset < 90, returnedToSetupTop);
+
+  await page.evaluate(() => {
+    const dialog = document.getElementById('review-dialog');
+    const filler = document.createElement('div');
+    filler.id = 'review-scroll-reset-setup-filler'; filler.style.height = '1600px';
+    document.getElementById('review-setup').append(filler);
+    dialog.scrollTop = dialog.scrollHeight;
+  });
+  await page.click('#review-dialog-close');
+  await page.click('#review-toggle');
+  await page.waitForTimeout(80);
+  const reopenedAtTop = await page.evaluate(() => {
+    const dialog = document.getElementById('review-dialog');
+    const title = document.getElementById('review-dialog-title');
+    const dialogBox = dialog.getBoundingClientRect();
+    const titleBox = title.getBoundingClientRect();
+    return { scrollTop: dialog.scrollTop, titleOffset: titleBox.top - dialogBox.top, focusedProblem: document.activeElement?.id === 'review-problem' };
+  });
+  ok('閉じた入力面を開き直しても、問題文へフォーカスしつつ見出しから読める', reopenedAtTop.scrollTop === 0 && reopenedAtTop.titleOffset >= 0 && reopenedAtTop.titleOffset < 90 && reopenedAtTop.focusedProblem, reopenedAtTop);
+
   await browser.close();
   console.log(`\n=== RESULT: ${passed} passed, ${failures.length} failed ===`);
   if (failures.length) console.log(JSON.stringify(failures, null, 2));
