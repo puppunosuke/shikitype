@@ -1,11 +1,7 @@
 # SHIKITYPE
 
 数学の答案をPC上で入力し、複数のAIによる見直しを受けるためのWebアプリケーションです。
-
-## 公開版
-
-- アプリケーション: https://shikitype.punoji.workers.dev
-- GitHubリポジトリ: https://github.com/puppunosuke/shikitype
+公開URL: https://shikitype.punoji.workers.dev
 
 ## 概要
 
