@@ -928,9 +928,18 @@ function openText(row) {
   const latexBefore = row.mf.value;
   row.runStack.push(row.run);
   row.run = [];
-  row.mf.executeCommand(['insert', '\\text{#0}', { insertionMode: 'replaceSelection', selectionMode: 'placeholder', format: 'latex' }]);
-  // MathLive自身もtext modeへ切り替える。\\text{}を見た目だけ挿入してmath modeの
-  // ままにすると、OSの通常入力がプレースホルダ全体を置換して文章構造を失う。
+  // 以前は\text{#0}をselectionMode:'placeholder'で明示挿入してからswitchMode('text')
+  // していたが、行内に\text{}より前の内容がある状態（例: "x"を打った直後に文を開く）
+  // でこの組み合わせを使うと、MathLive内部（vendor/mathlive.min.mjs）のswitchModeが
+  // 挿入直後のplaceholder選択を正しく引き継げず、挿入したはずの\text{}がその場で消えて
+  // 古い選択範囲（削除済みの位置を指す）だけが残る（実測でvalue/selectionのdumpを取り
+  // 確認済み）。この壊れた状態のまま最初の1文字を打つと、MathLive内部の
+  // get selectionIsPlaceholder()がundefinedの`type`を読んで例外を投げ、画面にエラーが
+  // 残る（\text{}が行の先頭＝前に何も内容が無い場合はこの不具合は再現しない。実測確認
+  // 済み）。switchModeだけを呼べば同じ不具合を経由せず、最初の1文字を打った瞬間に
+  // MathLive自身が\text{}を生成する（できあがる構造は従来と同じ）。vendor自体は書き
+  // 換えず、アプリ側の呼び出し方だけを変えて回避する。見た目の副作用は、文を開いた
+  // 直後のプレースホルダ枠「▢」が出なくなる点のみ（打鍵すれば同じ\text{...}になる）。
   row.mf.executeCommand(['switchMode', 'text']);
   row.stack.push({ kind: 'text', slots: ['content'], slotIndex: 0, openPos: posBefore, latexBefore, latexAfterOpen: row.mf.value, mergeTarget: null });
   row.nativeTextOpen = true;
@@ -2957,7 +2966,17 @@ function createRow(focus, latex = '', position = null, insertIndex = rows.length
       if (activeRow() === row) row.inputProxy?.focus({ preventScroll: true });
     });
   });
-  mf.addEventListener('input', () => { scheduleNoteSave(); scheduleHistoryCommit(); });
+  mf.addEventListener('input', () => {
+    scheduleNoteSave();
+    // 文章ブロック（\text{}内）の編集はMathLive自身の編集として扱い、アプリの
+    // ブロック単位の取り消し履歴（Ctrl+Z）には乗せない。openText()をplaceholder挿入
+    // 無しのswitchMode('text')だけに変えた影響で、文内の打鍵も他の行内容と同じく
+    // 素の'input'イベントとして飛んでくるようになったため、ここで明示的に除外する
+    // （以前はplaceholder選択の内部経路の副作用でこの除外が偶然成立していただけで、
+    // 意図した仕組みではなかった）。
+    if (isNativeTextContext(row)) return;
+    scheduleHistoryCommit();
+  });
 
   // IME 遮断（数式ブロック）: compositionstart 経路は keydown を迂回するため個別に塞ぐ
   attachImeGuard(row);

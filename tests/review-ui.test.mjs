@@ -39,6 +39,16 @@ async function main() {
   ok('見直し結果面は初期表示で完全に隠れる', initial.dialogOpen && initial.resultHidden && initial.resultDisplay === 'none', initial);
   ok('未ログイン時はログイン導線を出す', initial.loginVisible, initial);
 
+  // openReviewDialog()はsetTimeout(0)→requestAnimationFrame経由でresetReviewDialogToTop()
+  // を呼び、#review-problemへの初期フォーカスをネイティブdialogの位置ずれ対策として
+  // 意図的に遅らせている（app.js resetReviewDialogToTop）。この完了を待たずに次の行で
+  // #review-dialog-closeへ明示focusすると、後から発火した初期focusがそれを奪い返し、
+  // 直後のTab循環チェックが本来と違う要素から始まってしまう。単体実行では他に負荷が
+  // 無くこの非同期処理がすぐ終わるため気づかず、フルスイート実行時（他テストの並行
+  // ブラウザでCPUが混み合う）だけ稀に間に合わなくなっていた（実測で再現・特定）。
+  // 固定時間の待機ではなく、初期focusが実際に完了した状態そのものを待つ。
+  await page.waitForFunction(() => document.activeElement?.id === 'review-problem');
+
   await page.focus('#review-dialog-close');
   await page.keyboard.press('Shift+Tab');
   ok('Shift+Tabは見直しモーダル内を循環する', await page.evaluate(() => document.activeElement?.id === 'review-submit'));
