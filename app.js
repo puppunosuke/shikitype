@@ -254,6 +254,11 @@ class RowState {
     // \text{}をこのアプリの「文」キーで開いた間だけ真。MathLiveのmodeやdepthは
     // focus/placeholderのタイミングで揺れるため、capture中のIME境界には使わない。
     this.nativeTextOpen = false;
+    // MathLive自身の取り消し（Ctrl+Z）がswitchMode('text')ごと巻き戻したとき、
+    // 後始末で記帳を合わせ直した直後に届く複数回の'input'（実測2回）の間、
+    // 履歴コミットを見送るための時刻（performance.now()基準、mode-change/input
+    // 両ハンドラで使う）。
+    this.suppressHistoryCommitUntil = 0;
   }
 }
 
@@ -2975,7 +2980,35 @@ function createRow(focus, latex = '', position = null, insertIndex = rows.length
     // （以前はplaceholder選択の内部経路の副作用でこの除外が偶然成立していただけで、
     // 意図した仕組みではなかった）。
     if (isNativeTextContext(row)) return;
+    // MathLive自身の取り消し（Ctrl+Z）がswitchMode('text')ごと巻き戻したときは、
+    // 直後のmode-changeハンドラで記帳をmathへ合わせ直した後（isNativeTextContext()
+    // は既にfalseを返す）、同じ取り消し操作の続きとして'input'が複数回（実測で2回）
+    // 届く。1回だけ見送るフラグだと2回目を取りこぼすため、mode-change側で記録した
+    // 時刻からの短い時間窓（同一操作の残響とみなせる程度。人が次のキーを打つ間隔
+    // より十分短い）で判定する。
+    if (row.suppressHistoryCommitUntil && performance.now() < row.suppressHistoryCommitUntil) return;
     scheduleHistoryCommit();
+  });
+  // MathLive自身の取り消し（Ctrl+Z）は、文章ブロックを開くswitchMode('text')
+  // コマンドごと巻き戻すことがある（実測: 文章ブロックを開いて1文字打っただけで
+  // Ctrl+Zを押すと、入力内容だけでなくmode自体もmathへ戻る。d911ab5でplaceholder
+  // 挿入を無くしswitchMode('text')だけにした副作用ではなく、MathLive自身の
+  // undoスタックの粒度によるもので、以前の実装でも同じ経路に到達すれば起きた
+  // はず）。この経路はcloseOneLevel()を通らないため、row.nativeTextOpen/
+  // row.stackの「文の中」という記帳だけが取り残され、breadcrumbが実状態と
+  // 食い違ったまま、以後のキー入力もnative text待ちで止まる
+  // （isNativeTextContext()がnativeTextOpenを見て真のまま固まるため）。
+  // closeOneLevel()経由の通常の閉じ方はnativeTextOpenをfalseにしてから
+  // switchModeを呼ぶので、このイベントが届く時点で既にfalseになっており
+  // 二重処理にはならない。ここは「閉じる操作を経ずに外からtextモードを
+  // 抜けた」ときだけ検知して、アプリ側の記帳を実状態へ合わせ直す。
+  mf.addEventListener('mode-change', () => {
+    if (!row.nativeTextOpen || row.mf.mode === 'text') return;
+    row.nativeTextOpen = false;
+    if (nativeTextRow === row) nativeTextRow = null;
+    if (row.stack[row.stack.length - 1]?.kind === 'text') row.stack.pop();
+    row.suppressHistoryCommitUntil = performance.now() + NATIVE_TEXT_UNDO_ECHO_MS;
+    renderBreadcrumb();
   });
 
   // IME 遮断（数式ブロック）: compositionstart 経路は keydown を迂回するため個別に塞ぐ
@@ -3034,6 +3067,10 @@ function newRowAfterActive() {
 // - canvasの視点移動（パン・ズーム）は編集ではないため、スナップショットにも履歴にも
 //   含めない（captureHistorySnapshot() は camera を持たない）。
 const UNDO_COALESCE_MS = 600;
+// MathLive自身の取り消し（Ctrl+Z）が文章ブロックのswitchMode('text')ごと巻き戻す
+// ときに届く複数回の'input'（実測2回、数ms間隔）を、新しい編集と区別するための
+// 時間窓。人が次のキーを打つ間隔よりは十分短く、実測の間隔よりは十分長い。
+const NATIVE_TEXT_UNDO_ECHO_MS = 120;
 const HISTORY_LIMIT = 200;
 let historyStack = [];
 let historyIndex = -1;
