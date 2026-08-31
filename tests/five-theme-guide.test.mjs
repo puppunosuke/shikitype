@@ -97,10 +97,11 @@ async function main() {
     space: document.querySelector('[data-special="Space"] small')?.textContent,
     enter: document.querySelector('[data-special="Enter"] small')?.textContent,
   }));
-  ok('画面Spaceは読みの区切りと表示する', labels.space === '読みの区切り', labels);
+  ok('画面Spaceは小さい空白と表示する', labels.space === '小さい空白', labels);
   ok('画面Enterは構造を進めると表示する', labels.enter === '構造を進める', labels);
   await page.click('[data-special="Space"]');
-  ok('画面Spaceは開いた構造を閉じない', await page.evaluate(() => window.__neoApp.getActiveRow().stack.length) === 1);
+  const afterScreenSpace = await page.evaluate(() => ({ latex: window.__neoApp.getActiveRow().mf.value, depth: window.__neoApp.getActiveRow().stack.length }));
+  ok('画面Spaceは開いた構造を閉じず細い数式空白を入れる', afterScreenSpace.depth === 1 && afterScreenSpace.latex.includes('\\,'), afterScreenSpace);
   await page.click('[data-special="Enter"]');
   ok('画面Enterで1段閉じる', await page.evaluate(() => window.__neoApp.getActiveRow().stack.length) === 0);
   const focused = await page.evaluate(() => {

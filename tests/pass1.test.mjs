@@ -166,10 +166,10 @@ async function main() {
   s = await rowState();
   assertEqual('nest step4: 2nd Enter closes paren (depth 1->0)', s.stackDepth, 0);
 
-  await seq(['Space']); // nothing open: no-op
+  await seq(['Space']); // nothing open: thin math space
   s = await rowState();
-  assertEqual('nest step5: 3rd space with nothing open is a no-op', s.stackDepth, 0);
-  assertEqual('nest step5: latex unchanged by no-op space', s.latex, '\\left(\\dfrac12\\right)');
+  assertEqual('nest step5: space with nothing open keeps stack closed', s.stackDepth, 0);
+  assertEqual('nest step5: space with nothing open inserts a thin space', s.latex, '\\left(\\dfrac12\\right)\\,');
 
   // ---------------------------------------------------------------
   console.log('\n== 3. Shift+Enter reopens exactly one level ==');

@@ -742,6 +742,22 @@ function backspace(row) {
  * これでEnterの「1段閉じる」は移動後も正しく効く（moveAfterParent は種類に依らないため）。
  */
 function moveCaret(row, dir) {
+  // 行モードだけは、本文の行順がそのまま読順。端まで進んだ横矢印を次/前行へ
+  // 自然につなぐ。キャンバスでは位置関係を勝手に行順へ畳まない。
+  if (layoutMode === 'rows') {
+    const atStart = row.mf.position <= 0;
+    const atEnd = row.mf.position >= row.mf.lastOffset;
+    const target = dir > 0 && atEnd ? rows[activeRowIndex + 1]
+      : dir < 0 && atStart ? rows[activeRowIndex - 1]
+        : null;
+    if (target) {
+      target.mf.position = dir > 0 ? 0 : target.mf.lastOffset;
+      reconcileStack(target);
+      claimRowFocus(target);
+      scheduleConversionCaret(target);
+      return;
+    }
+  }
   row.mf.executeCommand(dir < 0 ? 'moveToPreviousChar' : 'moveToNextChar');
   reconcileStack(row);
   scheduleConversionCaret(row);
@@ -900,6 +916,11 @@ function insertLiteral(row, latex) {
   row.mf.executeCommand(['insert', latex, { insertionMode: 'insertAfter', format: 'latex' }]);
   clearRun(row); // 演算子・区切り記号は項の連なりを断つ
   checkDepth(row);
+}
+
+function insertMathThinSpace(row) {
+  insertLiteral(row, '\\,');
+  scheduleConversionCaret(row);
 }
 
 function openText(row) {
@@ -1523,6 +1544,14 @@ function isNativeTextEntry(row) {
 const isNativeTextContext = isNativeTextEntry;
 
 const CONVERSION_CANDIDATE_DISPLAY_LIMIT = 8;
+// 変換層で英字一打を確定する場合、その物理キーに対応するギリシャ文字を
+// すぐ次に置く。辞書に現行範囲の候補があるものだけを指し、ギリシャ層そのものを
+// 変換入力へ変えるものではない。
+const SHIKITYPE_LITERAL_GREEK = Object.freeze({
+  a: 'greek-alpha', b: 'greek-beta', g: 'greek-gamma', d: 'greek-delta',
+  q: 'greek-theta', l: 'greek-lambda', m: 'greek-mu', r: 'greek-rho',
+  s: 'greek-sigma', p: 'pi', w: 'greek-omega',
+});
 
 function candidatesForActiveInputLayer(state) {
   // 変換層はカテゴリ横断の辞書を使う。以前のgeneral絞り込みはπなどgreek分類の
@@ -1543,7 +1572,7 @@ function candidatesForActiveInputLayer(state) {
       || (b.score ?? 0) - (a.score ?? 0)
       || a.label.localeCompare(b.label, 'ja'));
   // 英字一打は常に小文字そのものを第一候補にする。既定辞書のlower候補を使うため
-  // 学習履歴・手動順位・再変換の安定IDは維持される。二文字目を打てば通常検索へ戻る。
+  // 学習履歴・手動順位に使う安定IDは維持される。二文字目を打てば通常検索へ戻る。
   const literal = /^[a-z]$/i.test(state.raw)
     ? dictionary.find((candidate) => candidate.id === `latin-lower-${state.raw.toLowerCase()}`)
     : null;
@@ -1551,11 +1580,16 @@ function candidatesForActiveInputLayer(state) {
     byId.set(literal.id, { ...literal, query: state.raw.toLowerCase(), match: Number.MAX_SAFE_INTEGER, score: Number.MAX_SAFE_INTEGER, learnedCount: 0, manualPriority: Number.MAX_SAFE_INTEGER });
   }
   const literalFirst = literal ? [byId.get(literal.id)] : [];
-  const ranked = literal ? ordered.filter((candidate) => candidate.id !== literal.id) : ordered;
+  const greekId = literal ? SHIKITYPE_LITERAL_GREEK[state.raw.toLowerCase()] : null;
+  const greek = greekId ? (byId.get(greekId) ?? dictionary.find((candidate) => candidate.id === greekId)) : null;
+  // 一打目だけは「英字 → 対応ギリシャ文字」の並びを明示的に固定する。
+  // 通常検索・手動順位・学習順位は3位以下で従来どおり効き、二文字目以降では
+  // この特別扱いを解除する。
+  const ranked = literal ? ordered.filter((candidate) => candidate.id !== literal.id && candidate.id !== greek?.id) : ordered;
   // 変換トレイは記号だけを見せるため、同じ層・同じqueryで同一glyphを複数並べない。
   // 先に並べたもの（手動順位/一致/学習が強い候補）を残す。
   const seenGlyphs = new Set();
-  return [...literalFirst, ...ranked].filter((candidate) => {
+  return [...literalFirst, ...(greek ? [greek] : []), ...ranked].filter((candidate) => {
     const glyph = candidate.label;
     if (seenGlyphs.has(glyph)) return false;
     seenGlyphs.add(glyph); return true;
@@ -1738,17 +1772,7 @@ function commitConversionCandidate(row, candidateId) {
   const query = row.conversion?.searchReading ?? row.conversion?.reading ?? '';
   conversionLearning = recordCandidateSelection(conversionLearning, query, candidateId, Date.now(), activeConversionCandidates());
   saveConversionPreferences();
-  // 再変換（2.）用に確定直前の状態を覚えておく。次のBackspaceが「何も挟まず
-  // 直後」であることは、mf.value/positionが確定直後のままかで判定する
-  // （detachedFramesと同じ、値の一致で確認する既存パターン）。
-  const latexBefore = row.mf.value;
-  const positionBefore = row.mf.position;
-  const rawBefore = row.conversion?.raw ?? ''; // 見せる文字は常に物理キーどおりの英字（raw）
   insertConfirmedConversionCandidate(row, candidate);
-  row.lastConfirm = {
-    latexBefore, positionBefore, raw: rawBefore,
-    latexAfter: row.mf.value, positionAfter: row.mf.position,
-  };
   tickKeystroke();
   renderBreadcrumb();
   // 一時遷移で変換層へ来ていた場合は、候補の確定を「1入力」として戻す。
@@ -1756,31 +1780,6 @@ function commitConversionCandidate(row, candidateId) {
   closeConversion(row, { clear: true, focus: true });
   // 候補確定は独立した取り消し単位にする（直前の読み入力や直後の打鍵と混ざらない）。
   commitHistoryBoundary();
-  return true;
-}
-
-// ---------------------------------------------------------------------------
-// 再変換（2.）— 確定直後に限り、Backspaceで読みへ戻す
-// ---------------------------------------------------------------------------
-// 「直後」の範囲: mf.value/positionが確定直後のスナップショット（latexAfter/
-// positionAfter）と完全一致している間だけ有効にする。カーソル移動や他の文字入力を
-// 挟むとどちらかが変わるため、自然に対象外になる（1.のUndoと違って専用の無効化
-// フックを増やさず、既存コードのdetachedFramesと同じ「値の一致」で境界を判定する）。
-function tryReconvertLastConfirm(row) {
-  const lc = row?.lastConfirm;
-  if (!lc || row.mf.value !== lc.latexAfter || row.mf.position !== lc.positionAfter) return false;
-  row.lastConfirm = null;
-  row.mf.value = lc.latexBefore;
-  row.mf.position = lc.positionBefore;
-  reconcileStack(row);
-  checkDepth(row);
-  openConversion(row, true);
-  updateConversionReading(row.conversion, lc.raw);
-  row.conversion.navigation = false;
-  row.conversion.selectedIndex = 0;
-  renderConversionCandidates(row);
-  scheduleConversionCaret(row);
-  scheduleNoteSave();
   return true;
 }
 
@@ -3100,7 +3099,6 @@ function applyHistorySnapshot(snapshot) {
         row.id = isBlockId(block.id) ? block.id : row.id;
         if (row.mf.value !== block.latex) row.mf.value = block.latex;
         setRowWorldPosition(row, block, index);
-        row.lastConfirm = null;
       });
     } else {
       clearRowsForNote();
@@ -3261,6 +3259,14 @@ function routeShikitypeImeKey(event) {
     stopCapturedKey(event);
     return true;
   }
+  if (event.code === 'Space') {
+    // 物理Spaceは候補を確定・取消しせず、数式として細い空きを直接入れる。
+    // raw/candidatesを残すため、Tab選択→Enterの既存フローも壊さない。
+    tickKeystroke();
+    insertMathThinSpace(row);
+    stopCapturedKey(event);
+    return true;
+  }
   // 専用IMEの正は物理英字キー。OSのかな・compositionを入力源にしない。
   // `pi` は「ぴ」途中のままなのでπ候補を出さず、`pai`で初めてπになる。
   if (/^Key[A-Z]$/.test(event.code) || event.code === 'Minus') {
@@ -3400,7 +3406,7 @@ document.addEventListener('keydown', (e) => {
 
   // 選択ブロックの一括削除（Delete / Backspace）。行にフォーカスが無い状態
   // （矩形選択でブロックを選んだ直後など）だけを対象にする。行編集中の
-  // Backspace（既存の再変換・通常削除）はwithinRow側の後続処理にそのまま任せる。
+  // Backspace（通常削除）はwithinRow側の後続処理にそのまま任せる。
   // withinRowだけで判定しないのは、矩形選択の直前まで編集していた行のMathLive内部
   // sinkが、選択後もdocument.activeElementへ残る（MathLive自身が非同期に再focusする
   // ため、blur()だけでは確実に外せない。実測で確認済み）ため。selectionFocusOverrideは
@@ -3447,7 +3453,7 @@ document.addEventListener('keydown', (e) => {
 
   // 文の中は通常の文章入力を通す。ただしEnterは文を明示的に閉じるキーとして
   // ここで所有し、段落や次の数式blockを増やさない。
-  if (isShikitypeTransformLayer() && isNativeTextContext(activeRow())) {
+  if (isNativeTextContext(activeRow())) {
     if (e.code !== 'Enter') return;
     stopCapturedKey(e);
     const row = activeRow();
@@ -3499,8 +3505,8 @@ document.addEventListener('keydown', (e) => {
 
   if (e.code === 'Space') {
     tickKeystroke();
-    // Space は変換読みの区切り以外では何もしない。構造の進行は Enter に一本化して、
-    // 数式中の空白キーが「閉じる」隠し操作にならないようにする。
+    // Spaceは構造を進めず、数式上の細い空きとして直接入れる。
+    insertMathThinSpace(row);
     clearVirtualShift();
     return;
   }
@@ -3514,7 +3520,6 @@ document.addEventListener('keydown', (e) => {
 
   if (e.code === 'Backspace') {
     tickKeystroke();
-    if (tryReconvertLastConfirm(row)) { renderBreadcrumb(); return; }
     backspace(row);
     renderBreadcrumb();
     scheduleConversionCaret(row);
@@ -4197,6 +4202,9 @@ function handleVirtualSpecial(code, invokedRow = activeRow()) {
       closeOneLevel(row);
       renderBreadcrumb();
       focusProxyAfterNativeClose(row);
+    } else if (code === 'Space') {
+      // 文の画面Spaceは、物理Spaceと同じ通常の文章空白にする。
+      row.mf.executeCommand(['insert', ' ', { insertionMode: 'insertAfter', format: 'latex' }]);
     }
     flashSpecial(code);
     return;
@@ -4216,7 +4224,11 @@ function handleVirtualSpecial(code, invokedRow = activeRow()) {
         else newRowAfterActive();
       }
     }
-    else if (code === 'Space') appendConversionText(row, ' ');
+    else if (code === 'Space') {
+      // 画面Spaceも物理Spaceと同じく小さい数式空白。読みや候補の状態には触れない。
+      tickKeystroke();
+      insertMathThinSpace(row);
+    }
     flashSpecial(code);
     if (isShikitypeTransformLayer()) openConversion(row, true);
     return;
@@ -4227,7 +4239,7 @@ function handleVirtualSpecial(code, invokedRow = activeRow()) {
     cycleBaseLayer(false);
   } else if (code === 'Space') {
     tickKeystroke();
-    // 物理Spaceと同じく、通常の数式層では構造を進めない。
+    insertMathThinSpace(row);
   } else if (code === 'Enter') {
     tickKeystroke();
     if (physicalShift || virtualShift) { reopenOneLevel(row); renderBreadcrumb(); scheduleConversionCaret(row); }
@@ -4673,10 +4685,10 @@ function renderOperationsGuide() {
     ['Tab', inputSystem === 'conversion' ? conversionTabNote : (tabMethod?.note ?? 'レイヤーを切り替える、または変換候補をトグルする。')],
     ['Enter', '変換候補を確定する。開いた数式は次の欄へ進むか1段閉じる。文（\\text{}）の中では文を閉じる。'],
     ['Shift+Enter', '直前にEnterで進めた数式の欄を1段だけ開き直す。'],
-    ['Space', '変換中は読みの区切りに使う。数式の構造は進めない。'],
+    ['Space', '小さい数式空白を入れる。候補の確定・取消しや数式の構造移動はしない。'],
     ['矢印キー', '数式内でカーソルを移動する。候補一覧を出しているときは候補間を移動する。'],
     ['Escape', '記号層へ戻す。パレット（ギリシャ文字・低頻度記号）を開閉する。'],
-    ['Backspace', '通常は1文字戻す。確定した直後だけは、確定結果を読みへ戻して打ち直せる（段階2で追加）。'],
+    ['Backspace', '候補の確定後も通常の数式削除をする。変換中は読みを1文字戻す。'],
     ['Ctrl+Z / Ctrl+Shift+Z / Ctrl+Y', '取り消し / やり直し。'],
     ['Ctrl+C / Ctrl+V', '選択中のブロック（キャンバスで複数選択時はまとめて）をコピー・貼り付けする。'],
     ['キャンバス: 空白を左ドラッグ', 'カメラ（表示位置）を動かす。'],

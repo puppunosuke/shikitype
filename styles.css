@@ -917,6 +917,29 @@ body .modifier-key.is-physical {
 .side-choice button, #assign-reset, #reset-all, .assign-btn { border: 1px solid #888; border-radius: 0; background: #fff; color: #111; cursor: pointer; }
 .side-choice button { flex: 1; padding: 6px; font-size: 11px; }
 .side-choice button.active { background: #111; color: #fff; }
+/* 基本設定の二択は、aria状態だけでなく一目で現在値を判別できる必要がある。
+   選択済みを既存の方式選択と同じ濃色・段差で示し、文字色だけの差にしない。 */
+#input-system-choice .input-system-choice,
+#layout-mode-choice .layout-mode-choice { min-height: 42px; padding: 8px 9px; font-weight: 700; }
+#input-system-choice .input-system-choice[aria-pressed="true"],
+#layout-mode-choice .layout-mode-choice[aria-pressed="true"] {
+  border-color: #111;
+  background: #111;
+  color: #fff;
+  box-shadow: 4px 4px 0 #b4b0a8;
+}
+#input-system-choice .input-system-choice[aria-pressed="true"]::before,
+#layout-mode-choice .layout-mode-choice[aria-pressed="true"]::before {
+  content: '選択中';
+  display: block;
+  margin-bottom: 3px;
+  color: var(--accent);
+  font-size: 8px;
+  font-weight: 800;
+  letter-spacing: .08em;
+}
+#input-system-choice .input-system-choice:focus-visible,
+#layout-mode-choice .layout-mode-choice:focus-visible { outline: 3px solid var(--accent); outline-offset: 2px; }
 .theme-grid {
   display: grid;
   grid-template-columns: repeat(5, minmax(0, 1fr));

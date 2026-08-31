@@ -28,6 +28,15 @@ ok('変換中のcaretとASCII previewが維持される', caretAfterTyping.caret
 const opener = await page.locator('#sidebar-toggle'); await opener.click();
 const modal = await page.evaluate(() => ({ open: document.getElementById('sidebar')?.open, panels: [...document.querySelectorAll('.settings-panel')].map((panel) => [panel.id, panel.hidden]), parents: ['input-system-section','layout-mode-section','legacy-input-method-section','conversion-priority-section','conversion-dictionary-section','legacy-method-base-section'].map((id) => [id, document.getElementById(id)?.closest('.settings-panel')?.id]), caretHidden: document.querySelector('.conversion-caret')?.hidden }));
 ok('設定はnative modalで、カテゴリ所属とcaret遮蔽を保つ', modal.open && modal.caretHidden && JSON.stringify(modal.parents) === JSON.stringify([['input-system-section','settings-panel-basic'],['layout-mode-section','settings-panel-basic'],['legacy-input-method-section','settings-panel-input'],['conversion-priority-section','settings-panel-conversion'],['conversion-dictionary-section','settings-panel-conversion'],['legacy-method-base-section','settings-panel-input']]), modal);
+const basicChoiceVisual = await page.evaluate(() => {
+  const input = document.querySelector('.input-system-choice[aria-pressed="true"]');
+  const layout = document.querySelector('.layout-mode-choice[aria-pressed="true"]');
+  return [input, layout].map((button) => {
+    const style = getComputedStyle(button);
+    return { text: button.textContent, background: style.backgroundColor, color: style.color, shadow: style.boxShadow, marker: getComputedStyle(button, '::before').content };
+  });
+});
+ok('基本設定の現在値は濃色・選択中表示・段差で明確に判別できる', basicChoiceVisual.every((choice) => choice.background === 'rgb(17, 17, 17)' && choice.color === 'rgb(255, 255, 255)' && choice.shadow !== 'none' && choice.marker.includes('選択中')), basicChoiceVisual);
 await page.click('[data-settings-category="input"]');
 const conversionLayerSettings = await page.evaluate(() => ({
   latinMethodRow: !!document.getElementById('layer-method-latin'),

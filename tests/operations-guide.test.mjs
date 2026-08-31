@@ -1,6 +1,6 @@
 // 段階4-6: 設定＞キー割当に追加した「操作」一覧の検証。
 // 画面下のキーガイドは記号の割当を示すだけで足りている（拓男の指摘済み）ため、
-// ここでは Alt+ドラッグ複製・Shift+ドラッグ矩形選択・Backspace再変換など
+// ここでは Alt+ドラッグ複製・Shift+ドラッグ矩形選択・Backspaceの読み編集など
 // 画面上に手がかりの無い操作を一覧できること、Tabの説明が現在の設定
 // （入力方法・層ごとの切替方法）を実際に反映することを確認する。
 import { chromium } from '../spike/node_modules/playwright/index.mjs';
@@ -25,7 +25,7 @@ const entries = await page.evaluate(() => {
 });
 const keys = entries.map(([k]) => k).join(' / ');
 ok('Tab/Enter/矢印キー/Escapeを一覧する', ['Tab', 'Enter', '矢印キー', 'Escape'].every((k) => keys.includes(k)), keys);
-ok('Backspaceの再変換に触れる（画面上に手がかりが無い操作）', entries.some(([k, d]) => k === 'Backspace' && d.includes('読みへ戻')), entries.find(([k]) => k === 'Backspace'));
+ok('Backspaceは確定後の通常削除と変換中の読み編集を説明する', entries.some(([k, d]) => k === 'Backspace' && d.includes('通常の数式削除') && d.includes('読みを1文字戻す')), entries.find(([k]) => k === 'Backspace'));
 ok('Ctrl+Z系・Ctrl+C/Vを一覧する', keys.includes('Ctrl+Z') && keys.includes('Ctrl+C'));
 ok('Alt+ドラッグ複製を一覧する（彩葉指摘: 気づけない操作）', entries.some(([k, d]) => k.includes('Alt') && d.includes('複製')));
 ok('Shift+ドラッグ矩形選択を一覧する（彩葉指摘: 気づけない操作）', entries.some(([k, d]) => k.includes('Shift') && d.includes('矩形選択')));

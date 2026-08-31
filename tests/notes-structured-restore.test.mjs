@@ -28,10 +28,10 @@ async function main() {
   await page.keyboard.press('KeyF'); // 分子内の括弧
   await page.keyboard.press('Tab');
   await page.keyboard.press('KeyX');
-  await page.keyboard.press('Space'); // 括弧を閉じる
-  await page.keyboard.press('Space'); // 分母へ
+  await page.keyboard.press('Enter'); // 括弧を閉じる
+  await page.keyboard.press('Enter'); // 分母へ
   await page.keyboard.press('KeyY');
-  await page.keyboard.press('Space'); // 分数を閉じる
+  await page.keyboard.press('Enter'); // 分数を閉じる
   await page.waitForTimeout(520);
   const saved = await page.evaluate(() => window.__neoApp.getNotes().notes[0]);
   ok('分数と括弧を含むノートを保存する', !!saved && saved.rows[0].includes('dfrac') && saved.rows[0].includes('left'), saved);

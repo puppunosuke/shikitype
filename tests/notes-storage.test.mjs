@@ -21,7 +21,7 @@ async function main() {
   await page.click('math-field');
   await page.keyboard.press('KeyF');
   await page.keyboard.press('KeyX');
-  await page.keyboard.press('Space');
+  await page.keyboard.press('Enter'); // 括弧を閉じる
   await page.keyboard.press('Enter');
   await page.keyboard.press('KeyY');
   await page.waitForTimeout(520);

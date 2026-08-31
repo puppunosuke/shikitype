@@ -43,8 +43,8 @@ async function main() {
   await page.keyboard.press('KeyL');
   await page.keyboard.press('Tab');
   await page.keyboard.press('KeyY');
-  await page.keyboard.press('Space');
-  await page.keyboard.press('Space');
+  await page.keyboard.press('Enter');
+  await page.keyboard.press('Enter');
   await page.keyboard.press('Enter');
   await page.keyboard.press('KeyZ');
   await page.waitForTimeout(520);

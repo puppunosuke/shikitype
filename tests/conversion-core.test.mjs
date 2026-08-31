@@ -50,8 +50,13 @@ ok('nとnnはどちらもんとして候補検索できる', reading('n').search
 ok('逐次入力でもnからna/ni/nyaへ正しく伸びる', reading('na').display === 'な' && reading('ni').display === 'に' && reading('nya').display === 'にゃ', { na: reading('na'), ni: reading('ni'), nya: reading('nya') });
 ok('nnaとannaはんを重ねずに変換する', reading('nna').display === 'んな' && reading('anna').display === 'あんな', { nna: reading('nna'), anna: reading('anna') });
 ok('konnichihaはこんにちは', reading('konnichiha').display === 'こんにちは', reading('konnichiha'));
+ok('子音前のn/nnは一つの撥音として同じ読みになる', ['kansu', 'kannsu', 'kansuu', 'kannsuu'].every((raw) => reading(raw).display === (raw.endsWith('uu') ? 'かんすう' : 'かんす')), ['kansu', 'kannsu', 'kansuu', 'kannsuu'].map((raw) => [raw, reading(raw)]));
+ok('語中のn/nnは接続語でも二重撥音にならない', ['tanjento', 'tannjento', 'tannjennto'].every((raw) => reading(raw).display === 'たんじぇんと'), ['tanjento', 'tannjento', 'tannjennto'].map((raw) => [raw, reading(raw)]));
+ok('nnは母音/y境界では次の音節を残す', reading('kannai').display === 'かんない' && reading('kinnyou').display === 'きんにょう' && reading("kan'i").display === 'かんい', { kannai: reading('kannai'), kinnyou: reading('kinnyou'), apostrophe: reading("kan'i") });
 ok('kkは促音を確定して次のkを待機する', reading('kk').reading === 'っ' && reading('kk').pending === 'k', reading('kk'));
 ok('kyoは拗音になる', reading('kyo').display === 'きょ', reading('kyo'));
+ok('じょうは標準の別綴りでも同じ読みになる', ['jilyou', 'zilyou', 'jyou', 'zyou'].every((raw) => reading(raw).display === 'じょう'), ['jilyou', 'zilyou', 'jyou', 'zyou'].map((raw) => [raw, reading(raw)]));
+ok('拗音・小書きかなの別綴りを共通の読みへ寄せる', reading('sya').display === 'しゃ' && reading('tyo').display === 'ちょ' && reading('cya').display === 'ちゃ' && reading('xyo').display === 'ょ', { sya: reading('sya'), tyo: reading('tyo'), cya: reading('cya'), xyo: reading('xyo') });
 ok('カタカナ直接入力をひらがなへ寄せる', reading('シグマ').display === 'しぐま', reading('シグマ'));
 ok('漢字の直接入力はユーザー辞書互換のため読みとして保持する', reading('総和').searchReading === '総和' && reading('数列の和').searchReading === '数列の和' && reading('積分').searchReading === '積分', { total: reading('総和'), sequence: reading('数列の和'), integral: reading('積分') });
 
@@ -70,6 +75,7 @@ ok('せきぶんの既定1位は∫', first('せきぶん') === 'integral');
 ok('インテグラルの既定1位は∫', first('インテグラル') === 'integral');
 ok('integralの英字入力も∫を先頭候補にする', first(reading('integral').searchReading) === 'integral', reading('integral'));
 ok('pa-sento相当の長音なし読みも既定%候補へ正規化して届く', first(reading('pa-sento').searchReading) === 'percent', reading('pa-sento'));
+ok('jyou/zyouの累乗読みも既定候補へ届く', ['jilyou', 'zilyou', 'jyou', 'zyou'].every((raw) => first(reading(raw).searchReading) === 'power'), ['jilyou', 'zilyou', 'jyou', 'zyou'].map((raw) => [raw, reading(raw), first(reading(raw).searchReading)]));
 ok('途中のテグだけではインテグラルを予測しない', !rankConversionCandidates('てぐ').some((candidate) => candidate.id === 'integral'), rankConversionCandidates('てぐ').map((candidate) => candidate.id));
 for (const [query, expected] of [['そうわ', 'greek-sigma'], ['すうれつのわ', 'greek-sigma'], ['せきぶん', 'integral'], ['きょくげん', 'limit'], ['へいほうこん', 'sqrt'], ['かくりつ', 'probability'], ['きたいち', 'expectation']]) {
   ok(`${query} は既定候補を維持する`, first(query) === expected, rankConversionCandidates(query).map((candidate) => candidate.id));

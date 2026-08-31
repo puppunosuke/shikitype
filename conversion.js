@@ -42,6 +42,38 @@ const ROMAJI_KANA = {
   wa: 'わ', wo: 'を',
   a: 'あ', i: 'い', u: 'う', e: 'え', o: 'お',
 };
+// 日本語配列/各社IMEで一般的な別綴りも、ここでは同じ読みへ正規化する。
+// 変換辞書はひらがなを正本にしているので、綴りごとに辞書aliasを増やすのではなく
+// 専用IMEの入口を一つに寄せる。特に「じょう」は jo / jyo / zyo と、small-kana
+// の lyo / xyo を組み合わせた ji-lyo 系をすべて同じ読みへ送る。
+Object.assign(ROMAJI_KANA, {
+  // 訓令式・ヘボン式・JIS系で揺れる拗音。
+  sya: 'しゃ', syu: 'しゅ', syo: 'しょ', sye: 'しぇ',
+  zya: 'じゃ', zyu: 'じゅ', zyo: 'じょ', zye: 'じぇ',
+  jya: 'じゃ', jyu: 'じゅ', jyo: 'じょ', jye: 'じぇ',
+  tya: 'ちゃ', tyu: 'ちゅ', tyo: 'ちょ', tye: 'ちぇ',
+  cya: 'ちゃ', cyu: 'ちゅ', cyo: 'ちょ', cye: 'ちぇ',
+  chya: 'ちゃ', chyu: 'ちゅ', chyo: 'ちょ',
+  dya: 'ぢゃ', dyu: 'ぢゅ', dyo: 'ぢょ',
+  fya: 'ふゃ', fyu: 'ふゅ', fyo: 'ふょ',
+  vya: 'ゔゃ', vyu: 'ゔゅ', vyo: 'ゔょ',
+  // 拡張音（ティ・チェ等）。受験数学の辞書に無い語でも、ユーザーCSVの読みを
+  // 標準ローマ字で引けるようにしておく。
+  thi: 'てぃ', dhi: 'でぃ', thu: 'てゅ', dhu: 'でゅ',
+  twa: 'とぁ', twi: 'とぃ', twu: 'とぅ', twe: 'とぇ', two: 'とぉ',
+  dwa: 'どぁ', dwi: 'どぃ', dwu: 'どぅ', dwe: 'どぇ', dwo: 'どぉ',
+  kwa: 'くぁ', kwi: 'くぃ', kwu: 'くぅ', kwe: 'くぇ', kwo: 'くぉ',
+  gwa: 'ぐぁ', gwi: 'ぐぃ', gwu: 'ぐぅ', gwe: 'ぐぇ', gwo: 'ぐぉ',
+  wi: 'うぃ', we: 'うぇ', ye: 'いぇ',
+  // l/x 接頭辞は小書きかなを直接打つ標準入力。jilyou / zilyou のような
+  // 綴りも ji/zi + lyo + u として素直に読める。
+  la: 'ぁ', li: 'ぃ', lu: 'ぅ', le: 'ぇ', lo: 'ぉ',
+  xa: 'ぁ', xi: 'ぃ', xu: 'ぅ', xe: 'ぇ', xo: 'ぉ',
+  lya: 'ゃ', lyu: 'ゅ', lyo: 'ょ',
+  xya: 'ゃ', xyu: 'ゅ', xyo: 'ょ',
+  lwa: 'ゎ', xwa: 'ゎ', ltu: 'っ', xtu: 'っ',
+  lka: 'ヵ', lke: 'ヶ', xka: 'ヵ', xke: 'ヶ',
+});
 const ROMAJI_KEYS = Object.keys(ROMAJI_KANA).sort((a, b) => b.length - a.length);
 const ROMAJI_PREFIXES = new Set(ROMAJI_KEYS.flatMap((key) => Array.from({ length: key.length }, (_, i) => key.slice(0, i + 1))));
 
@@ -66,7 +98,12 @@ function convertRomajiRun(run) {
     // 候補検索用には convertShikitypeReading() がこの保留nを「ん」として扱う。
     if (first === 'n') {
       if (rest.startsWith('nn')) {
-        // nna / nnya / konnichiha は、最初のnだけをんへ確定して残りを次の音節へ渡す。
+        // `nn` は、後ろが子音なら二文字で一つの「ん」（kannsu, tannjento）。
+        // 後ろが母音/y/nなら、最初のnだけを「ん」にして次の na/nya 等へ渡す
+        // （nna, nnya, konnichiha）。以前は常に一文字だけ進めたため、
+        // kannsu / tannjento が「んん」になっていた。
+        const afterDoubleN = rest[2];
+        if (afterDoubleN && !/[aiueoyn]/.test(afterDoubleN)) { reading += 'ん'; index += 2; continue; }
         if (rest.length > 2) { reading += 'ん'; index += 1; continue; }
         reading += 'ん'; index += 2; continue;
       }
@@ -327,15 +364,9 @@ const HIGH_SCHOOL_EXAM_CANDIDATES = [
   // 続けて書くローマン体表記が高校教科書の書式で、物理キーの挙動とも一致する）。
   withExamScope({ id: 'sin', label: 'sin', latex: '\\sin ', aliases: ['さいん', 'sin'], categories: ['general'], basePriority: 260 }, ['math1', 'math2', 'math3']),
   withExamScope({ id: 'cos', label: 'cos', latex: '\\cos ', aliases: ['こさいん', 'cos'], categories: ['general'], basePriority: 260 }, ['math1', 'math2', 'math3']),
-  // 「たんじぇんと」は単打（tanjento）なら上のROMAJI_KANAへ追加したje/she/cheで
-  // そのまま「たんじぇんと」に変換できる（2026-08-29 拓男報告：じぇが物理キーで
-  // 打てない問題への対応）。ただし「ん」を習慣的に二重打鍵する話者（tannjento /
-  // tannjennto）は、この専用IMEの促音・撥音判定が「んに続く子音」ごとに毎回
-  // 「ん」を確定させる既存仕様（convertRomajiRunのnn分岐、tan以外の語でも
-  // 同様に発生する既存挙動）により「たんんじぇんと」「たんんじぇんんと」という
-  // 撥音が二重の読みになる。ROMAJI_KANAの共通ロジックを変えると全語への影響が
-  // 広いため、この語だけ実打鍵で確認できた二重撥音つづりをaliasとして追加する。
-  withExamScope({ id: 'tan', label: 'tan', latex: '\\tan ', aliases: ['たんじぇんと', 'たんんじぇんと', 'たんんじぇんんと', 'tan'], categories: ['general'], basePriority: 260 }, ['math1', 'math2', 'math3']),
+  // `n` / `nn` の共通ローマ字処理で、tanjento / tannjento / tannjennto を
+  // すべて同じ「たんじぇんと」に寄せる。辞書へ誤った二重撥音を積まない。
+  withExamScope({ id: 'tan', label: 'tan', latex: '\\tan ', aliases: ['たんじぇんと', 'tan'], categories: ['general'], basePriority: 260 }, ['math1', 'math2', 'math3']),
   // logだけは教科書どおり底を明示する \log_a b 形にする（lnは現行課程に無いため
   // 既定辞書へ入れない＝意図的に不採用。物理キーのKeyMは底なしの裸\log を書くが、
   // これは矛盾ではなく「素早い入力（底は後で自分で下付きを足す）」と
