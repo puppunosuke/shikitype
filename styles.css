@@ -517,6 +517,34 @@ body[data-key-capture="original"] #capture-hint { display: none; }
   cursor: grab;
 }
 #editor-sheet.canvas-mode .row.is-dragging { cursor: grabbing; }
+.canvas-image-block {
+  position: absolute;
+  box-sizing: border-box;
+  margin: 0;
+  border: 1px solid var(--line);
+  background: var(--sheet);
+  cursor: grab;
+  overflow: hidden;
+}
+.canvas-image-block[hidden] { display: none; }
+.canvas-image-block.is-dragging { cursor: grabbing; }
+.canvas-image-block img { display: block; width: 100%; height: 100%; object-fit: contain; pointer-events: none; }
+.canvas-image-delete {
+  position: absolute;
+  top: 5px;
+  right: 5px;
+  width: 34px;
+  height: 34px;
+  padding: 0;
+  border: 1px solid var(--line);
+  border-radius: 50%;
+  background: color-mix(in srgb, var(--sheet) 92%, transparent);
+  color: var(--muted);
+  font: 500 17px/1 var(--font-en);
+  cursor: pointer;
+}
+.canvas-image-delete:hover,
+.canvas-image-delete:focus-visible { border-color: var(--accent); color: var(--accent); outline: none; }
 /* 矩形選択（Shift+drag）で選ばれたblockの見た目。装飾は増やさず、accent色の
    細い枠線1本だけで「選択中」を示す（拓男は無駄な装飾を嫌うため控えめにする）。 */
 #editor-sheet.canvas-mode .row.is-selected {
@@ -928,6 +956,36 @@ body .modifier-key.is-physical {
   color: #fff;
   box-shadow: 4px 4px 0 #b4b0a8;
 }
+
+/* SHIKITYPEは専用変換IMEだけで完結するため、物理配列を写すキーガイドを常設しない。 */
+body[data-input-system="conversion"] { --guide-h: 0px; }
+body[data-input-system="conversion"] #key-guide { display: none !important; }
+body[data-input-system="conversion"] #work-surface { bottom: 0 !important; }
+body[data-input-system="conversion"] #input-system-section,
+body[data-input-system="conversion"] #settings-panel-input,
+body[data-input-system="conversion"] #settings-panel-keys,
+body[data-input-system="conversion"] #conversion-layer-method-section,
+body[data-input-system="conversion"] #legacy-method-base-section { display: none !important; }
+
+#text-entry-key {
+  position: absolute;
+  z-index: 48;
+  right: 18px;
+  bottom: 18px;
+  width: 68px;
+  min-height: 52px;
+  padding: 8px 10px;
+  border: 1px solid var(--line);
+  border-radius: 0;
+  background: color-mix(in srgb, var(--sheet) 94%, var(--accent));
+  color: var(--ink);
+  box-shadow: 3px 3px 0 color-mix(in srgb, var(--accent) 24%, transparent);
+  cursor: pointer;
+}
+#text-entry-key span { display: block; font: 700 15px/1 var(--font-jp); }
+#text-entry-key small { display: block; margin-top: 6px; color: var(--muted); font-size: 8px; white-space: nowrap; }
+#text-entry-key:hover,
+#text-entry-key:focus-visible { border-color: var(--accent); color: var(--accent); outline: none; }
 #input-system-choice .input-system-choice[aria-pressed="true"]::before,
 #layout-mode-choice .layout-mode-choice[aria-pressed="true"]::before {
   content: '選択中';

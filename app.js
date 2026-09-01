@@ -66,11 +66,9 @@ const INPUT_SYSTEMS = {
   legacy: { name: '従来方式', note: 'これまでどおり、4種類の入力方法とキーの層を使います。' },
   conversion: { name: 'SHIKITYPE変換方式', note: '変換用の層では、英字・かなを読みとして受け取り、候補を確定したときだけ式へ入れます。' },
 };
-let inputSystem = 'legacy';
-try {
-  const savedSystem = localStorage.getItem(INPUT_SYSTEM_KEY);
-  if (INPUT_SYSTEMS[savedSystem]) inputSystem = savedSystem;
-} catch { /* 保存不可でも従来方式で続行する */ }
+// 現行SHIKITYPEは専用変換IMEだけを入力面にする。従来方式の実装は既存ノートとの
+// 互換用に残すが、保存値で戻さず、利用者へ入力系統やキー割当の選択を要求しない。
+let inputSystem = 'conversion';
 let inputMethod = 'toggle';
 try {
   const savedMethod = localStorage.getItem(INPUT_METHOD_KEY);
@@ -130,9 +128,7 @@ function applyConversionDictionary(nextDictionary, { persist = true } = {}) {
 }
 function logicalLayerForMethod(layer) { return layer === 'symbol' ? 'conversion' : layer; }
 function inputMethodForLayer(layer) {
-  return inputSystem === 'conversion'
-    ? (layerInputMethods[logicalLayerForMethod(layer)] ?? inputMethod)
-    : inputMethod;
+  return inputSystem === 'conversion' ? 'toggle' : inputMethod;
 }
 function setLayerInputMethod(layer, methodId) {
   if (!INPUT_METHOD_LAYERS.includes(layer) || !INPUT_METHODS[methodId]) return;
@@ -568,6 +564,20 @@ function openIntegral(row) {
   checkDepth(row);
 }
 
+// 多スロット構造で「何も書かずに次の欄へ進む」だけなら、構造はまだ空のまま。
+// MathLiveは空の下限→上限で `\\int_{}` を `\\int_{}^{}` のように展開するため、
+// 生のLaTex比較だけでは「空のまま外へ出た構造」を見失う。空のスロット印だけを
+// 除いて比べ、実際の文字・記号が入った構造を誤って取り消さないようにする。
+function emptySlotShape(latex) {
+  return String(latex ?? '')
+    .replace(/\\placeholder\{\}/g, '')
+    .replace(/[\^_]?\{\}/g, '');
+}
+
+function frameIsStillEmpty(frame, latex) {
+  return emptySlotShape(frame?.latexAfterOpen) === emptySlotShape(latex);
+}
+
 /** Enter: 最も内側の未確定スロットを1段だけ閉じる（多スロットなら次スロットへ送るだけ） */
 function closeOneLevel(row) {
   if (row.stack.length === 0) return;
@@ -576,10 +586,14 @@ function closeOneLevel(row) {
 
   if (frame.slotIndex < frame.slots.length - 1) {
     // 多スロット構造の途中送り（分子→分母 等）。構造自体はまだ閉じない。
+    const remainedEmpty = frameIsStillEmpty(frame, row.mf.value);
     const advanceCmd = frame.advanceCommands?.[frame.slotIndex] ?? 'moveToNextPlaceholder';
     frame.slotIndex += 1;
     row.run = [];
     row.mf.executeCommand(advanceCmd);
+    // 空欄をまたいだだけなら、外へ出た後のBackspaceがこの構造を丸ごと取り消せる
+    // よう「空だった直後」の形を更新する。下限に0などを入れた場合は更新しない。
+    if (remainedEmpty) frame.latexAfterOpen = row.mf.value;
     checkDepth(row);
     return;
   }
@@ -949,13 +963,18 @@ function openText(row) {
   row.stack.push({ kind: 'text', slots: ['content'], slotIndex: 0, openPos: posBefore, latexBefore, latexAfterOpen: row.mf.value, mergeTarget: null });
   row.nativeTextOpen = true;
   nativeTextRow = row;
+  // 直前に予約されていたproxy復帰を無効化し、文だけはMathLiveの実入力sinkを
+  // 同期的に所有する。これでmacOS/Windows双方の標準IME・貼り付けが通る。
+  rowFocusClaim += 1;
+  protectedFocusRow = row;
   updateConversionCaret(row);
   checkDepth(row);
   // 文だけはMathLiveの実入力面へ戻す。通常数式ではこの面にfocusを置かないため、
   // Windows IMEが数式へcompositionを始める入口を持たない。
-  requestAnimationFrame(() => {
-    if (activeRow() === row && row.nativeTextOpen && row.mf.isConnected) row.mf.focus();
-  });
+  focusRowInput(row, true);
+  requestAnimationFrame(() => requestAnimationFrame(() => {
+    if (activeRow() === row && row.nativeTextOpen && row.mf.isConnected) focusRowInput(row, true);
+  }));
 }
 
 function insertOperator(row, symbol) {
@@ -1003,6 +1022,8 @@ let selectBoxEl = null; // 矩形選択の可視化オーバーレイ要素
 let blockDrag = null; // ブロック移動/複製ドラッグ中の状態（{pointerId, startWorld, entries}）
 let blockClipboard = null; // ブロックコピー&ペーストの内部クリップボード（OSクリップボードは使わない）
 let blockClipboardPasteCount = 0; // 同じコピー内容を連続貼り付けした回数（貼り付け位置をずらす）
+let canvasImages = []; // キャンバスへ貼り付けた画像ブロック
+let canvasImageDrag = null;
 
 function clampCanvasNumber(value, fallback, limit = CANVAS_COORDINATE_LIMIT) {
   const numeric = Number(value);
@@ -1041,13 +1062,21 @@ function normalizeNoteLayout(value, fallbackRows = []) {
   const blocks = Array.isArray(value?.blocks) ? value.blocks.slice(0, 80)
     .filter((item) => item && typeof item.latex === 'string' && item.latex.length <= 4000)
     .map((item, index) => ({ id: isBlockId(item.id) ? item.id : blockIds[index] || makeBlockId(), latex: item.latex, x: clampCanvasNumber(item.x, 24), y: clampCanvasNumber(item.y, 96 + index * 104) })) : [];
+  const images = Array.isArray(value?.images) ? value.images.slice(0, 12).filter((item) => item
+    && typeof item.src === 'string' && /^data:image\/(?:png|jpeg|webp);base64,/i.test(item.src) && item.src.length <= 180000)
+    .map((item) => ({
+      id: isBlockId(item.id) ? item.id : makeBlockId(), src: item.src,
+      x: clampCanvasNumber(item.x, 120), y: clampCanvasNumber(item.y, 120),
+      width: Math.max(80, Math.min(720, Number(item.width) || 360)),
+      height: Math.max(60, Math.min(540, Number(item.height) || 240)),
+    })) : [];
   if (value?.mode === 'canvas') {
     const safeBlocks = blocks.length ? blocks : fallbackRows.slice(0, 80).map((latex, index) => ({ id: blockIds[index], latex: String(latex || ''), x: 24, y: 96 + index * 104 }));
     const safeIds = normalizedBlockIds(safeBlocks.map((block) => block.id), fallbackRows.length);
     safeBlocks.forEach((block, index) => { block.id = safeIds[index]; });
-    return { mode: 'canvas', camera: normalizeCanvasCamera(value.camera), blocks: safeBlocks, blockIds: safeIds };
+    return { mode: 'canvas', camera: normalizeCanvasCamera(value.camera), blocks: safeBlocks, blockIds: safeIds, images };
   }
-  return { mode: 'rows', camera: normalizeCanvasCamera(null), blocks: [], blockIds };
+  return { mode: 'rows', camera: normalizeCanvasCamera(null), blocks: [], blockIds, images };
 }
 
 function rowWorldPosition(row, index = rows.indexOf(row)) {
@@ -1116,6 +1145,7 @@ function renderLayoutMode() {
     button.setAttribute('aria-pressed', String(selected));
   });
   rows.forEach((row, index) => setRowWorldPosition(row, rowWorldPosition(row, index), index));
+  canvasImages.forEach((image) => { if (image.wrap) image.wrap.hidden = !canvas; });
   applyCanvasTransform();
   requestAnimationFrame(fitCanvasRowsToViewport);
 }
@@ -1132,6 +1162,7 @@ function noteLayoutSnapshot() {
     blocks: layoutMode === 'canvas'
       ? rows.map((row, index) => ({ id: row.id, latex: String(row.mf.value || ''), ...rowWorldPosition(row, index) }))
       : [],
+    images: canvasImages.map(({ id, src, x, y, width, height }) => ({ id, src, x, y, width, height })),
   };
 }
 
@@ -1385,6 +1416,89 @@ function pasteBlockClipboard() {
   commitHistoryBoundary();
 }
 
+function removeCanvasImage(image) {
+  const index = canvasImages.indexOf(image);
+  if (index < 0) return;
+  image.wrap?.remove();
+  canvasImages.splice(index, 1);
+  scheduleNoteSave();
+  commitHistoryBoundary();
+}
+
+function createCanvasImage(item) {
+  if (!item?.src || canvasImages.length >= 12) return null;
+  const image = {
+    id: isBlockId(item.id) ? item.id : makeBlockId(), src: item.src,
+    x: clampCanvasNumber(item.x, 120), y: clampCanvasNumber(item.y, 120),
+    width: Math.max(80, Math.min(720, Number(item.width) || 360)),
+    height: Math.max(60, Math.min(540, Number(item.height) || 240)),
+  };
+  const wrap = document.createElement('figure');
+  wrap.className = 'canvas-image-block';
+  wrap.dataset.imageId = image.id;
+  wrap.style.left = `${image.x}px`; wrap.style.top = `${image.y}px`;
+  wrap.style.width = `${image.width}px`; wrap.style.height = `${image.height}px`;
+  const img = document.createElement('img');
+  img.src = image.src; img.alt = '貼り付けた画像'; img.draggable = false;
+  const remove = document.createElement('button');
+  remove.type = 'button'; remove.className = 'canvas-image-delete'; remove.textContent = '×'; remove.setAttribute('aria-label', '画像を削除');
+  remove.addEventListener('pointerdown', (event) => event.stopPropagation());
+  remove.addEventListener('click', (event) => { event.stopPropagation(); removeCanvasImage(image); });
+  wrap.append(img, remove);
+  wrap.addEventListener('pointerdown', (event) => {
+    if (layoutMode !== 'canvas' || event.button !== 0 || event.target === remove) return;
+    event.preventDefault(); event.stopPropagation();
+    canvasImageDrag = { image, pointerId: event.pointerId, start: canvasWorldPoint(canvasPoint(event)), x: image.x, y: image.y };
+    wrap.classList.add('is-dragging');
+    try { wrap.setPointerCapture?.(event.pointerId); } catch { /* synthetic pointer */ }
+  });
+  wrap.addEventListener('pointermove', (event) => {
+    if (!canvasImageDrag || canvasImageDrag.pointerId !== event.pointerId) return;
+    const point = canvasWorldPoint(canvasPoint(event));
+    image.x = clampCanvasNumber(canvasImageDrag.x + point.x - canvasImageDrag.start.x, image.x);
+    image.y = clampCanvasNumber(canvasImageDrag.y + point.y - canvasImageDrag.start.y, image.y);
+    wrap.style.left = `${image.x}px`; wrap.style.top = `${image.y}px`;
+    event.preventDefault();
+  });
+  const finish = (event) => {
+    if (!canvasImageDrag || canvasImageDrag.pointerId !== event.pointerId) return;
+    canvasImageDrag = null; wrap.classList.remove('is-dragging'); scheduleNoteSave(); commitHistoryBoundary();
+  };
+  wrap.addEventListener('pointerup', finish); wrap.addEventListener('pointercancel', finish);
+  image.wrap = wrap;
+  canvasImages.push(image);
+  blockEl.appendChild(wrap);
+  wrap.hidden = layoutMode !== 'canvas';
+  return image;
+}
+
+async function compressedClipboardImage(file) {
+  const bitmap = await createImageBitmap(file);
+  let scale = Math.min(1, 1200 / bitmap.width, 900 / bitmap.height);
+  let quality = 0.84;
+  let result = '';
+  for (let attempt = 0; attempt < 7; attempt += 1) {
+    const width = Math.max(160, Math.round(bitmap.width * scale));
+    const height = Math.max(120, Math.round(bitmap.height * scale));
+    const canvas = document.createElement('canvas'); canvas.width = width; canvas.height = height;
+    canvas.getContext('2d').drawImage(bitmap, 0, 0, width, height);
+    result = canvas.toDataURL('image/webp', quality);
+    if (result.length <= 160000) return { src: result, width: Math.min(520, width), height: Math.min(390, Math.round(height * Math.min(520, width) / width)) };
+    quality = Math.max(0.5, quality - 0.08); scale *= 0.82;
+  }
+  return null;
+}
+
+async function pasteCanvasImage(file) {
+  const encoded = await compressedClipboardImage(file);
+  if (!encoded || !canvasViewport) return false;
+  const rect = canvasViewport.getBoundingClientRect();
+  const center = canvasWorldPoint({ x: rect.width / 2, y: rect.height / 2 });
+  createCanvasImage({ ...encoded, x: center.x - encoded.width / 2, y: center.y - encoded.height / 2 });
+  scheduleNoteSave(); commitHistoryBoundary();
+  return true;
+}
+
 function updateCanvasPinch() {
   if (!canvasPinch || canvasTouches.size < 2) return;
   const [first, second] = [...canvasTouches.values()];
@@ -1413,7 +1527,7 @@ function installCanvasControls() {
   if (!canvasViewport) return;
   const capturePointer = (pointerId) => { try { canvasViewport.setPointerCapture?.(pointerId); } catch { /* synthetic/test pointerでも操作を止めない */ } };
   canvasViewport.addEventListener('pointerdown', (event) => {
-    if (layoutMode !== 'canvas' || (event.target instanceof Element && event.target.closest('.row'))) return;
+    if (layoutMode !== 'canvas' || (event.target instanceof Element && event.target.closest('.row, .canvas-image-block'))) return;
     const point = canvasPoint(event);
     // 空白のShift+左drag＝矩形選択。素のドラッグは既存どおりpan（拓男が明示要望した
     // 「左クリックドラッグで移動」を奪わないため、選択は別の組み合わせに割り当てる）。
@@ -1532,8 +1646,8 @@ window.addEventListener('resize', () => {
 let conversionOpen = false;
 let conversionPrioritySearch = '';
 
-// SHIKITYPE変換方式で専用IMEを通すのは変換層だけ。ギリシャ文字層は物理キーの
-// 割当を直接数式へ入れる。層を変えても同じ候補挙動になる問題をここで分ける。
+// 現行SHIKITYPEでは入力層を変換層へ固定し、英字・ギリシャ文字・下付き文字を
+// すべて候補から選ぶ。旧層は保存済み設定との互換用に残すだけで入力面へ出さない。
 function isShikitypeTransformLayer() {
   return inputSystem === 'conversion' && activeInputLayer() === 'symbol';
 }
@@ -1547,25 +1661,50 @@ function isNativeTextEntry(row) {
   // 自前stackはこのアプリで開いた構造の権威なので、まず文フレームを優先する。
   // stackを読むだけで変更しない。capture/bubbleの両方から呼ばれても判定が揺れない。
   if (row.nativeTextOpen || row.stack[row.stack.length - 1]?.kind === 'text' || row.mf.mode === 'text') return true;
-  try {
-    const latex = String(row.mf.getElementInfo(row.mf.position)?.latex ?? '');
-    return /^\\text\{/.test(latex);
-  } catch {
-    return row.stack[row.stack.length - 1]?.kind === 'text';
-  }
+  // getElementInfo()は文を閉じて直後にいる位置でも親の\text{}を返すことがあり、
+  // それを「まだ文内」と解釈するとSHIKITYPEへ永遠に戻れない。実際のmodeと
+  // 明示フレームだけを権威にする。保存済み文へ入り直した場合もMathLiveがmodeを
+  // textへ切り替えるため、この判定で標準IMEを再び許可できる。
+  return false;
 }
 
 const isNativeTextContext = isNativeTextEntry;
 
-const CONVERSION_CANDIDATE_DISPLAY_LIMIT = 8;
+// 「したつき」で0〜9を一度に出すため、最低10件を欠かさない幅にする。
+const CONVERSION_CANDIDATE_DISPLAY_LIMIT = 12;
 // 変換層で英字一打を確定する場合、その物理キーに対応するギリシャ文字を
 // すぐ次に置く。辞書に現行範囲の候補があるものだけを指し、ギリシャ層そのものを
 // 変換入力へ変えるものではない。
 const SHIKITYPE_LITERAL_GREEK = Object.freeze({
-  a: 'greek-alpha', b: 'greek-beta', g: 'greek-gamma', d: 'greek-delta',
-  q: 'greek-theta', l: 'greek-lambda', m: 'greek-mu', r: 'greek-rho',
-  s: 'greek-sigma', p: 'pi', w: 'greek-omega',
+  a: 'greek-alpha', b: 'greek-beta', g: 'greek-gamma', d: 'greek-delta-lower',
+  e: 'greek-epsilon-lower', z: 'greek-zeta-lower', h: 'greek-eta-lower', q: 'greek-theta',
+  i: 'greek-iota-lower', k: 'greek-kappa-lower', l: 'greek-lambda', m: 'greek-mu',
+  n: 'greek-nu-lower', x: 'greek-xi-lower', o: 'greek-omicron-lower', p: 'pi',
+  r: 'greek-rho', s: 'greek-sigma', t: 'greek-tau-lower', u: 'greek-upsilon-lower',
+  f: 'greek-phi-lower', c: 'greek-chi-lower', y: 'greek-psi-lower', w: 'greek-omega',
 });
+
+function shikitypeLiteralCandidate(raw, dictionary) {
+  if (!/^[a-z]$/i.test(raw)) return null;
+  const lower = raw.toLowerCase();
+  const uppercase = raw === raw.toUpperCase();
+  const id = uppercase ? `latin-uppercase-${lower}` : `latin-lower-${lower}`;
+  return dictionary.find((candidate) => candidate.id === id) ?? {
+    id, label: uppercase ? lower.toUpperCase() : lower, latex: uppercase ? lower.toUpperCase() : lower,
+    aliases: [], categories: ['latin'], basePriority: 0,
+  };
+}
+
+function shikitypeSubscriptCandidate(base, kind) {
+  if (!base) return null;
+  return {
+    id: `shikitype-sub-${kind}-${base.id}`,
+    label: `${base.label}ₙ`,
+    latex: `${base.latex}_{#0}`,
+    categories: ['shikitype-subscript'],
+    shikitypeSubscriptBase: base.latex,
+  };
+}
 
 function candidatesForActiveInputLayer(state) {
   // 変換層はカテゴリ横断の辞書を使う。以前のgeneral絞り込みはπなどgreek分類の
@@ -1587,23 +1726,25 @@ function candidatesForActiveInputLayer(state) {
       || a.label.localeCompare(b.label, 'ja'));
   // 英字一打は常に小文字そのものを第一候補にする。既定辞書のlower候補を使うため
   // 学習履歴・手動順位に使う安定IDは維持される。二文字目を打てば通常検索へ戻る。
-  const literal = /^[a-z]$/i.test(state.raw)
-    ? dictionary.find((candidate) => candidate.id === `latin-lower-${state.raw.toLowerCase()}`)
-    : null;
+  const literal = shikitypeLiteralCandidate(state.raw, dictionary);
   if (literal) {
     byId.set(literal.id, { ...literal, query: state.raw.toLowerCase(), match: Number.MAX_SAFE_INTEGER, score: Number.MAX_SAFE_INTEGER, learnedCount: 0, manualPriority: Number.MAX_SAFE_INTEGER });
   }
   const literalFirst = literal ? [byId.get(literal.id)] : [];
   const greekId = literal ? SHIKITYPE_LITERAL_GREEK[state.raw.toLowerCase()] : null;
-  const greek = greekId ? (byId.get(greekId) ?? dictionary.find((candidate) => candidate.id === greekId)) : null;
-  // 一打目だけは「英字 → 対応ギリシャ文字」の並びを明示的に固定する。
-  // 通常検索・手動順位・学習順位は3位以下で従来どおり効き、二文字目以降では
+  const greekAction = literal ? actionFor(`Key${state.raw.toUpperCase()}`, 'greek', false) : null;
+  const greek = greekId ? (byId.get(greekId) ?? dictionary.find((candidate) => candidate.id === greekId)
+    ?? (greekAction ? { id: `shikitype-greek-${state.raw.toLowerCase()}`, label: greekAction.label, latex: greekAction.latex, aliases: [], categories: ['greek'], basePriority: 0 } : null)) : null;
+  const latinSubscript = shikitypeSubscriptCandidate(literal, 'latin');
+  const greekSubscript = shikitypeSubscriptCandidate(greek, 'greek');
+  // 一打目だけは「英字 → 対応ギリシャ文字 → 英字の下付き → ギリシャ文字の下付き」
+  // を固定する。通常検索・手動順位・学習順位はその後で効き、二文字目以降では
   // この特別扱いを解除する。
   const ranked = literal ? ordered.filter((candidate) => candidate.id !== literal.id && candidate.id !== greek?.id) : ordered;
   // 変換トレイは記号だけを見せるため、同じ層・同じqueryで同一glyphを複数並べない。
   // 先に並べたもの（手動順位/一致/学習が強い候補）を残す。
   const seenGlyphs = new Set();
-  return [...literalFirst, ...(greek ? [greek] : []), ...ranked].filter((candidate) => {
+  return [...literalFirst, ...(greek ? [greek] : []), ...(latinSubscript ? [latinSubscript] : []), ...(greekSubscript ? [greekSubscript] : []), ...ranked].filter((candidate) => {
     const glyph = candidate.label;
     if (seenGlyphs.has(glyph)) return false;
     seenGlyphs.add(glyph); return true;
@@ -1763,6 +1904,12 @@ const BUILTIN_CONVERSION_ACTIONS = Object.freeze({
 });
 
 function insertConfirmedConversionCandidate(row, candidate) {
+  if (candidate.shikitypeSubscriptBase) {
+    insertVariable(row, candidate.shikitypeSubscriptBase);
+    openSingleSlot(row, 'sub');
+    scheduleNoteSave();
+    return;
+  }
   const action = BUILTIN_CONVERSION_ACTIONS[candidate.id];
   if (action) {
     dispatchAction(row, action);
@@ -1805,9 +1952,28 @@ function moveConversionSelection(row, delta) {
   return true;
 }
 
+function enterConversionSelection(row) {
+  const state = row?.conversion;
+  if (!state || (!state.raw && !state.navigation && !state.candidates.length)) return false;
+  if (!state.candidates.length) return true;
+  state.navigation = true;
+  state.selectedIndex = 0;
+  renderConversionCandidates(row);
+  return true;
+}
+
 function handleConversionKey(row, event) {
   const state = row?.conversion;
   if (!state || state.composing || event.isComposing || event.keyCode === 229) return false;
+  if (event.code === 'Space') {
+    // 旧Tabと同じ欠陥（選択ON→OFFの反転）を作らない。1回目は先頭候補へ入り、
+    // 2回目以降は候補を順送りする。長押しrepeatも同じ候補を高速で飛ばさない。
+    if (!state.candidates.length) return Boolean(state.raw);
+    if (event.repeat) return true;
+    if (!state.navigation) return enterConversionSelection(row);
+    moveConversionSelection(row, event.shiftKey ? -1 : 1);
+    return true;
+  }
   if (event.code === 'Tab') {
     // 候補が無い空の変換層でまでTabを奪うと、ギリシャ文字層への遷移を
     // 失う。候補が出ている間だけTabを候補選択に使い、それ以外は層切替へ渡す。
@@ -1825,6 +1991,9 @@ function handleConversionKey(row, event) {
     }
     return true;
   }
+  // 変換中の→は候補選択への入口。Spaceも同じ入口を持ち、選択開始後は
+  // どちらも次候補へ進む。再押下で未選択へ戻してしまわない。
+  if (event.code === 'ArrowRight' && state.raw && !state.navigation) return enterConversionSelection(row);
   if (state.navigation && ['ArrowLeft', 'ArrowUp', 'ArrowRight', 'ArrowDown'].includes(event.code)) {
     moveConversionSelection(row, event.code === 'ArrowLeft' || event.code === 'ArrowUp' ? -1 : 1);
     return true;
@@ -2170,14 +2339,14 @@ function readNotesStore() {
   }
 }
 
-function hasNoteContent(values = rows.map((row) => row.mf.value)) {
-  return values.some((value) => String(value || '').replace(/\\placeholder\{\}/g, '').trim().length > 0);
+function hasNoteContent(values = rows.map((row) => row.mf.value), images = canvasImages) {
+  return images.length > 0 || values.some((value) => String(value || '').replace(/\\placeholder\{\}/g, '').trim().length > 0);
 }
 
 function isStoredEmptyNote(note) {
   // notesStoreに存在するID付きノートだけを「既存」と扱う。新規の空編集面は
   // saveCurrentNoteNowがそもそもnoteを作らないため、一覧や同期を増やさない。
-  return typeof note?.id === 'string' && Array.isArray(note?.rows) && !hasNoteContent(note.rows);
+  return typeof note?.id === 'string' && Array.isArray(note?.rows) && !hasNoteContent(note.rows, note.layout?.images ?? []);
 }
 
 function shouldSyncNote(note) {
@@ -2505,6 +2674,8 @@ function clearRowsForNote() {
     shell.remove();
   });
   rows.splice(0, rows.length);
+  canvasImages = [];
+  canvasImageDrag = null;
   blockEl.replaceChildren();
   activeRowIndex = 0;
   // ノート切り替えで消えるrowへの参照を残さない（矩形選択・drag中状態・貼り付け
@@ -2531,6 +2702,7 @@ function loadNote(id, restoreFocus = true, saveCurrent = true) {
       ? note.rows.map((latex, index) => ({ id: layout.blockIds[index], latex, x: 112, y: 96 + index * 104 }))
       : [{ id: makeBlockId(), latex: '', x: 112, y: 96 }]);
   blocks.forEach((item) => createRow(false, String(item.latex || ''), item));
+  layout.images.forEach((item) => createCanvasImage(item));
   notesStore.activeId = note.id;
   if (UNIT_IDS.has(note.unitId)) {
     noteUnitScope = note.unitId;
@@ -3087,6 +3259,7 @@ function captureHistorySnapshot() {
     activeIndex: activeRowIndex,
     position: activeRow()?.mf?.position ?? 0,
     blocks: rows.map((row, index) => ({ id: row.id, latex: String(row.mf.value || ''), ...rowWorldPosition(row, index) })),
+    images: canvasImages.map(({ id, src, x, y, width, height }) => ({ id, src, x, y, width, height })),
   };
 }
 
@@ -3160,6 +3333,9 @@ function applyHistorySnapshot(snapshot) {
       clearRowsForNote();
       blocks.forEach((item) => createRow(false, String(item.latex || ''), item));
     }
+    canvasImages.forEach((image) => image.wrap?.remove());
+    canvasImages = [];
+    (snapshot.images ?? []).forEach((item) => createCanvasImage(item));
     // layoutModeは意図的に書き戻さない。表示モードの切替はカメラのpan/zoomと同じく
     // 「編集」ではないため、取り消しの対象から外す（段階2で申し送った不具合の修正）。
     // これを書き戻すと、新規ノート作成直後にキャンバスへ切り替えて編集を重ねた状態から
@@ -3253,6 +3429,8 @@ function attachImeGuard(row) {
   }, true);
 
   mf.addEventListener('paste', (e) => {
+    // 文キーで開いた文章だけはブラウザ標準の貼り付けへ渡す。
+    if (isNativeTextEntry(row)) return;
     if (!isShikitypeTransformLayer() || activeRow() !== row) return;
     const text = e.clipboardData?.getData('text/plain') ?? '';
     if (text && /^[A-Za-z\u3040-\u309f\u30a0-\u30ffー-]+$/.test(text)) appendConversionText(row, text);
@@ -3278,6 +3456,47 @@ function stopCapturedKey(event) {
   event.preventDefault();
   event.stopPropagation();
   event.stopImmediatePropagation();
+}
+
+// 数式用IMEを通していても、JIS実配列の数字・記号は通常のキーボードと同じ
+// 1打で入れる。event.keyはOS IME中にProcessへ化けることがあるため、物理codeを
+// 正としてShift面を決める。
+function shikitypeDirectKeyAction(event) {
+  const shiftedDigits = { Digit1: '!', Digit2: '"', Digit3: '#', Digit4: '$', Digit5: '%', Digit6: '&', Digit7: "'" };
+  if (/^Digit[0-9]$/.test(event.code) && !event.shiftKey) return { type: 'digit', value: event.code.slice(5) };
+  if (event.shiftKey && shiftedDigits[event.code]) return { type: 'literal', latex: shiftedDigits[event.code] };
+  if (event.code === 'Digit8' && event.shiftKey) return { type: 'open', kind: 'paren' };
+  if (event.code === 'Digit9' && event.shiftKey) return { type: 'close' };
+  if (event.code === 'Minus') return { type: 'literal', latex: event.shiftKey ? '=' : '-' };
+  if (event.code === 'Equal') return event.shiftKey ? { type: 'literal', latex: '\\sim ' } : { type: 'open', kind: 'sup' };
+  if (event.code === 'BracketLeft') return event.shiftKey ? { type: 'open', kind: 'curly' } : { type: 'literal', latex: '[' };
+  if (event.code === 'BracketRight') return event.shiftKey ? { type: 'close' } : { type: 'literal', latex: ']' };
+  if (event.code === 'Semicolon') return { type: 'literal', latex: event.shiftKey ? '+' : ';' };
+  if (event.code === 'Quote') return { type: 'literal', latex: event.shiftKey ? '*' : ':' };
+  if (event.code === 'Comma') return { type: 'literal', latex: event.shiftKey ? '<' : ',' };
+  if (event.code === 'Period') return { type: 'literal', latex: event.shiftKey ? '>' : '.' };
+  if (event.code === 'Slash') return { type: 'literal', latex: event.shiftKey ? '?' : '/' };
+  if (event.code === 'Backslash' || event.code === 'IntlYen') return { type: 'literal', latex: event.shiftKey ? '|' : '\\backslash ' };
+  if (event.code === 'IntlRo') return event.shiftKey ? { type: 'open', kind: 'sub' } : { type: 'literal', latex: '\\backslash ' };
+  if (event.code === 'Backquote') return { type: 'literal', latex: event.shiftKey ? '`' : '@' };
+  return null;
+}
+
+function handleShikitypeDirectKey(row, event) {
+  const action = shikitypeDirectKeyAction(event);
+  if (!action) return false;
+  // x+2のような連続打鍵では、記号の直前にある一文字候補を先頭候補で確定してから
+  // 記号を入れる。読みを黙って捨てず、普通の式入力と同じ流れにする。
+  const pending = row.conversion?.raw ? row.conversion.candidates[0] : null;
+  if (pending) commitConversionCandidate(row, pending.id);
+  if (action.type === 'close') closeOneLevel(row);
+  else dispatchAction(row, action);
+  tickKeystroke();
+  scheduleNoteSave();
+  renderBreadcrumb();
+  commitHistoryBoundary();
+  stopCapturedKey(event);
+  return true;
 }
 
 // SHIKITYPE変換方式の全層をdocument captureの先頭で受ける。MathLive・既存
@@ -3316,16 +3535,16 @@ function routeShikitypeImeKey(event) {
     return true;
   }
   if (event.code === 'Space') {
-    // 物理Spaceは候補を確定・取消しせず、数式として細い空きを直接入れる。
-    // raw/candidatesを残すため、Tab選択→Enterの既存フローも壊さない。
-    tickKeystroke();
-    insertMathThinSpace(row);
+    // 読み・候補が出ている間のSpaceは候補選択を始め、以後は候補送り。数式へ細い空きを
+    // 混ぜない。読みが無い通常の数式時だけ後続のSpace処理へ渡す。
+    if (!handleConversionKey(row, event)) return false;
     stopCapturedKey(event);
     return true;
   }
   // 専用IMEの正は物理英字キー。OSのかな・compositionを入力源にしない。
   // `pi` は「ぴ」途中のままなのでπ候補を出さず、`pai`で初めてπになる。
-  if (/^Key[A-Z]$/.test(event.code) || event.code === 'Minus') {
+  if (handleShikitypeDirectKey(row, event)) return true;
+  if (/^Key[A-Z]$/.test(event.code)) {
     // 長押し方式の短押しも、変換層では必ず未確定の読みへ入れる。タイマーが
     // 成立したときだけ記号層のアクションを直接実行し、文字は一切流さない。
     if (inputMethod === 'hold' && /^Key[A-Z]$/.test(event.code)) {
@@ -3333,7 +3552,7 @@ function routeShikitypeImeKey(event) {
       stopCapturedKey(event);
       return true;
     }
-    appendConversionText(row, event.code === 'Minus' ? '-' : event.code.slice(3).toLowerCase());
+    appendConversionText(row, event.shiftKey ? event.code.slice(3) : event.code.slice(3).toLowerCase());
     stopCapturedKey(event);
     return true;
   }
@@ -3395,11 +3614,10 @@ document.addEventListener('keydown', (e) => {
   }
 
   // 変換queryにfocusがあっても、accessibleモードの画面操作キーは従来どおり
-  // 優先する。専用IMEは文字・候補操作だけを所有し、F2/F4/F8/F9は奪わない。
-  if (keyCaptureMode === 'accessible' && ['F2', 'F4', 'F8', 'F9'].includes(e.code)) {
+  // 優先する。専用IMEは文字・候補操作だけを所有し、F2/F8/F9は奪わない。
+  if (keyCaptureMode === 'accessible' && ['F2', 'F8', 'F9'].includes(e.code)) {
     e.preventDefault(); e.stopPropagation(); e.stopImmediatePropagation();
     if (e.code === 'F2') toggleSidebar();
-    else if (e.code === 'F4') toggleKeyGuide();
     else applyTheme(nextThemeId(e.code === 'F9' ? 1 : -1));
     return;
   }
@@ -3630,6 +3848,17 @@ document.addEventListener('keydown', (e) => {
   consumeTemporaryLayer();
 }, true);
 
+// Ctrl+Vの画像はキャンバス中央へ独立ブロックとして置く。文の中は標準IMEと
+// ブラウザの文章貼り付けを優先し、画像貼り付けに横取りしない。
+document.addEventListener('paste', (event) => {
+  if (layoutMode !== 'canvas' || isNativeTextContext(activeRow())) return;
+  const file = [...(event.clipboardData?.items ?? [])]
+    .find((item) => item.kind === 'file' && item.type.startsWith('image/'))?.getAsFile();
+  if (!file) return;
+  event.preventDefault(); event.stopPropagation(); event.stopImmediatePropagation();
+  void pasteCanvasImage(file).catch((error) => console.warn('[shikitype] image paste failed', error));
+}, true);
+
 // ---------------------------------------------------------------------------
 // キー操作モード（accessible / original）と画面操作ショートカット
 // accessible: 数式欄フォーカス中でも F2=設定 F4=キーガイド F8/F9=テーマ切替が効く。
@@ -3666,6 +3895,13 @@ function toggleKeyGuide() {
 }
 
 document.getElementById('key-guide-toggle')?.addEventListener('click', toggleKeyGuide);
+document.getElementById('text-entry-key')?.addEventListener('pointerdown', (event) => event.preventDefault());
+document.getElementById('text-entry-key')?.addEventListener('click', () => {
+  const row = activeRow();
+  if (!row) return;
+  dispatchAction(row, { type: 'text' });
+  renderBreadcrumb();
+});
 
 function dispatchAction(row, action) {
   switch (action.type) {
@@ -4119,18 +4355,12 @@ function clearVirtualShift() {
 function cycleBaseLayer(lockLayer = false) {
   let next;
   if (inputSystem === 'conversion') {
-    // 変換方式では変換層とギリシャ文字層だけを循環する。英字層は従来方式専用。
-    const sourceLayer = activeInputLayer();
-    const sourceMethod = inputMethod;
-    next = nextConversionLayer(sourceLayer);
-    if (sourceMethod === 'hybrid' && !lockLayer) {
-      temporaryLayer = next === baseLayer ? null : next;
-      temporaryTransition = temporaryLayer ? { returnLayer: baseLayer, sourceLayer, sourceMethod } : null;
-    } else {
-      baseLayer = next;
-      temporaryLayer = null;
-      temporaryTransition = null;
-    }
+    // ギリシャ文字・大文字・下付きも変換候補から選ぶため、SHIKITYPEでは
+    // Tabを別入力層への入口にしない。
+    next = 'symbol';
+    baseLayer = 'symbol';
+    temporaryLayer = null;
+    temporaryTransition = null;
   } else if (inputMethod === 'hold') {
     // 長押し方式は短押し/長押しの入れ替え設定に関わらず、baseLayerが常に
     // 英字⇔ギリシャの状態を保持する（symbolは長押し側にのみ現れるため）。
@@ -4281,9 +4511,12 @@ function handleVirtualSpecial(code, invokedRow = activeRow()) {
       }
     }
     else if (code === 'Space') {
-      // 画面Spaceも物理Spaceと同じく小さい数式空白。読みや候補の状態には触れない。
-      tickKeystroke();
-      insertMathThinSpace(row);
+      // 画面Spaceも物理Spaceと同じ。変換中は候補選択を始め、以後は候補を送り、通常時だけ
+      // 小さい数式空白を入れる。
+      if (!handleConversionKey(row, { code, isComposing: false, keyCode: 0 })) {
+        tickKeystroke();
+        insertMathThinSpace(row);
+      }
     }
     flashSpecial(code);
     if (isShikitypeTransformLayer()) openConversion(row, true);
@@ -4530,6 +4763,7 @@ function updateInputMethodUI() {
 }
 
 function setInputMethod(methodId, persist = true, applyLayerPreset = persist) {
+  if (inputSystem === 'conversion') methodId = 'toggle';
   if (!INPUT_METHODS[methodId]) return;
   cancelPhysicalLongPress();
   if (applyLayerPreset && inputSystem === 'conversion') {
@@ -4562,7 +4796,7 @@ function setInputMethod(methodId, persist = true, applyLayerPreset = persist) {
 }
 
 function setInputSystem(systemId, persist = true) {
-  if (!INPUT_SYSTEMS[systemId]) return;
+  if (systemId !== 'conversion') return;
   cancelPhysicalLongPress();
   // 系統を跨いで読みの途中状態を持ち越さない。途中の `s` や未確定IME文字を
   // 旧キー入力へ流さないため、切替時は明示的に取り消す。
@@ -4579,18 +4813,12 @@ function setInputSystem(systemId, persist = true) {
     row.conversion.candidates = [];
     row.conversion.shell.hidden = systemId !== 'conversion';
   }
-  if (inputSystem === 'legacy') legacyInputMethod = inputMethod;
-  inputSystem = systemId;
+  inputSystem = 'conversion';
   temporaryLayer = null;
   temporaryTransition = null;
   virtualShift = false;
-  if (inputSystem === 'conversion') {
-    baseLayer = 'symbol';
-    inputMethod = inputMethodForLayer(baseLayer);
-  } else {
-    inputMethod = legacyInputMethod;
-    baseLayer = methodBaseLayer[inputMethod] ?? INPUT_METHODS[inputMethod].defaultLayer;
-  }
+  baseLayer = 'symbol';
+  inputMethod = 'toggle';
   if (persist) {
     try { localStorage.setItem(INPUT_SYSTEM_KEY, inputSystem); }
     catch (err) { console.warn('[neo-math] input system save failed', err); }
@@ -4736,12 +4964,13 @@ function renderOperationsGuide() {
   const list = document.getElementById('operations-guide-list');
   if (!list) return;
   const tabMethod = INPUT_METHODS[inputMethodForLayer(activeInputLayer())];
-  const conversionTabNote = '候補があるときは候補選択を切替。候補がないときは変換とギリシャ文字を切り替える。';
+  const conversionTabNote = '候補があるときは候補選択を始め、選択中は次の候補へ進む。';
+  const conversionSpaceNote = '変換中は1回目で候補選択を始め、以後は次の候補へ進む。読みがないときは小さい数式空白を入れる。';
   const entries = [
     ['Tab', inputSystem === 'conversion' ? conversionTabNote : (tabMethod?.note ?? 'レイヤーを切り替える、または変換候補をトグルする。')],
     ['Enter', '変換候補を確定する。開いた数式は次の欄へ進むか1段閉じる。文（\\text{}）の中では文を閉じる。'],
     ['Shift+Enter', '直前にEnterで進めた数式の欄を1段だけ開き直す。'],
-    ['Space', '小さい数式空白を入れる。候補の確定・取消しや数式の構造移動はしない。'],
+    ['Space', inputSystem === 'conversion' ? conversionSpaceNote : '小さい数式空白を入れる。候補の確定・取消しや数式の構造移動はしない。'],
     ['矢印キー', '数式内でカーソルを移動する。候補一覧を出しているときは候補間を移動する。'],
     ['Escape', '記号層へ戻す。パレット（ギリシャ文字・低頻度記号）を開閉する。'],
     ['Backspace', '候補の確定後も通常の数式削除をする。変換中は読みを1文字戻す。'],
@@ -5002,22 +5231,21 @@ function organizeSettingsPanels() {
 }
 
 function isSettingsCategoryAvailable(category) {
-  // 変換方式でない間は、変換の右paneは意図的に空になる。空画面を残さず、
-  // nav・検索・Tab順からまとめて外す。
-  return category !== 'conversion' || inputSystem === 'conversion';
+  // SHIKITYPE専用化後は入力方式・キー割当を検索や深リンクからも出さない。
+  return ['basic', 'conversion', 'appearance'].includes(category);
 }
 
 function syncSettingsCategoryAvailability() {
   const conversionNav = document.querySelector('.settings-nav-item[data-settings-category="conversion"]');
   if (conversionNav) conversionNav.hidden = !isSettingsCategoryAvailable('conversion');
-  if (!isSettingsCategoryAvailable(activeSettingsCategory)) activeSettingsCategory = 'input';
+  if (!isSettingsCategoryAvailable(activeSettingsCategory)) activeSettingsCategory = 'basic';
   if (document.getElementById('sidebar')?.open) selectSettingsCategory(activeSettingsCategory);
 }
 
 function selectSettingsCategory(category, targetId = '') {
   const content = document.getElementById('settings-content');
   if (!content) return;
-  if (!isSettingsCategoryAvailable(category)) category = 'input';
+  if (!isSettingsCategoryAvailable(category)) category = 'basic';
   // キー割当は選択先が空だと右ペインが「何をすればよいか」だけになってしまう。
   // 最初の物理キーを安全な初期選択にして、配列と詳細を同じ視野へ常に出す。
   if (category === 'keys' && configCode === null) { configCode = physicalRows.flat()[0] ?? null; renderSidebar(); }
@@ -5915,7 +6143,7 @@ function serializableNote(note) {
     rows,
     layout: layout.mode === 'canvas'
       ? layout
-      : { mode: 'rows', camera: layout.camera, blocks: [], blockIds: layout.blockIds },
+      : { mode: 'rows', camera: layout.camera, blocks: [], blockIds: layout.blockIds, images: layout.images },
     revision: Number.isSafeInteger(note.revision) ? note.revision : 0,
     // 段階4: 名前・ソフトデリートもクラウドへ送る（0005_note_title_deleted.sqlでサーバに列を追加済み）。
     // サーバ側もクライアントと同じ丸め方（sanitizeNoteTitle/sanitizeNoteDeletedAt相当）で受ける。
@@ -6595,6 +6823,7 @@ window.__neoApp = {
   getLayoutMode: () => layoutMode,
   getCanvasCamera: () => ({ ...canvasCamera }),
   getCanvasBlocks: () => noteLayoutSnapshot().blocks,
+  getCanvasImages: () => noteLayoutSnapshot().images,
   getInputMethod: () => inputMethod,
   setThemeRailCollapsed: applyThemeRailCollapsed,
   isThemeRailCollapsed: () => document.body.classList.contains('theme-rail-collapsed'),

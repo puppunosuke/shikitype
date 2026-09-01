@@ -392,6 +392,15 @@ const HIGH_SCHOOL_EXAM_CANDIDATES = [
   // 補集合（数I 集合）・余事象（数A 確率）は同じ上線記法。どちらの単元からも
   // 引けるよう両方の読みを持たせる。
   withExamScope({ id: 'complement', label: 'A̅', latex: '\\overline{#0}', aliases: ['ほしゅうごう', 'よじしょう'], categories: ['general'], basePriority: 190 }, ['math1', 'mathA']),
+  ...Array.from({ length: 10 }, (_, digit) => withExamScope({
+    id: `subscript-digit-${digit}`,
+    label: '₀₁₂₃₄₅₆₇₈₉'[digit],
+    latex: `_{${digit}}`,
+    aliases: ['したつき'],
+    categories: ['general', 'subscript'],
+    // 同じ読みでは0→9の順で安定させる。
+    basePriority: 180 - digit,
+  }, HIGH_SCHOOL_EXAM_SCOPE.units)),
   ...LETTER_CANDIDATES.map((candidate) => withExamScope(candidate, HIGH_SCHOOL_EXAM_SCOPE.units)),
   ...examGreekCandidates,
   ...examMathCandidates,

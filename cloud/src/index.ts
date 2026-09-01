@@ -26,7 +26,8 @@ type SessionRow = { user_id: string; expires_at: string };
 type NoteRow = { id: string; created_at: string; updated_at: string; unit_id: string; rows_json: string; layout_json: string; revision: number; title: string | null; deleted_at: string | null };
 type ImportRow = { fingerprint: string; response_json: string };
 type CanvasBlock = { id: string; latex: string; x: number; y: number };
-type NoteLayout = { mode: 'rows' | 'canvas'; camera: { x: number; y: number; zoom: number }; blocks: CanvasBlock[]; blockIds: string[] };
+type CanvasImage = { id: string; src: string; x: number; y: number; width: number; height: number };
+type NoteLayout = { mode: 'rows' | 'canvas'; camera: { x: number; y: number; zoom: number }; blocks: CanvasBlock[]; blockIds: string[]; images: CanvasImage[] };
 type PublicNote = { id: string; createdAt: string; updatedAt: string; unitId: string; rows: string[]; layout: NoteLayout; revision: number; title: string | null; deletedAt: string | null };
 type DictionaryEntry = { id: string; label: string; latex: string; basePriority: number; aliases: string[] };
 type DictionaryState = { version: 1; additions: Record<string, DictionaryEntry>; addedAliases: Record<string, string[]>; deletedAliases: Record<string, string[]>; deletedCandidates: string[] };
@@ -294,7 +295,7 @@ function noteDeletedAtFromUnknown(value: unknown): string | null {
 }
 
 function isEmptyNote(note: PublicNote): boolean {
-  return !note.rows.some((row) => row.replace(/\\placeholder\{\}/g, '').trim());
+  return note.layout.images.length === 0 && !note.rows.some((row) => row.replace(/\\placeholder\{\}/g, '').trim());
 }
 
 function canvasCoordinate(value: unknown, fallback: number): number {
@@ -334,7 +335,7 @@ function noteBlockIds(value: unknown, rows: string[]): string[] {
 function noteLayoutFromUnknown(value: unknown, rows: string[]): NoteLayout {
   // 行モードはrows本文だけを持つ。旧クライアントの欠落layoutも、ここでblocksへ
   // 複製しないことで大きいノートのAPI容量を不必要に二重消費しない。
-  if (value === undefined || value === null) return { mode: 'rows', camera: { x: 72, y: 54, zoom: 1 }, blocks: [], blockIds: noteBlockIds(null, rows) };
+  if (value === undefined || value === null) return { mode: 'rows', camera: { x: 72, y: 54, zoom: 1 }, blocks: [], blockIds: noteBlockIds(null, rows), images: [] };
   if (!value || typeof value !== 'object' || Array.isArray(value)) throw new ApiError(400, 'invalid_note');
   const item = value as Record<string, unknown>;
   if (item.mode !== 'rows' && item.mode !== 'canvas') throw new ApiError(400, 'invalid_note');
@@ -350,11 +351,22 @@ function noteLayoutFromUnknown(value: unknown, rows: string[]): NoteLayout {
     if (typeof block.latex !== 'string' || block.latex.length > 4000 || !isCanvasCoordinate(block.x) || !isCanvasCoordinate(block.y)) throw new ApiError(400, 'invalid_note');
     return { id: isBlockId(block.id) ? block.id : blockIds[index], latex: block.latex, x: block.x, y: block.y };
   });
+  if (item.images !== undefined && (!Array.isArray(item.images) || item.images.length > 12)) throw new ApiError(400, 'invalid_note');
+  const images: CanvasImage[] = (Array.isArray(item.images) ? item.images : []).map((raw) => {
+    if (!raw || typeof raw !== 'object' || Array.isArray(raw)) throw new ApiError(400, 'invalid_note');
+    const image = raw as Record<string, unknown>;
+    if (!isBlockId(image.id) || typeof image.src !== 'string'
+      || !/^data:image\/(?:png|jpeg|webp);base64,[a-z0-9+/=]+$/i.test(image.src) || image.src.length > 180000
+      || !isCanvasCoordinate(image.x) || !isCanvasCoordinate(image.y)
+      || typeof image.width !== 'number' || image.width < 80 || image.width > 720
+      || typeof image.height !== 'number' || image.height < 60 || image.height > 540) throw new ApiError(400, 'invalid_note');
+    return { id: image.id, src: image.src, x: image.x, y: image.y, width: image.width, height: image.height };
+  });
   if (item.mode === 'canvas' && blocks.length !== rows.length) throw new ApiError(400, 'invalid_note');
   if (!isCanvasCoordinate(camera.x) || !isCanvasCoordinate(camera.y)) throw new ApiError(400, 'invalid_note');
   const canonicalIds = noteBlockIds(blocks.length ? blocks.map((block) => block.id) : blockIds, rows);
   blocks.forEach((block, index) => { block.id = canonicalIds[index]; });
-  return { mode: item.mode, camera: { x: camera.x, y: camera.y, zoom }, blocks, blockIds: canonicalIds };
+  return { mode: item.mode, camera: { x: camera.x, y: camera.y, zoom }, blocks, blockIds: canonicalIds, images };
 }
 
 function toPublicNote(row: NoteRow): PublicNote {

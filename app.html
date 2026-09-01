@@ -48,7 +48,7 @@
           <span>打鍵 <b id="stat-keystrokes">0</b></span>
           <span>経過 <b id="stat-elapsed">0.0s</b></span>
         </div>
-        <div id="capture-hint" aria-hidden="true">F2 設定 / F4 ガイド / F8・F9 テーマ</div>
+        <div id="capture-hint" aria-hidden="true">F2 設定 / F8・F9 テーマ</div>
       </header>
 
       <div id="work-surface">
@@ -61,6 +61,8 @@
           </div>
         </main>
       </div>
+
+      <button type="button" id="text-entry-key" aria-label="文を書く"><span>文</span><small>文章を書く</small></button>
 
       <footer id="key-guide">
         <div id="key-guide-header">
@@ -105,9 +107,7 @@
         <div id="settings-search-results" role="listbox" aria-label="設定の検索結果" hidden></div>
         <div class="settings-nav-list" role="list">
           <button type="button" class="settings-nav-item" data-settings-category="basic" aria-current="page" aria-controls="settings-panel-basic">基本</button>
-          <button type="button" class="settings-nav-item" data-settings-category="input" aria-current="false" aria-controls="settings-panel-input">入力</button>
           <button type="button" class="settings-nav-item" data-settings-category="conversion" aria-current="false" aria-controls="settings-panel-conversion">変換</button>
-          <button type="button" class="settings-nav-item" data-settings-category="keys" aria-current="false" aria-controls="settings-panel-keys">キー割当</button>
           <button type="button" class="settings-nav-item" data-settings-category="appearance" aria-current="false" aria-controls="settings-panel-appearance">外観</button>
         </div>
       </nav>

@@ -124,6 +124,16 @@ describe('SHIKITYPE auth and notes', () => {
     expect((await call(`/api/notes/${unsafe.id}`, { method: 'PUT', body: JSON.stringify(unsafe) }, account.cookie)).status).toBe(400);
   });
 
+  it('round-trips pasted canvas images and counts an image-only note as content', async () => {
+    const account = await signup('canvasimage');
+    const id = `note-${crypto.randomUUID()}`;
+    const image = { id: `block-${crypto.randomUUID()}`, src: 'data:image/webp;base64,AAAA', x: 210, y: 180, width: 320, height: 240 };
+    const payload = { ...emptyCanvasNote(id), layout: { ...emptyCanvasNote(id).layout, images: [image] } };
+    expect((await call(`/api/notes/${id}`, { method: 'PUT', body: JSON.stringify(payload) }, account.cookie)).status).toBe(200);
+    const listed = await (await call('/api/notes', {}, account.cookie)).json<{ notes: Array<{ id: string; layout: { images: typeof image[] } }> }>();
+    expect(listed.notes.find((entry) => entry.id === id)?.layout.images).toEqual([image]);
+  });
+
   it('adds stable block IDs to legacy notes without using their current row index as a review target', async () => {
     const account = await signup('blockids');
     const id = `note-${crypto.randomUUID()}`;
