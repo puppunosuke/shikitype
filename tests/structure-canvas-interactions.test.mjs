@@ -123,6 +123,28 @@ const draggedCaret = await page.evaluate(() => {
 });
 ok('canvas blockのdrag後も変換caretは移動先の数式blockへ追従する', draggedCaret.visible && draggedCaret.caret.left >= draggedCaret.math.left - 2 && draggedCaret.caret.left <= draggedCaret.math.right + 2 && draggedCaret.caret.top >= draggedCaret.math.top - 4 && draggedCaret.caret.top <= draggedCaret.math.bottom + 4, draggedCaret);
 
+const draggedIsFree = await page.evaluate(() => window.__neoApp.rows[1].canvasFlow === false);
+ok('drag済みblockはcanvasFlowがfalseになり自由配置扱いになる', draggedIsFree, draggedIsFree);
+const beforeGrowPos = await page.evaluate(() => { const row = window.__neoApp.rows[1]; return { x: Number(row.wrap.dataset.canvasX), y: Number(row.wrap.dataset.canvasY) }; });
+await page.evaluate(() => {
+  const row = window.__neoApp.rows[1];
+  row.mf.value = '\\dfrac{\\dfrac{1}{2}}{\\dfrac{3}{4}}' + Array.from({ length: 40 }, () => 'x').join('');
+  row.mf.dispatchEvent(new InputEvent('input', { bubbles: true, inputType: 'insertText' }));
+});
+await page.waitForTimeout(160);
+const afterGrowPos = await page.evaluate(() => { const row = window.__neoApp.rows[1]; return { x: Number(row.wrap.dataset.canvasX), y: Number(row.wrap.dataset.canvasY) }; });
+ok('自由配置blockは内容が伸びてもx/yが動かない', afterGrowPos.x === beforeGrowPos.x && afterGrowPos.y === beforeGrowPos.y, { beforeGrowPos, afterGrowPos });
+
+console.log('\n== canvasFlow survives note save/restore ==');
+await page.evaluate(() => window.__neoApp.saveNote?.());
+await page.waitForTimeout(80);
+const beforeSave = await page.evaluate(() => window.__neoApp.rows.map((row) => ({ id: row.id, flow: row.canvasFlow === true, x: Number(row.wrap.dataset.canvasX), y: Number(row.wrap.dataset.canvasY) })));
+await page.reload({ waitUntil: 'networkidle' });
+await page.waitForTimeout(150);
+const afterReload = await page.evaluate(() => window.__neoApp.rows.map((row) => ({ id: row.id, flow: row.canvasFlow === true, x: Number(row.wrap.dataset.canvasX), y: Number(row.wrap.dataset.canvasY) })));
+ok('ノート復元後もcanvasFlowの真偽が行ごとに維持される', beforeSave.length === afterReload.length && beforeSave.every((row, i) => row.flow === afterReload[i].flow), { beforeSave, afterReload });
+ok('ノート復元後も自由配置blockの座標がそのまま復元される', beforeSave.some((row) => !row.flow) && beforeSave.filter((row) => !row.flow).every((row) => { const restored = afterReload.find((r) => r.id === row.id); return restored && restored.x === row.x && restored.y === row.y; }), { beforeSave, afterReload });
+
 console.log('\n== sidebar dismiss and modal backdrop ==');
 await page.click('#notes-toggle'); await page.click('#course-label');
 let dismiss = await page.evaluate(() => ({ hidden: document.getElementById('notes-list').hidden, expanded: document.getElementById('notes-toggle').getAttribute('aria-expanded') }));
