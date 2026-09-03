@@ -244,9 +244,14 @@ class RowState {
     this.history = [];     // Shift+Enter で1段開き直すための履歴
     this.run = [];         // 現在アクティブなレベルの「項ラン」（直前の項判定に使う）
     this.runStack = [];    // 親レベルの run を退避するスタック（stack と対応）
-    // 矢印で一時的に外へ出た、自分で開いた構造。復元LaTeX由来のunknownと区別し、
-    // 空のまま戻った構造をBackspaceで正しく取り消すためだけに短時間保持する。
+    // 自分で開いた構造のうち、まだ空のものを覚える。矢印・Enter・行移動で
+    // stackから外れても、開く直前の式へ丸ごと戻すための共通削除契約である。
+    // MathLiveの個別アトム削除には委ねないので、\left(だけ/\right)だけが残る
+    // といった片側だけの破損を作らない。
     this.detachedFrames = [];
+    // canvasで行方式から作られた自動配置ブロックだけtrue。ユーザーがdragした
+    // 自由配置ブロックはfalseにして、内容の伸縮で勝手に移動させない。
+    this.canvasFlow = false;
     // \text{}をこのアプリの「文」キーで開いた間だけ真。MathLiveのmodeやdepthは
     // focus/placeholderのタイミングで揺れるため、capture中のIME境界には使わない。
     this.nativeTextOpen = false;
@@ -570,12 +575,50 @@ function openIntegral(row) {
 // 除いて比べ、実際の文字・記号が入った構造を誤って取り消さないようにする。
 function emptySlotShape(latex) {
   return String(latex ?? '')
+    .replace(/\s+/g, '')
     .replace(/\\placeholder\{\}/g, '')
-    .replace(/[\^_]?\{\}/g, '');
+    .replace(/[\^_]?\{\}/g, '')
+    // MathLiveは空のdelimiterを、カーソル移動の経路により\right.へ一時的に
+    // 正規化することがある。これは内容ではないので空構造の比較から除く。
+    .replace(/\\(?:left|right)\./g, '');
 }
 
 function frameIsStillEmpty(frame, latex) {
-  return emptySlotShape(frame?.latexAfterOpen) === emptySlotShape(latex);
+  return frame?.latexAfterOpen !== undefined
+    && emptySlotShape(frame.latexAfterOpen) === emptySlotShape(latex);
+}
+
+function rememberDetachedEmptyStructure(row, frame) {
+  // 空でない構造は絶対にここへ入れない。Backspaceで非空の式全体を消さないための
+  // 境界で、積分・分数・括弧など種類ごとの分岐を持たない。
+  if (!row || !frame || frame.latexBefore === undefined || !frameIsStillEmpty(frame, row.mf.value)) return;
+  const same = row.detachedFrames.some((entry) => entry.kind === frame.kind
+    && entry.openPos === frame.openPos
+    && entry.latexBefore === frame.latexBefore
+    && entry.latexAfterOpen === frame.latexAfterOpen);
+  if (!same) row.detachedFrames.push({ ...frame });
+  // 連続操作の途中で無制限に残さない。実際に同時に開ける深さより十分大きく、
+  // 過去の非空フレームを削除候補として復活させない上限だけ置く。
+  if (row.detachedFrames.length > 64) row.detachedFrames.splice(0, row.detachedFrames.length - 64);
+}
+
+function restoreEmptyStructure(row, frame) {
+  if (!row || !frame || frame.latexBefore === undefined) return false;
+  const wasOpen = row.stack.includes(frame);
+  row.mf.value = frame.latexBefore;
+  row.mf.position = frame.openPos;
+  if (wasOpen) {
+    row.run = row.runStack.pop() ?? [];
+    row.stack = row.stack.filter((entry) => entry !== frame);
+  } else {
+    // Enter/矢印で既に外へ出た構造は親runへ復帰済み。対応するgroup印だけを
+    // 取り去り、さらに外側の構造のrunStackを誤ってpopしない。
+    row.run = row.run.filter((token) => !(token.kind === 'group' && token.start === frame.openPos));
+  }
+  row.detachedFrames = row.detachedFrames.filter((entry) => entry !== frame);
+  reconcileStack(row);
+  checkDepth(row);
+  return true;
 }
 
 /** Enter: 最も内側の未確定スロットを1段だけ閉じる（多スロットなら次スロットへ送るだけ） */
@@ -603,6 +646,9 @@ function closeOneLevel(row) {
   const finishedRun = row.run;
   row.run = row.runStack.pop() ?? [];
   row.mf.executeCommand('moveAfterParent');
+  // Enterで空欄を閉じてから別行へ行く経路も、矢印で外へ出る経路と同じ削除契約へ
+  // 合流させる。これで「何も打たずに閉じた∫だけ消せない」を作らない。
+  rememberDetachedEmptyStructure(row, frame);
   if (frame.kind === 'text') {
     row.nativeTextOpen = false;
     if (nativeTextRow === row) nativeTextRow = null;
@@ -650,16 +696,8 @@ function backspace(row) {
   // 新しく開いた空構造から矢印で外へ出た直後は、現在の深さが0でもその構造だけは
   // 自前で特定できる。開いた直後のLaTeXと一致する場合に限り、1回のBackspaceで
   // その構造だけを取り消す。復元済みの分数や別行には触れない。
-  const detached = row.detachedFrames[row.detachedFrames.length - 1];
-  if (!frame && detached?.latexAfterOpen === row.mf.value) {
-    row.detachedFrames.pop();
-    row.mf.value = detached.latexBefore;
-    row.mf.position = detached.openPos;
-    row.run = [];
-    reconcileStack(row);
-    checkDepth(row);
-    return;
-  }
+  const detached = [...row.detachedFrames].reverse().find((candidate) => frameIsStillEmpty(candidate, row.mf.value));
+  if (!frame && detached && restoreEmptyStructure(row, detached)) return;
 
   // 保存済みLaTexからカーソル移動で入り直した構造は、MathLiveが深さを返しても
   // 分子/分母などの種類までは返さない。空の境界でdeleteBackwardを直接渡すと、
@@ -673,6 +711,12 @@ function backspace(row) {
       reconcileStack(row);
       return;
     }
+  }
+
+  if (frame && frameIsStillEmpty(frame, row.mf.value)) {
+    // 先頭/二番目など現在のスロット位置に関係なく、構造全体が空なら一打で
+    // 開く前へ戻す。分数の分母・積分の上限・括弧内から同じ挙動になる。
+    if (restoreEmptyStructure(row, frame)) return;
   }
 
   if (frame && slotEmpty) {
@@ -692,15 +736,7 @@ function backspace(row) {
       checkDepth(row);
       return;
     }
-    // 規則3: 構造ごと取り消す。開いた時点の LaTeX を持たせてあるので厳密に戻せる
-    if (frame.latexBefore !== undefined) {
-      row.stack.pop();
-      row.run = row.runStack.pop() ?? [];
-      row.mf.value = frame.latexBefore;
-      row.mf.position = frame.openPos;
-      checkDepth(row);
-      return;
-    }
+    // 規則3は上の共通空構造契約で処理済み。ここへ来るのは非空の先頭スロットだけ。
   }
 
   // 規則1.5: **Enterで明示的に閉じた**直後の複合構造（分数・括弧・Σ・∫ など
@@ -794,7 +830,7 @@ function reconcileStack(row) {
   while (row.stack.length > mlDepth) {
     const frame = row.stack.pop();
     popped.push(frame);
-    if (frame.kind !== 'unknown' && frame.latexAfterOpen !== undefined) row.detachedFrames.push(frame);
+    if (frame.kind !== 'unknown') rememberDetachedEmptyStructure(row, frame);
     row.run = row.runStack.pop() ?? [];
   }
   // 構造の外へ出たとき、その構造を「直前の項」として復元する。
@@ -1000,6 +1036,7 @@ const CANVAS_NEW_BLOCK_INSET = 8;
 // 完全に重ならないよう1回ごとに足していく貼り付けオフセットの単位。
 const CANVAS_DUPLICATE_OFFSET = 24;
 const CANVAS_PASTE_OFFSET_STEP = 32;
+const CANVAS_FLOW_GAP = 28;
 let layoutMode = 'rows';
 let canvasCamera = { x: 72, y: 54, zoom: 1 };
 let canvasPointer = null;
@@ -1024,6 +1061,8 @@ let blockClipboard = null; // ブロックコピー&ペーストの内部クリ�
 let blockClipboardPasteCount = 0; // 同じコピー内容を連続貼り付けした回数（貼り付け位置をずらす）
 let canvasImages = []; // キャンバスへ貼り付けた画像ブロック
 let canvasImageDrag = null;
+let canvasReflowFrame = 0;
+let blockDragCaretFrame = 0;
 
 function clampCanvasNumber(value, fallback, limit = CANVAS_COORDINATE_LIMIT) {
   const numeric = Number(value);
@@ -1061,7 +1100,7 @@ function normalizeNoteLayout(value, fallbackRows = []) {
   const blockIds = normalizedBlockIds(value?.blockIds, fallbackRows.length);
   const blocks = Array.isArray(value?.blocks) ? value.blocks.slice(0, 80)
     .filter((item) => item && typeof item.latex === 'string' && item.latex.length <= 4000)
-    .map((item, index) => ({ id: isBlockId(item.id) ? item.id : blockIds[index] || makeBlockId(), latex: item.latex, x: clampCanvasNumber(item.x, 24), y: clampCanvasNumber(item.y, 96 + index * 104) })) : [];
+    .map((item, index) => ({ id: isBlockId(item.id) ? item.id : blockIds[index] || makeBlockId(), latex: item.latex, x: clampCanvasNumber(item.x, 24), y: clampCanvasNumber(item.y, 96 + index * 104), flow: item.flow === true })) : [];
   const images = Array.isArray(value?.images) ? value.images.slice(0, 12).filter((item) => item
     && typeof item.src === 'string' && /^data:image\/(?:png|jpeg|webp);base64,/i.test(item.src) && item.src.length <= 180000)
     .map((item) => ({
@@ -1071,7 +1110,7 @@ function normalizeNoteLayout(value, fallbackRows = []) {
       height: Math.max(60, Math.min(540, Number(item.height) || 240)),
     })) : [];
   if (value?.mode === 'canvas') {
-    const safeBlocks = blocks.length ? blocks : fallbackRows.slice(0, 80).map((latex, index) => ({ id: blockIds[index], latex: String(latex || ''), x: 24, y: 96 + index * 104 }));
+    const safeBlocks = blocks.length ? blocks : fallbackRows.slice(0, 80).map((latex, index) => ({ id: blockIds[index], latex: String(latex || ''), x: 24, y: 96 + index * 104, flow: true }));
     const safeIds = normalizedBlockIds(safeBlocks.map((block) => block.id), fallbackRows.length);
     safeBlocks.forEach((block, index) => { block.id = safeIds[index]; });
     return { mode: 'canvas', camera: normalizeCanvasCamera(value.camera), blocks: safeBlocks, blockIds: safeIds, images };
@@ -1110,15 +1149,47 @@ function fitCanvasRowsToViewport() {
     rows.forEach((row) => { row.wrap.style.width = ''; });
     return;
   }
-  // 世界座標とcameraを変えず、現在画面に見えている右端までをblock幅にする。
-  // 狭幅では初期/新規blockの×まで一緒に入れ、任意座標の既存blockはpanで到達する
-  // というcanvasの性質を保つ。120pxは左の行番号+数式欄+44px削除領域の最小幅。
+  // 既定幅は現在画面へ収めるが、長い数式はMathLiveの実幅へ紙面そのものを広げる。
+  // 文字だけが紙からはみ出すより、広い紙面をpanして読める方がcanvasとして自然。
   rows.forEach((row, index) => {
     const position = rowWorldPosition(row, index);
     const screenLeft = canvasCamera.x + position.x * canvasCamera.zoom;
     const available = (width - 10 - screenLeft) / canvasCamera.zoom;
-    const fitted = Math.max(120, Math.min(580, available));
+    const baseline = Math.max(120, Math.min(580, available));
+    const contentWidth = Math.max(0, row.mf?.scrollWidth || 0);
+    // 長式を任意の幅で切らず、数式の実幅+左右の操作余白まで紙面を広げる。
+    // 座標の上限は位置だけに適用し、紙の横幅へ流用しない。
+    const required = Math.max(120, contentWidth + 92);
+    const fitted = Math.max(baseline, required);
     row.wrap.style.width = `${fitted}px`;
+  });
+}
+
+function canvasRowWorldHeight(row) {
+  return Math.max(82, Number(row?.wrap?.offsetHeight) || 82);
+}
+
+function reflowCanvasRows() {
+  if (layoutMode !== 'canvas') return;
+  const flowRows = rows.filter((row) => row.canvasFlow);
+  if (!flowRows.length) return;
+  let y = rowWorldPosition(flowRows[0], rows.indexOf(flowRows[0])).y;
+  for (const row of flowRows) {
+    const position = rowWorldPosition(row, rows.indexOf(row));
+    setRowWorldPosition(row, { x: position.x, y });
+    y += canvasRowWorldHeight(row) + CANVAS_FLOW_GAP;
+  }
+}
+
+function scheduleCanvasReflow() {
+  if (canvasReflowFrame) return;
+  canvasReflowFrame = requestAnimationFrame(() => {
+    canvasReflowFrame = 0;
+    if (layoutMode !== 'canvas') return;
+    fitCanvasRowsToViewport();
+    reflowCanvasRows();
+    fitCanvasRowsToViewport();
+    scheduleConversionCaret(activeRow());
   });
 }
 
@@ -1147,7 +1218,7 @@ function renderLayoutMode() {
   rows.forEach((row, index) => setRowWorldPosition(row, rowWorldPosition(row, index), index));
   canvasImages.forEach((image) => { if (image.wrap) image.wrap.hidden = !canvas; });
   applyCanvasTransform();
-  requestAnimationFrame(fitCanvasRowsToViewport);
+  scheduleCanvasReflow();
 }
 
 function noteLayoutSnapshot() {
@@ -1160,7 +1231,7 @@ function noteLayoutSnapshot() {
     // 行モードはrowsが唯一の本文。ここへ同じLaTeXを重ねて保存すると、大きな既存
     // ノートが容量上限を二重に消費する。配置が必要なキャンバスだけを完全保存する。
     blocks: layoutMode === 'canvas'
-      ? rows.map((row, index) => ({ id: row.id, latex: String(row.mf.value || ''), ...rowWorldPosition(row, index) }))
+      ? rows.map((row, index) => ({ id: row.id, latex: String(row.mf.value || ''), ...rowWorldPosition(row, index), flow: row.canvasFlow === true }))
       : [],
     images: canvasImages.map(({ id, src, x, y, width, height }) => ({ id, src, x, y, width, height })),
   };
@@ -1168,7 +1239,12 @@ function noteLayoutSnapshot() {
 
 function setLayoutMode(nextMode, persist = true) {
   if (nextMode !== 'rows' && nextMode !== 'canvas') return false;
-  if (nextMode === 'canvas') rows.forEach((row, index) => setRowWorldPosition(row, rowWorldPosition(row, index), index));
+  if (nextMode === 'canvas') rows.forEach((row, index) => {
+    // 行モードから並び替えずに持ち込んだブロックは、自動配置として高さに追従させる。
+    // 既存canvasの自由配置をcanvas→canvasで勝手にflow化しない。
+    if (layoutMode !== 'canvas') row.canvasFlow = true;
+    setRowWorldPosition(row, rowWorldPosition(row, index), index);
+  });
   layoutMode = nextMode;
   renderLayoutMode();
   if (persist) scheduleNoteSave();
@@ -1222,7 +1298,9 @@ function scheduleCanvasSave() {
 }
 
 function createCanvasRowAt(worldPoint) {
-  const row = createRow(false, '', worldPoint);
+  // 空白をクリックして置いたblockは利用者の自由配置。後続の式の高さが変わっても
+  // この座標をreflowで動かさない。
+  const row = createRow(false, '', { ...worldPoint, flow: false });
   clampNewCanvasRowToViewport(row, worldPoint);
   // pointerup後やMathLive mount後の既定focusが空白面・旧blockへ戻しても、
   // 入力先は新ブロックのままにする。
@@ -1315,8 +1393,8 @@ function deleteSelectedRows() {
 
 function duplicateRowNear(row) {
   const pos = rowWorldPosition(row);
-  const copy = createRow(false, String(row.mf.value || ''), { x: pos.x + CANVAS_DUPLICATE_OFFSET, y: pos.y + CANVAS_DUPLICATE_OFFSET });
-  fitCanvasRowsToViewport();
+  const copy = createRow(false, String(row.mf.value || ''), { x: pos.x + CANVAS_DUPLICATE_OFFSET, y: pos.y + CANVAS_DUPLICATE_OFFSET, flow: false });
+  scheduleCanvasReflow();
   return copy;
 }
 
@@ -1325,7 +1403,11 @@ function onBlockDragMove(event) {
   const world = canvasWorldPoint(canvasPoint(event));
   const dx = world.x - blockDrag.startWorld.x;
   const dy = world.y - blockDrag.startWorld.y;
-  blockDrag.entries.forEach(({ row, start }) => setRowWorldPosition(row, { x: start.x + dx, y: start.y + dy }));
+  blockDrag.entries.forEach(({ row, start }) => {
+    row.canvasFlow = false;
+    setRowWorldPosition(row, { x: start.x + dx, y: start.y + dy });
+  });
+  scheduleConversionCaret(activeRow());
   event.preventDefault();
 }
 
@@ -1337,7 +1419,9 @@ function endBlockDrag(event) {
   canvasViewport?.classList.remove('is-block-dragging');
   blockDrag?.entries.forEach(({ row }) => row.wrap?.classList.remove('is-dragging'));
   blockDrag = null;
-  fitCanvasRowsToViewport();
+  if (blockDragCaretFrame) cancelAnimationFrame(blockDragCaretFrame);
+  blockDragCaretFrame = 0;
+  scheduleCanvasReflow();
   scheduleNoteSave();
   // ブロック移動の確定はここで1つの取り消し単位にする（段階1の設計どおり、
   // pointerupで一度だけcommitHistoryBoundary()を呼ぶ）。
@@ -1433,6 +1517,13 @@ function createCanvasImage(item) {
     width: Math.max(80, Math.min(720, Number(item.width) || 360)),
     height: Math.max(60, Math.min(540, Number(item.height) || 240)),
   };
+  const followDragCaret = () => {
+    if (!blockDrag) return;
+    scheduleConversionCaret(activeRow());
+    blockDragCaretFrame = requestAnimationFrame(followDragCaret);
+  };
+  if (blockDragCaretFrame) cancelAnimationFrame(blockDragCaretFrame);
+  blockDragCaretFrame = requestAnimationFrame(followDragCaret);
   const wrap = document.createElement('figure');
   wrap.className = 'canvas-image-block';
   wrap.dataset.imageId = image.id;
@@ -1633,7 +1724,7 @@ function installCanvasControls() {
 
 window.addEventListener('resize', () => {
   requestAnimationFrame(() => {
-    if (layoutMode === 'canvas') fitCanvasRowsToViewport();
+    if (layoutMode === 'canvas') scheduleCanvasReflow();
     scheduleConversionCaret(activeRow());
   });
 });
@@ -1670,8 +1761,7 @@ function isNativeTextEntry(row) {
 
 const isNativeTextContext = isNativeTextEntry;
 
-// 「したつき」で0〜9を一度に出すため、最低10件を欠かさない幅にする。
-const CONVERSION_CANDIDATE_DISPLAY_LIMIT = 12;
+const CONVERSION_CANDIDATE_DISPLAY_LIMIT = 8;
 // 変換層で英字一打を確定する場合、その物理キーに対応するギリシャ文字を
 // すぐ次に置く。辞書に現行範囲の候補があるものだけを指し、ギリシャ層そのものを
 // 変換入力へ変えるものではない。
@@ -1684,10 +1774,9 @@ const SHIKITYPE_LITERAL_GREEK = Object.freeze({
   f: 'greek-phi-lower', c: 'greek-chi-lower', y: 'greek-psi-lower', w: 'greek-omega',
 });
 
-function shikitypeLiteralCandidate(raw, dictionary) {
+function shikitypeLiteralCandidate(raw, dictionary, uppercase = raw === raw.toUpperCase()) {
   if (!/^[a-z]$/i.test(raw)) return null;
   const lower = raw.toLowerCase();
-  const uppercase = raw === raw.toUpperCase();
   const id = uppercase ? `latin-uppercase-${lower}` : `latin-lower-${lower}`;
   return dictionary.find((candidate) => candidate.id === id) ?? {
     id, label: uppercase ? lower.toUpperCase() : lower, latex: uppercase ? lower.toUpperCase() : lower,
@@ -1695,18 +1784,7 @@ function shikitypeLiteralCandidate(raw, dictionary) {
   };
 }
 
-function shikitypeSubscriptCandidate(base, kind) {
-  if (!base) return null;
-  return {
-    id: `shikitype-sub-${kind}-${base.id}`,
-    label: `${base.label}ₙ`,
-    latex: `${base.latex}_{#0}`,
-    categories: ['shikitype-subscript'],
-    shikitypeSubscriptBase: base.latex,
-  };
-}
-
-function candidatesForActiveInputLayer(state) {
+function candidatesForActiveInputLayer(state, row = activeRow()) {
   // 変換層はカテゴリ横断の辞書を使う。以前のgeneral絞り込みはπなどgreek分類の
   // 既定候補と、分類を持つCSV候補を落としていたため廃止する。
   const dictionary = activeConversionCandidates();
@@ -1724,27 +1802,29 @@ function candidatesForActiveInputLayer(state) {
     .sort((a, b) => (b.manualPriority ?? 0) - (a.manualPriority ?? 0)
       || (b.score ?? 0) - (a.score ?? 0)
       || a.label.localeCompare(b.label, 'ja'));
-  // 英字一打は常に小文字そのものを第一候補にする。既定辞書のlower候補を使うため
-  // 学習履歴・手動順位に使う安定IDは維持される。二文字目を打てば通常検索へ戻る。
-  const literal = shikitypeLiteralCandidate(state.raw, dictionary);
-  if (literal) {
-    byId.set(literal.id, { ...literal, query: state.raw.toLowerCase(), match: Number.MAX_SAFE_INTEGER, score: Number.MAX_SAFE_INTEGER, learnedCount: 0, manualPriority: Number.MAX_SAFE_INTEGER });
+  // 英字一打は、通常は「小文字 → 大文字 → 対応ギリシャ文字」を固定する。
+  // Shiftを押した場合だけ、打鍵面と同じ大文字を先頭にし、小文字、ギリシャの順に
+  // する。二文字目以降は読み変換の通常順位へ戻る。
+  const isSingleLetter = /^[a-z]$/i.test(state.raw);
+  const typedUppercase = isSingleLetter && state.raw === state.raw.toUpperCase();
+  const lowerLiteral = isSingleLetter ? shikitypeLiteralCandidate(state.raw, dictionary, false) : null;
+  const upperLiteral = isSingleLetter ? shikitypeLiteralCandidate(state.raw, dictionary, true) : null;
+  for (const literal of [lowerLiteral, upperLiteral]) {
+    if (literal) byId.set(literal.id, { ...literal, query: state.raw.toLowerCase(), match: Number.MAX_SAFE_INTEGER, score: Number.MAX_SAFE_INTEGER, learnedCount: 0, manualPriority: Number.MAX_SAFE_INTEGER });
   }
-  const literalFirst = literal ? [byId.get(literal.id)] : [];
-  const greekId = literal ? SHIKITYPE_LITERAL_GREEK[state.raw.toLowerCase()] : null;
-  const greekAction = literal ? actionFor(`Key${state.raw.toUpperCase()}`, 'greek', false) : null;
+  const latinOrder = isSingleLetter
+    ? (typedUppercase ? [upperLiteral, lowerLiteral] : [lowerLiteral, upperLiteral]).filter(Boolean).map((candidate) => byId.get(candidate.id))
+    : [];
+  const greekId = isSingleLetter ? SHIKITYPE_LITERAL_GREEK[state.raw.toLowerCase()] : null;
+  const greekAction = isSingleLetter ? actionFor(`Key${state.raw.toUpperCase()}`, 'greek', false) : null;
   const greek = greekId ? (byId.get(greekId) ?? dictionary.find((candidate) => candidate.id === greekId)
     ?? (greekAction ? { id: `shikitype-greek-${state.raw.toLowerCase()}`, label: greekAction.label, latex: greekAction.latex, aliases: [], categories: ['greek'], basePriority: 0 } : null)) : null;
-  const latinSubscript = shikitypeSubscriptCandidate(literal, 'latin');
-  const greekSubscript = shikitypeSubscriptCandidate(greek, 'greek');
-  // 一打目だけは「英字 → 対応ギリシャ文字 → 英字の下付き → ギリシャ文字の下付き」
-  // を固定する。通常検索・手動順位・学習順位はその後で効き、二文字目以降では
-  // この特別扱いを解除する。
-  const ranked = literal ? ordered.filter((candidate) => candidate.id !== literal.id && candidate.id !== greek?.id) : ordered;
+  const ranked = isSingleLetter ? ordered.filter((candidate) => candidate.id !== lowerLiteral?.id && candidate.id !== upperLiteral?.id && candidate.id !== greek?.id) : ordered;
   // 変換トレイは記号だけを見せるため、同じ層・同じqueryで同一glyphを複数並べない。
   // 先に並べたもの（手動順位/一致/学習が強い候補）を残す。
   const seenGlyphs = new Set();
-  return [...literalFirst, ...(greek ? [greek] : []), ...(latinSubscript ? [latinSubscript] : []), ...(greekSubscript ? [greekSubscript] : []), ...ranked].filter((candidate) => {
+  return [...latinOrder, ...(greek ? [greek] : []), ...ranked].filter((candidate) => {
+    if (candidate.id === 'subscript' && !lastTerm(row)) return false;
     const glyph = candidate.label;
     if (seenGlyphs.has(glyph)) return false;
     seenGlyphs.add(glyph); return true;
@@ -1780,7 +1860,7 @@ function renderConversionCandidates(row) {
   const state = row.conversion;
   if (!state) return;
   const query = state.searchReading ?? state.reading ?? '';
-  state.candidates = candidatesForActiveInputLayer(state);
+  state.candidates = candidatesForActiveInputLayer(state, row);
   state.selectedIndex = Math.max(0, Math.min(state.selectedIndex, Math.max(0, state.candidates.length - 1)));
   state.list.innerHTML = '';
   state.list.setAttribute('aria-activedescendant', state.navigation && state.candidates.length
@@ -1893,6 +1973,7 @@ const BUILTIN_CONVERSION_ACTIONS = Object.freeze({
   // ACTIONS）と同じ理由・同じ afrac アクションへ寄せる。
   fraction: { type: 'afrac' },
   power: { type: 'open', kind: 'sup' },
+  subscript: { type: 'open', kind: 'sub' },
   'power-n': { type: 'power-prefill', value: 'n' },
   'power-x': { type: 'power-prefill', value: 'x' },
   sqrt: { type: 'open', kind: 'sqrt' },
@@ -1904,12 +1985,6 @@ const BUILTIN_CONVERSION_ACTIONS = Object.freeze({
 });
 
 function insertConfirmedConversionCandidate(row, candidate) {
-  if (candidate.shikitypeSubscriptBase) {
-    insertVariable(row, candidate.shikitypeSubscriptBase);
-    openSingleSlot(row, 'sub');
-    scheduleNoteSave();
-    return;
-  }
   const action = BUILTIN_CONVERSION_ACTIONS[candidate.id];
   if (action) {
     dispatchAction(row, action);
@@ -2665,6 +2740,7 @@ function clearRowsForNote() {
       state.shell.remove();
     }
     row.caret?.remove();
+    row.resizeObserver?.disconnect();
   });
   // 既にrowとの紐付けが外れたportalも残さない。新しいrowはこの後に作るため、
   // ここでstage直下の旧trayを全て片付けても新ノートの表示を巻き込まない。
@@ -2979,6 +3055,7 @@ function removeEmptyRow(row, { requireEmpty = true, skipHistory = false } = {}) 
   if (sink instanceof HTMLElement) sink.blur();
   if (row.mf.isConnected) row.mf.blur();
   row.caret?.remove();
+  row.resizeObserver?.disconnect();
   // 候補トレイはclip回避のためapp-stage直下へportalしている。row本体だけを
   // 消すとhiddenな候補DOMが残るため、block削除時は同時に明示破棄する。
   row.conversion?.shell?.remove();
@@ -2991,6 +3068,9 @@ function removeEmptyRow(row, { requireEmpty = true, skipHistory = false } = {}) 
     const next = rows[nextIndex];
     claimRowFocus(next);
   }
+  // 自動配置のキャンバス行は、削除後も実寸ベースの列として詰め直す。
+  // ドラッグ済み（flow=false）の行は reflow 対象外なので、この呼び出しで動かない。
+  if (layoutMode === 'canvas') scheduleCanvasReflow();
   renderBreadcrumb();
   // skipHistory: 選択ブロックの一括削除(deleteSelectedRows)からは行ごとに呼ばれるため、
   // 呼び出し側で1回だけscheduleNoteSave()+commitHistoryBoundary()する（1操作=1取り消し単位）。
@@ -3015,6 +3095,7 @@ function createRow(focus, latex = '', position = null, insertIndex = rows.length
 
   const row = new RowState(mf, position?.id);
   row.wrap = wrap;
+  row.canvasFlow = position?.flow === true;
   // 外部からの明示的なmath-field.focus()（テスト/APIを含む）は、新しい入力先の
   // 指定として扱う。一方、MathLiveがshadow sinkへ戻す内部focusはここを通らない。
   const nativeMathFieldFocus = mf.focus.bind(mf);
@@ -3048,6 +3129,12 @@ function createRow(focus, latex = '', position = null, insertIndex = rows.length
   rows.splice(safeIndex, 0, row);
   setRowWorldPosition(row, position, safeIndex);
   createConversionPanel(row, wrap);
+  if (typeof ResizeObserver === 'function') {
+    row.resizeObserver = new ResizeObserver(() => {
+      if (layoutMode === 'canvas' && row.canvasFlow) scheduleCanvasReflow();
+    });
+    row.resizeObserver.observe(wrap);
+  }
 
   const remove = document.createElement('button');
   remove.type = 'button';
@@ -3145,6 +3232,7 @@ function createRow(focus, latex = '', position = null, insertIndex = rows.length
   });
   mf.addEventListener('input', () => {
     scheduleNoteSave();
+    if (layoutMode === 'canvas' && row.canvasFlow) scheduleCanvasReflow();
     // 文章ブロック（\text{}内）の編集はMathLive自身の編集として扱い、アプリの
     // ブロック単位の取り消し履歴（Ctrl+Z）には乗せない。openText()をplaceholder挿入
     // 無しのswitchMode('text')だけに変えた影響で、文内の打鍵も他の行内容と同じく
@@ -3206,14 +3294,16 @@ function newRowAfterActive() {
     while (cur.stack.length > 0 && guard++ < 64) closeOneLevel(cur);
   }
   const position = layoutMode === 'canvas' && cur
-    ? { x: rowWorldPosition(cur).x, y: rowWorldPosition(cur).y + 104 }
+    ? { x: rowWorldPosition(cur).x, y: rowWorldPosition(cur).y + canvasRowWorldHeight(cur) + CANVAS_FLOW_GAP, flow: cur.canvasFlow === true }
     : null;
-  const insertIndex = layoutMode === 'rows' && cur ? activeRowIndex + 1 : rows.length;
+  // canvasもrowsと同じ本文順を持つ。二行目でEnterなら新しい行は必ず三行目へ
+  // 挿入し、旧三/四行目は後ろへずらす。末尾追加にすると番号と読み順が壊れる。
+  const insertIndex = cur ? activeRowIndex + 1 : rows.length;
   const row = createRow(false, '', position, insertIndex);
   // activeRowIndex は focusin で更新されるが、focus() は rAF 越しで遅れる。
   // その間に打鍵が来ると前の行へ入ってしまうので、ここで同期的に切り替えておく。
   claimRowFocus(row);
-  if (layoutMode === 'canvas') fitCanvasRowsToViewport();
+  if (layoutMode === 'canvas') scheduleCanvasReflow();
   commitHistoryBoundary();
   return row;
 }
@@ -3458,6 +3548,40 @@ function stopCapturedKey(event) {
   event.stopImmediatePropagation();
 }
 
+// sidebar起点の一覧/メニューは、操作面以外を押したら必ず畳む。各メニューへ
+// 個別にblur処理を足すと、検索欄・ゴミ箱・書き出し項目で閉じ方が揺れるため、
+// composedPath()だけを使う共通dismissにする。
+function dismissSidebarPopovers(event) {
+  const path = event.composedPath?.() ?? [];
+  const contains = (id) => {
+    const element = document.getElementById(id);
+    return !!element && (path.includes(element) || event.target === element || element.contains(event.target));
+  };
+  if (!contains('notes-list') && !contains('notes-toggle')) toggleNotesList(false);
+  if (!contains('export-note-menu') && !contains('export-note-toggle')) toggleExportMenu(false);
+}
+
+function installDialogBackdropDismiss() {
+  const entries = [
+    ['sidebar', () => toggleSidebar(false)],
+    ['new-note-dialog', () => closeNewNoteDialog()],
+    ['guide-unit-dialog', () => closeGuideUnitDialog()],
+    ['review-dialog', () => document.getElementById('review-dialog')?.close()],
+    ['account-dialog', () => {
+      // ログイン送信中だけは、既存の送信状態を壊さず完了/失敗表示を待つ。
+      if (!accountSubmitting) document.getElementById('account-dialog')?.close();
+    }],
+  ];
+  for (const [id, close] of entries) {
+    const dialog = document.getElementById(id);
+    dialog?.addEventListener('click', (event) => {
+      // dialog要素自身がtargetになるのはbackdropだけ。中のフォーム/一覧クリックは
+      // そのまま通すので、入力中に意図せず閉じない。
+      if (event.target === dialog) close();
+    });
+  }
+}
+
 // 数式用IMEを通していても、JIS実配列の数字・記号は通常のキーボードと同じ
 // 1打で入れる。event.keyはOS IME中にProcessへ化けることがあるため、物理codeを
 // 正としてShift面を決める。
@@ -3559,6 +3683,31 @@ function routeShikitypeImeKey(event) {
   return false;
 }
 
+function handleNativeTextKey(event) {
+  const row = activeRow();
+  if (!row || !isWithinRow(document.activeElement) || !isNativeTextContext(row)) return false;
+  if (event.code === 'Escape') {
+    // 文内Escapeは、以降のアプリ用ショートカットへだけ流さない。preventDefault
+    // してしまうと、Mac標準IMEの変換取消しまで阻害するため、イベントはそのまま
+    // MathLive/OSへ渡す（この関数のtrueはdocument handlerからreturnする意味だけ）。
+    return true;
+  }
+  if (event.code === 'Enter') {
+    // IMEが変換を確定している最中のEnterは文章入力そのもの。文を閉じず、標準IME
+    // へ完全に渡す。composition終了後の通常Enterだけが「文を終える」操作になる。
+    if (event.isComposing || event.keyCode === 229) return true;
+    stopCapturedKey(event);
+    closeOneLevel(row);
+    renderBreadcrumb();
+    focusProxyAfterNativeClose(row);
+    scheduleConversionCaret(row);
+    return true;
+  }
+  // Ctrl/Meta+V、Space、Minus、compositionを含むその他は、ブラウザとOSの通常の
+  // 文章入力へ一切手を出さない。
+  return false;
+}
+
 document.addEventListener('keydown', (e) => {
   // showModal()直後は起点ボタンにfocusが残るブラウザがある。この場合もEscは
   // 数式パレットではなくアカウントdialogを閉じる（dialog自身までbubbleしない）。
@@ -3612,6 +3761,8 @@ document.addEventListener('keydown', (e) => {
     }
     return;
   }
+
+  if (handleNativeTextKey(e)) return;
 
   // 変換queryにfocusがあっても、accessibleモードの画面操作キーは従来どおり
   // 優先する。専用IMEは文字・候補操作だけを所有し、F2/F8/F9は奪わない。
@@ -3910,7 +4061,11 @@ function dispatchAction(row, action) {
       else if (action.kind === 'sqrt') openSingleSlot(row, 'sqrt', '\\sqrt{#0}');
       else if (action.kind === 'abs') openSingleSlot(row, 'abs', '\\left|#0\\right|');
       else if (action.kind === 'sup') openSingleSlot(row, 'sup');
-      else if (action.kind === 'sub') openSingleSlot(row, 'sub');
+      else if (action.kind === 'sub') {
+        // 下付きは単独で孤立させず、直前の項があるときだけ開く。候補として選んだ
+        // 場合でも、行頭で壊れた `_{}` を作らない。
+        if (lastTerm(row)) openSingleSlot(row, 'sub');
+      }
       // 中括弧。丸括弧と同じ単一スロット構造（Enterで閉じる）。JIS配列の鍵括弧
       // キー位置（Shift+BracketLeft/Right）専用の新規追加（2026-08-30、項目1）。
       else if (action.kind === 'curly') openSingleSlot(row, 'curly', '\\{#0\\}');
@@ -5352,6 +5507,8 @@ document.getElementById('export-note-latex-download')?.addEventListener('click',
   if (!ok) flashButtonFeedback(event.currentTarget, false, { failText: '書き出す式がありません' });
   else toggleExportMenu(false);
 });
+document.addEventListener('click', dismissSidebarPopovers);
+installDialogBackdropDismiss();
 window.addEventListener('beforeunload', saveCurrentNoteNow);
 document.getElementById('reset-all')?.addEventListener('click', () => {
   clearAllOverrides();

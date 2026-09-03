@@ -25,7 +25,7 @@ type UserRow = { id: string; login_id: string; password_hash: string; password_s
 type SessionRow = { user_id: string; expires_at: string };
 type NoteRow = { id: string; created_at: string; updated_at: string; unit_id: string; rows_json: string; layout_json: string; revision: number; title: string | null; deleted_at: string | null };
 type ImportRow = { fingerprint: string; response_json: string };
-type CanvasBlock = { id: string; latex: string; x: number; y: number };
+type CanvasBlock = { id: string; latex: string; x: number; y: number; flow: boolean };
 type CanvasImage = { id: string; src: string; x: number; y: number; width: number; height: number };
 type NoteLayout = { mode: 'rows' | 'canvas'; camera: { x: number; y: number; zoom: number }; blocks: CanvasBlock[]; blockIds: string[]; images: CanvasImage[] };
 type PublicNote = { id: string; createdAt: string; updatedAt: string; unitId: string; rows: string[]; layout: NoteLayout; revision: number; title: string | null; deletedAt: string | null };
@@ -349,7 +349,7 @@ function noteLayoutFromUnknown(value: unknown, rows: string[]): NoteLayout {
     if (!raw || typeof raw !== 'object' || Array.isArray(raw)) throw new ApiError(400, 'invalid_note');
     const block = raw as Record<string, unknown>;
     if (typeof block.latex !== 'string' || block.latex.length > 4000 || !isCanvasCoordinate(block.x) || !isCanvasCoordinate(block.y)) throw new ApiError(400, 'invalid_note');
-    return { id: isBlockId(block.id) ? block.id : blockIds[index], latex: block.latex, x: block.x, y: block.y };
+    return { id: isBlockId(block.id) ? block.id : blockIds[index], latex: block.latex, x: block.x, y: block.y, flow: block.flow === true };
   });
   if (item.images !== undefined && (!Array.isArray(item.images) || item.images.length > 12)) throw new ApiError(400, 'invalid_note');
   const images: CanvasImage[] = (Array.isArray(item.images) ? item.images : []).map((raw) => {
