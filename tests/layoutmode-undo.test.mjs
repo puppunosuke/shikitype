@@ -3,6 +3,15 @@
 // 戻し切っても、表示モード(layoutMode)は現在見ているものを保ち続けること。
 // カメラのpan/zoomと同じく「表示モードの切替は編集ではない」ため、取り消しの
 // 対象に含めない、という段階3の設計方針そのものを実DOMで確認する。
+//
+// 旧実装は「'latin'基底層へTabで切り替え、物理キーを直接そのまま挿入する」
+// 前提だったが、現行のCONVERSION_LAYERSは['symbol', 'greek']だけで'latin'は
+// もう存在しない（activeInputLayer()はinputSystem==='conversion'では
+// temporaryLayer ?? baseLayerを返すが、cycleBaseLayer/nextConversionLayerが
+// symbol/greekしか回さないため、Tabをいくら押してもlatinへは到達しない）。
+// 単独の英字は変換辞書に候補が無ければEnter確定時にそのまま1文字として
+// 挿入される（実測: KeyA→Enterで"a"）ので、この経路で同じ検証内容
+// （行モード編集→キャンバス編集→Ctrl+Zで段階的に戻る）を再現する。
 import { chromium } from '../spike/node_modules/playwright/index.mjs';
 
 const BASE = 'http://localhost:8893/app.html';
@@ -32,9 +41,11 @@ async function main() {
     await page.waitForTimeout(15);
   }
   async function undo() { await pressCode('KeyZ', { ctrl: true }); }
-  async function switchLayer(layer) {
-    let guard = 0;
-    while (await page.evaluate(() => window.__neoApp.getBaseLayer()) !== layer && guard++ < 3) await pressCode('Tab');
+  // 単独の英字は変換辞書に候補が無ければEnter確定時にそのまま1文字挿入される
+  // （現行の変換方式。旧'latin'直接入力層はもう存在しない）。
+  async function typeLetterConfirmed(code) {
+    await pressCode(code);
+    await pressCode('Enter');
   }
   async function value(index) { return page.evaluate((i) => window.__neoApp.rows[i]?.mf.value, index); }
   async function layoutMode() { return page.evaluate(() => window.__neoApp.getLayoutMode()); }
@@ -43,8 +54,7 @@ async function main() {
   await page.evaluate(() => window.__neoApp.newNote());
   ok('新規ノートは行モードで始まる', await layoutMode() === 'rows', await layoutMode());
   await page.click('math-field');
-  await switchLayer('latin');
-  await pressCode('KeyA'); // 行モードでの最初の編集
+  await typeLetterConfirmed('KeyA'); // 行モードでの最初の編集
   await page.waitForTimeout(650); // 取り消し単位として確定させる
 
   await page.click('#sidebar-toggle');
@@ -53,8 +63,7 @@ async function main() {
   ok('キャンバスへ切り替わった', await layoutMode() === 'canvas', await layoutMode());
 
   await page.click('math-field');
-  await switchLayer('latin');
-  await pressCode('KeyB'); // キャンバスへ切り替えた後の編集
+  await typeLetterConfirmed('KeyB'); // キャンバスへ切り替えた後の編集
   await page.waitForTimeout(650);
   ok('キャンバスでの編集後の内容(ab)', await value(0) === 'ab', await value(0));
 
