@@ -1156,11 +1156,15 @@ function fitCanvasRowsToViewport() {
     const screenLeft = canvasCamera.x + position.x * canvasCamera.zoom;
     const available = (width - 10 - screenLeft) / canvasCamera.zoom;
     const baseline = Math.max(120, Math.min(580, available));
-    const contentWidth = Math.max(0, row.mf?.scrollWidth || 0);
-    // 長式を任意の幅で切らず、数式の実幅+左右の操作余白まで紙面を広げる。
-    // 座標の上限は位置だけに適用し、紙の横幅へ流用しない。
-    const required = Math.max(120, contentWidth + 92);
-    const fitted = Math.max(baseline, required);
+    // math-fieldはCSSで幅100%固定のため、直前フレームで広げたwrap幅を
+    // そのままscrollWidthとして読み返すと、呼ぶたびに際限なく広がる
+    // フィードバックループになる（canvas panが効かなくなる回帰の原因）。
+    // 一度baselineへ戻してから実際のはみ出し量(scrollWidth-clientWidth)
+    // だけを測ることで、内容が変わらない限り同じ結果に収束させる。
+    row.wrap.style.width = `${baseline}px`;
+    const mf = row.mf;
+    const overflow = mf ? Math.max(0, mf.scrollWidth - mf.clientWidth) : 0;
+    const fitted = overflow > 0 ? baseline + overflow + 4 : baseline;
     row.wrap.style.width = `${fitted}px`;
   });
 }
