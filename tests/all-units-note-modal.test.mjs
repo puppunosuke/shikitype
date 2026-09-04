@@ -41,6 +41,7 @@ async function main() {
   await page.click('#new-note-unit-choice [data-unit-id="s3-sekibun"]');
   await page.click('#new-note-create');
   await page.keyboard.press('KeyX');
+  await page.keyboard.press('Enter'); // 変換方式では読みをEnterで確定しないとノート内容にならない
   await page.waitForTimeout(520);
   const individual = await page.evaluate(() => ({
     note: window.__neoApp.getNotes().notes[0],
@@ -52,6 +53,7 @@ async function main() {
   await page.click('#new-note');
   await page.click('#new-note-create');
   await page.keyboard.press('KeyY');
+  await page.keyboard.press('Enter'); // 変換方式では読みをEnterで確定しないとノート内容にならない
   await page.waitForTimeout(520);
   await page.click('#guide-unit-switch');
   await page.click('#guide-unit-subject-choice [data-subject-id="s3"]');

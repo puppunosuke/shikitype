@@ -26,23 +26,16 @@ const caretAfterTyping = await page.evaluate(() => ({ caret: document.querySelec
 ok('変換中のcaretとASCII previewが維持される', caretAfterTyping.caret.width > 0 && caretAfterTyping.preview === 'int', caretAfterTyping);
 
 const opener = await page.locator('#sidebar-toggle'); await opener.click();
-const modal = await page.evaluate(() => ({ open: document.getElementById('sidebar')?.open, panels: [...document.querySelectorAll('.settings-panel')].map((panel) => [panel.id, panel.hidden]), parents: ['input-system-section','layout-mode-section','legacy-input-method-section','conversion-priority-section','conversion-dictionary-section','legacy-method-base-section'].map((id) => [id, document.getElementById(id)?.closest('.settings-panel')?.id]), caretHidden: document.querySelector('.conversion-caret')?.hidden }));
-ok('設定はnative modalで、カテゴリ所属とcaret遮蔽を保つ', modal.open && modal.caretHidden && JSON.stringify(modal.parents) === JSON.stringify([['input-system-section','settings-panel-basic'],['layout-mode-section','settings-panel-basic'],['legacy-input-method-section','settings-panel-input'],['conversion-priority-section','settings-panel-conversion'],['conversion-dictionary-section','settings-panel-conversion'],['legacy-method-base-section','settings-panel-input']]), modal);
+const modal = await page.evaluate(() => ({ open: document.getElementById('sidebar')?.open, panels: [...document.querySelectorAll('.settings-panel')].map((panel) => [panel.id, panel.hidden]), parents: ['layout-mode-section','conversion-priority-section','conversion-dictionary-section'].map((id) => [id, document.getElementById(id)?.closest('.settings-panel')?.id]), caretHidden: document.querySelector('.conversion-caret')?.hidden }));
+ok('設定はnative modalで、カテゴリ所属とcaret遮蔽を保つ', modal.open && modal.caretHidden && JSON.stringify(modal.parents) === JSON.stringify([['layout-mode-section','settings-panel-basic'],['conversion-priority-section','settings-panel-conversion'],['conversion-dictionary-section','settings-panel-conversion']]), modal);
 const basicChoiceVisual = await page.evaluate(() => {
-  const input = document.querySelector('.input-system-choice[aria-pressed="true"]');
   const layout = document.querySelector('.layout-mode-choice[aria-pressed="true"]');
-  return [input, layout].map((button) => {
+  return [layout].map((button) => {
     const style = getComputedStyle(button);
     return { text: button.textContent, background: style.backgroundColor, color: style.color, shadow: style.boxShadow, marker: getComputedStyle(button, '::before').content };
   });
 });
 ok('基本設定の現在値は濃色・選択中表示・段差で明確に判別できる', basicChoiceVisual.every((choice) => choice.background === 'rgb(17, 17, 17)' && choice.color === 'rgb(255, 255, 255)' && choice.shadow !== 'none' && choice.marker.includes('選択中')), basicChoiceVisual);
-await page.click('[data-settings-category="input"]');
-const conversionLayerSettings = await page.evaluate(() => ({
-  latinMethodRow: !!document.getElementById('layer-method-latin'),
-  layerChoices: [...document.querySelectorAll('#layer-choice [data-choice-value]')].map((button) => button.dataset.choiceValue),
-}));
-ok('変換方式の設定から英字層を外し、変換/ギリシャだけを選べる', !conversionLayerSettings.latinMethodRow && JSON.stringify(conversionLayerSettings.layerChoices) === JSON.stringify(['symbol', 'greek']), conversionLayerSettings);
 await page.focus('#sidebar-close'); await page.keyboard.press('Tab');
 const dialogTab = await page.evaluate(() => ({ focused: document.activeElement?.id, baseLayer: window.__neoApp.getBaseLayer(), inside: document.getElementById('sidebar')?.contains(document.activeElement) }));
 ok('設定modal中のTabは数式層を奪わず次の設定操作へ進む', dialogTab.focused === 'settings-search' && dialogTab.baseLayer === 'symbol' && dialogTab.inside, dialogTab);
@@ -56,16 +49,7 @@ const searchJump = await page.evaluate(() => {
   return { category: !document.getElementById('settings-panel-conversion').hidden, scrollTop: document.getElementById('settings-content').scrollTop, visible: target.top >= content.top && target.bottom <= content.bottom + 1, highlighted: document.getElementById('conversion-dictionary-section').classList.contains('settings-search-hit') };
 });
 ok('設定検索でCSV節へ移動して一時強調する', searchJump.category && searchJump.scrollTop > 0 && searchJump.visible && searchJump.highlighted, searchJump);
-await page.click('[data-settings-category="basic"]'); await page.click('.input-system-choice[data-input-system="legacy"]');
-const legacySettings = await page.evaluate(() => {
-  const nav = document.querySelector('.settings-nav-item[data-settings-category="conversion"]');
-  document.getElementById('settings-search').value = '辞書'; document.getElementById('settings-search').dispatchEvent(new Event('input', { bubbles: true }));
-  return { hidden: nav?.hidden, tabIndex: nav?.tabIndex, current: document.querySelector('.settings-nav-item[aria-current="page"]')?.dataset.settingsCategory, search: document.querySelectorAll('.settings-search-result').length };
-});
-ok('従来方式では空の変換カテゴリをnav・検索・Tab順から外す', legacySettings.hidden && legacySettings.current !== 'conversion' && legacySettings.search === 0, legacySettings);
-ok('legacyでは変換caretをすべて隠す', await page.locator('.conversion-caret:not([hidden])').count() === 0);
-await page.click('.input-system-choice[data-input-system="conversion"]');
-ok('変換方式へ戻すと変換カテゴリを再表示する', await page.locator('.settings-nav-item[data-settings-category="conversion"]').evaluate((el) => !el.hidden));
+await page.click('[data-settings-category="basic"]');
 await page.keyboard.press('Escape');
 const restored = await page.evaluate(() => ({ open: document.getElementById('sidebar')?.open, proxy: document.activeElement?.className, caret: document.querySelector('.conversion-caret')?.hidden === false }));
 ok('Escで閉じて数式proxy/caretへ戻る', !restored.open && String(restored.proxy).includes('row-input-proxy') && restored.caret, restored);
