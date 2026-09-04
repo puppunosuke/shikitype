@@ -1186,6 +1186,11 @@ function scheduleCanvasReflow() {
   canvasReflowFrame = requestAnimationFrame(() => {
     canvasReflowFrame = 0;
     if (layoutMode !== 'canvas') return;
+    // canvasの表示位置はcameraだけを正とする（applyCanvasTransformと同じ設計）。
+    // 行削除・drag確定後などのfocus移動でブラウザ既定のscrollIntoViewが
+    // canvas-viewportへ内部scrollを残すと、以降のblock座標が実座標とズレて
+    // pointer操作がずれる（2026-09-04 canvas drag回帰の原因）。
+    if (canvasViewport) { canvasViewport.scrollLeft = 0; canvasViewport.scrollTop = 0; }
     fitCanvasRowsToViewport();
     reflowCanvasRows();
     fitCanvasRowsToViewport();
