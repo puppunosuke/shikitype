@@ -2091,6 +2091,15 @@ function handleConversionKey(row, event) {
     return true;
   }
   if (event.code === 'Escape') {
+    // 読み・候補が無いEscapeは「変換の取り消し」として何も閉じるものが無い。
+    // ここで無条件にtrueを返すと、パレット（低頻度記号・ギリシャ文字。
+    // #palette見出しの「Escで開閉」）を開閉する後続のグローバルEscape処理
+    // （document keydownの「パレットの開閉（常時捕捉）」）に一切届かず、
+    // symbol層にいる限りパレットが物理Escapeで永久に開けなくなっていた
+    // （実測: 読みを確定した直後にEscapeを押してもpalette.classListに'open'が
+    // 付かない）。Enterの`state.raw`ガードと同じ考え方で、読み・候補がある
+    // ときだけ変換側がEscapeを所有する。
+    if (!state.raw && !state.candidates.length) return false;
     closeConversion(row, { clear: true, focus: true });
     return true;
   }
