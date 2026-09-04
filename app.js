@@ -3774,10 +3774,14 @@ document.addEventListener('keydown', (e) => {
   if (handleNativeTextKey(e)) return;
 
   // 変換queryにfocusがあっても、accessibleモードの画面操作キーは従来どおり
-  // 優先する。専用IMEは文字・候補操作だけを所有し、F2/F8/F9は奪わない。
-  if (keyCaptureMode === 'accessible' && ['F2', 'F8', 'F9'].includes(e.code)) {
+  // 優先する。専用IMEは文字・候補操作だけを所有し、F2/F4/F8/F9は奪わない。
+  // 旧実装はコメント（F2=設定/F4=キーガイド/F8・F9=テーマ切替）どおりF4も
+  // 効くはずだったが、この判定配列にF4が抜けており実際には無反応だった
+  // （fix-regression.test.mjsの「F4 toggles key guide collapse」で再現）。
+  if (keyCaptureMode === 'accessible' && ['F2', 'F4', 'F8', 'F9'].includes(e.code)) {
     e.preventDefault(); e.stopPropagation(); e.stopImmediatePropagation();
     if (e.code === 'F2') toggleSidebar();
+    else if (e.code === 'F4') toggleKeyGuide();
     else applyTheme(nextThemeId(e.code === 'F9' ? 1 : -1));
     return;
   }

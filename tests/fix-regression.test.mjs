@@ -63,9 +63,30 @@ async function main() {
     });
   }
 
+  // 変換方式（既定）ではbaseLayerが常に'symbol'に固定されており、cycleBaseLayer()を
+  // 呼んでも'latin'へは絶対に遷移しない（app.jsのcycleBaseLayer実装を確認済み）。
+  // 旧来の複数入力方式（layer切替式）が前提だった頃の後始末なので、到達不能な条件で
+  // 待ち続けるwhileループを組まない。resetLastRowはsymbolのままで何もする必要がない。
+  async function dispatchOnLastRow(action) {
+    await page.evaluate((a) => {
+      const rows = window.__neoApp.rows;
+      const row = rows[rows.length - 1];
+      window.__neoApp.dispatchAction(row, a);
+    }, action);
+    await page.waitForTimeout(15);
+  }
+
+  // 変換方式では物理英字キーは常に変換の読みバッファへ入り、Enterで先頭候補
+  // （単独英字ならその文字自身）を確定して初めて式へ literal として入る。
+  async function typeLiteralOnLastRow(letters) {
+    for (const ch of letters) {
+      await pressCode('Key' + ch.toUpperCase());
+      await pressCode('Enter');
+    }
+  }
+
   async function resetLastRow() {
     await page.evaluate(() => {
-      while (window.__neoApp.getBaseLayer() !== 'symbol') window.__neoApp.cycleBaseLayer();
       const rows = window.__neoApp.rows;
       const row = rows[rows.length - 1];
       row.mf.value = '';
@@ -84,8 +105,10 @@ async function main() {
   console.log('\n== 1. backspace safety after arrow movement ==');
 
   await resetLastRow();
-  await pressCode('KeyF');                       // (
-  await switchLatinAndType(page, 'xyz', pressCode);
+  // KeyF（'('）は変換方式では読みバッファに入るだけで構造を開けないため、
+  // 括弧オープンはKeyU（∫）と同じ理由でdispatchActionを直接呼ぶ。
+  await dispatchOnLastRow({ type: 'open', kind: 'paren' });
+  await typeLiteralOnLastRow('xyz');
   await pressCode('ArrowRight');                 // 構造の外へ出る
   assertEqual('setup: (xyz) after arrow out', await latex(), '\\left(xyz\\right)');
   await pressCode('Backspace');                  // 旧実装では式全体が消えた
@@ -97,8 +120,8 @@ async function main() {
     afterArrowBs.length < '\\left(xyz\\right)'.length && afterArrowBs.includes('xyz'), true);
 
   await resetLastRow();
-  await pressCode('KeyF');
-  await switchLatinAndType(page, 'xyz', pressCode);
+  await dispatchOnLastRow({ type: 'open', kind: 'paren' });
+  await typeLiteralOnLastRow('xyz');
   await pressCode('ArrowLeft');                  // 構造の中へ入り直す
   await pressCode('Backspace');
   const afterInBs = await latex();
@@ -107,10 +130,12 @@ async function main() {
 
   // 分数分母での演算子入力→Backspace
   await resetLastRow();
-  await pressCode('KeyL');                       // n/α
+  // KeyL（n/α）・KeyG（+）も同様に、変換方式では読みバッファへ入るだけで
+  // 直接その記号にはならない。構造・演算子とも直接dispatchで作る。
+  await dispatchOnLastRow({ type: 'nfrac' });    // n/α
   await pressCode('Digit1');
   await pressCode('Enter');                      // 分母へ
-  await pressCode('KeyG');                       // +
+  await dispatchOnLastRow({ type: 'op', symbol: '+' });
   const denBefore = await latex();
   assertEqual('setup: fraction with + in denominator', denBefore, '\\dfrac{1}{+}');
   await pressCode('Backspace');
@@ -218,16 +243,6 @@ async function main() {
     for (const f of failures) console.log(' -', f.label);
     process.exitCode = 1;
   }
-}
-
-async function switchLatinAndType(page, letters, pressCode) {
-  await page.evaluate(() => {
-    while (window.__neoApp.getBaseLayer() !== 'latin') window.__neoApp.cycleBaseLayer();
-  });
-  for (const ch of letters) await pressCode('Key' + ch.toUpperCase());
-  await page.evaluate(() => {
-    while (window.__neoApp.getBaseLayer() !== 'symbol') window.__neoApp.cycleBaseLayer();
-  });
 }
 
 main();

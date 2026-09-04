@@ -30,15 +30,30 @@ async function main() {
   async function pressCode(code) { await page.keyboard.press(code); await page.waitForTimeout(15); }
   async function latex() { return page.evaluate(() => window.__neoApp.getActiveRow().mf.value); }
   async function stackDepth() { return page.evaluate(() => window.__neoApp.getActiveRow().stack.length); }
+  // 変換方式（既定）ではbaseLayerが常に'symbol'に固定されており、cycleBaseLayer()を
+  // 呼んでも'latin'へは絶対に遷移しない（app.jsのcycleBaseLayer実装で確認済み）。
+  // 複数レイヤーを切り替える旧入力方式が前提だった頃の後始末なので、到達不能な
+  // 条件で待ち続けるwhileループ（実機ではタブがクラッシュする）は組まない。
   async function resetRow() {
     await page.evaluate(() => {
-      while (window.__neoApp.getBaseLayer() !== 'symbol') window.__neoApp.cycleBaseLayer();
       const row = window.__neoApp.getActiveRow();
       row.mf.value = ''; row.mf.position = 0;
       row.stack = []; row.run = []; row.runStack = []; row.history = [];
       row.mf.focus();
     });
     await page.waitForTimeout(60);
+  }
+  async function dispatch(action) {
+    await page.evaluate((a) => {
+      const row = window.__neoApp.getActiveRow();
+      window.__neoApp.dispatchAction(row, a);
+    }, action);
+    await page.waitForTimeout(15);
+  }
+  // 変換方式では物理英字キーは常に変換の読みバッファへ入り、Enterで先頭候補
+  // （単独英字ならその文字自身）を確定して初めて式へliteralとして入る。
+  async function typeLiteral(letters) {
+    for (const ch of letters) { await pressCode('Key' + ch.toUpperCase()); await pressCode('Enter'); }
   }
 
   console.log('\n== ∫（KeyU + moveToSubscript経由の構造入力）: 閉じた直後のBackspace ==');
@@ -57,8 +72,11 @@ async function main() {
   assertEqual('stackも空に戻る', await stackDepth(), 0);
 
   console.log('\n== Σ（KeyO）: 閉じた直後のBackspace ==');
+  // KeyOは変換方式では読みバッファ（英字/ギリシャ文字候補）に入るだけで、物理キー
+  // 単体ではΣ構造を開けない（実測確認済み。「sum」等の読みを確定して初めて届く）。
+  // ∫と同じ理由でdispatchActionを直接呼ぶ。
   await resetRow();
-  await pressCode('KeyO');
+  await dispatch({ type: 'sum' });
   await pressCode('Digit1'); await pressCode('Enter');
   await pressCode('Digit2'); await pressCode('Enter');
   assertEqual('Σの下限1・上限2を書いて閉じる', await latex(), '\\sum_1^2');
@@ -66,8 +84,9 @@ async function main() {
   assertEqual('閉じたΣはBackspace1回で構造ごと消える', await latex(), '');
 
   console.log('\n== 分数（KeyL = n/α）: 閉じた直後のBackspace ==');
+  // KeyLも同様に変換方式では読みバッファへ入るだけなので、nfracを直接dispatchする。
   await resetRow();
-  await pressCode('KeyL');
+  await dispatch({ type: 'nfrac' });
   await pressCode('Digit1'); await pressCode('Enter');
   await pressCode('Digit2'); await pressCode('Enter');
   assertEqual('1/2を書いて閉じる', await latex(), '\\dfrac12');
@@ -76,10 +95,8 @@ async function main() {
 
   console.log('\n== 前後に別の項があっても、閉じた構造だけを1回で消す ==');
   await resetRow();
-  await page.evaluate(() => { while (window.__neoApp.getBaseLayer() !== 'latin') window.__neoApp.cycleBaseLayer(); });
-  await pressCode('KeyA'); // a
-  await page.evaluate(() => { while (window.__neoApp.getBaseLayer() !== 'symbol') window.__neoApp.cycleBaseLayer(); });
-  await pressCode('KeyO'); // Σ
+  await typeLiteral('a'); // a（変換方式: 読みバッファ確定でliteralを入れる）
+  await dispatch({ type: 'sum' }); // Σ
   await pressCode('Digit1'); await pressCode('Enter');
   await pressCode('Digit2'); await pressCode('Enter');
   assertEqual('a + Σ_1^2 を書いて閉じる', await latex(), 'a\\sum_1^2');
