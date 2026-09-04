@@ -1,4 +1,14 @@
 // 段階3: ノートの名前・削除（ソフトデリート＝ゴミ箱）・名前/中身での絞り込み。
+//
+// 旧typeLatin()は'latin'基底層（もう存在しない。CONVERSION_LAYERSは
+// ['symbol', 'greek']のみ）へ切り替えてから物理キーを直接連続入力する前提
+// だった。現行の変換方式で同じように複数文字を続けて打ってからEnter確定する
+// と、"alpha"や"beta"はそのままギリシャ文字の読みエイリアス（conversion.js:229,
+// 328）に一致してしまい、αやβへ変換されてリテラルな検索対象文字列にならない
+// （テストは中身の文字列一致で絞り込みを検証するため、これでは壊れる）。
+// 1文字ごとにEnterで確定させれば、複数文字の読みバッファへ蓄積する前に
+// 都度リテラル1文字として確定される（辞書に単独文字の候補は無いため）ので、
+// 結果として同じ文字列"alpha"/"betabeta"がノート内容に残る。
 import { chromium } from '../spike/node_modules/playwright/index.mjs';
 
 const BASE = 'http://localhost:8893/app.html';
@@ -18,11 +28,14 @@ async function main() {
   await page.reload({ waitUntil: 'networkidle' });
 
   // ノートA: "alpha"、ノートB: "betabeta" という中身の2ノートを作る。
+  // 1文字ごとにEnterで確定し、複数文字の読みとしてギリシャ文字へ変換されない
+  // ようにする（"alpha"/"beta"は単独では変換辞書のギリシャ文字エイリアス）。
   async function typeLatin(text) {
     await page.click('math-field');
-    let guard = 0;
-    while (await page.evaluate(() => window.__neoApp.getBaseLayer()) !== 'latin' && guard++ < 3) await page.keyboard.press('Tab');
-    for (const ch of text) await page.keyboard.press(`Key${ch.toUpperCase()}`);
+    for (const ch of text) {
+      await page.keyboard.press(`Key${ch.toUpperCase()}`);
+      await page.keyboard.press('Enter');
+    }
     await page.waitForTimeout(650);
   }
 
