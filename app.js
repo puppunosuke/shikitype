@@ -4923,9 +4923,6 @@ function updateInputMethodUI() {
   document.querySelectorAll('.method-choice').forEach((btn) => {
     btn.setAttribute('aria-pressed', String(inputSystem === 'legacy' && btn.dataset.inputMethod === inputMethod));
   });
-  document.querySelectorAll('.input-system-choice').forEach((btn) => {
-    btn.setAttribute('aria-pressed', String(btn.dataset.inputSystem === inputSystem));
-  });
   document.getElementById('input-method-badge').textContent = inputSystem === 'conversion'
     ? '変換方式' : INPUT_METHODS[inputMethod].name;
 }
@@ -5003,9 +5000,6 @@ function setInputSystem(systemId, persist = true) {
 
 document.querySelectorAll('.method-choice').forEach((btn) => {
   btn.addEventListener('click', () => setInputMethod(btn.dataset.inputMethod));
-});
-document.querySelectorAll('.input-system-choice').forEach((btn) => {
-  btn.addEventListener('click', () => setInputSystem(btn.dataset.inputSystem));
 });
 document.querySelectorAll('.layout-mode-choice').forEach((btn) => {
   btn.addEventListener('click', () => setLayoutMode(btn.dataset.layoutMode));
@@ -5379,8 +5373,7 @@ let settingsOpener = null;
 let activeSettingsCategory = 'basic';
 const settingsScrollPositions = new Map();
 const SETTINGS_SEARCH_ITEMS = [
-  ['basic', '入力系統', '従来方式 変換方式', 'input-system-section'], ['basic', '編集面', '行 キャンバス', 'layout-mode-section'], ['basic', '単元プリセット', '科目 単元', 'unit-subject-choice'], ['basic', 'キー操作モード', 'キー捕捉', 'capture-choice'],
-  ['input', '従来方式の入力方法', '標準トグル 数式常駐 一時 固定 長押し', 'legacy-input-method-section'], ['input', '変換方式の層ごとの切替方法', '変換 ギリシャ', 'conversion-layer-method-section'], ['input', '方式ごとの基底層', '記号 英字', 'legacy-method-base-section'],
+  ['basic', '編集面', '行 キャンバス', 'layout-mode-section'], ['basic', '単元プリセット', '科目 単元', 'unit-subject-choice'], ['basic', 'キー操作モード', 'キー捕捉', 'capture-choice'],
   ['conversion', '変換候補の優先順位', '候補 読み 優先', 'conversion-priority-section'], ['conversion', '読み辞書 CSV', 'インポート エクスポート', 'conversion-dictionary-section'],
   ['keys', '操作', 'Tab Enter Escape Backspace Ctrl 取り消し コピー 貼り付け キャンバス 複製 矩形選択 文章', 'operations-guide-section'],
   ['keys', '編集する層', 'キー 割当', 'layer-choice'], ['keys', '割り当て先', '物理キーボード', 'assign-section'], ['appearance', 'デザイン', 'テーマ 外観', 'sidebar-theme-choice'],
@@ -5393,8 +5386,8 @@ function organizeSettingsPanels() {
   if (!basic || !input || !conversion) return;
   const unit = [...document.querySelectorAll('.side-section')].find((el) => el.querySelector('#unit-subject-choice'));
   const capture = [...document.querySelectorAll('.side-section')].find((el) => el.querySelector('#capture-choice'));
-  for (const section of [document.getElementById('input-system-section'), document.getElementById('layout-mode-section'), unit, capture]) if (section) basic.append(section);
-  for (const section of [document.getElementById('legacy-input-method-section'), document.getElementById('conversion-layer-method-section'), document.getElementById('legacy-method-base-section')]) if (section) input.append(section);
+  for (const section of [document.getElementById('layout-mode-section'), unit, capture]) if (section) basic.append(section);
+  for (const section of [document.getElementById('conversion-layer-method-section')]) if (section) input.append(section);
   for (const section of [document.getElementById('conversion-priority-section'), document.getElementById('conversion-dictionary-section')]) if (section) conversion.append(section);
 }
 

@@ -115,14 +115,6 @@
         <section class="settings-panel" id="settings-panel-basic" data-settings-category="basic" aria-labelledby="settings-basic-title">
           <h3 id="settings-basic-title">基本</h3>
 
-    <section class="side-section" id="input-system-section">
-      <h3>入力系統</h3>
-      <div id="input-system-choice" class="side-choice" role="list" aria-label="入力系統の選択">
-        <button type="button" class="input-system-choice" data-input-system="legacy" aria-pressed="true">従来方式</button>
-        <button type="button" class="input-system-choice" data-input-system="conversion" aria-pressed="false">SHIKITYPE変換方式</button>
-      </div>
-    </section>
-
     <section class="side-section" id="layout-mode-section">
       <h3>編集面</h3>
       <div id="layout-mode-choice" class="side-choice" role="list" aria-label="編集面の選択">
@@ -134,24 +126,6 @@
         </section>
         <section class="settings-panel" id="settings-panel-input" data-settings-category="input" aria-labelledby="settings-input-title" hidden>
           <h3 id="settings-input-title">入力</h3>
-    <section class="side-section" id="legacy-input-method-section">
-      <h3>従来方式の入力方法</h3>
-      <div id="input-method-choice" role="list" aria-label="入力方式の選択">
-        <button type="button" class="method-choice" data-input-method="toggle" aria-pressed="true">
-          <span><b>標準トグル</b><small>Tabで層を固定切替</small></span><em>標準</em>
-        </button>
-        <button type="button" class="method-choice" data-input-method="math" aria-pressed="false">
-          <span><b>数式常駐</b><small>頻出記号をいつでも直接入力</small></span><em>往復を削減</em>
-        </button>
-        <button type="button" class="method-choice" data-input-method="hybrid" aria-pressed="false">
-          <span><b>一時＋固定</b><small>Tabは1入力、固定で連続入力</small></span><em>切替を使い分け</em>
-        </button>
-        <button type="button" class="method-choice" data-input-method="hold" aria-pressed="false">
-          <span><b>長押し</b><small>短押しは文字、長押しは記号</small></span><em>省スペース</em>
-        </button>
-      </div>
-    </section>
-
     <section class="side-section" id="conversion-layer-method-section">
       <h3>変換方式の層ごとの切替方法</h3>
       <div id="layer-method-list">
@@ -184,16 +158,6 @@
       <h4 class="dictionary-editor-heading">表で編集</h4>
       <p class="side-note">CSVの書き出し・読み込みを行き来せず、この場で行を追加・編集・削除できます。</p>
       <div id="dictionary-editor-panel" class="dictionary-editor" aria-label="読み辞書の表編集"></div>
-    </section>
-
-    <section class="side-section" id="legacy-method-base-section">
-      <h3>方式ごとの基底層</h3>
-      <div id="method-base-list">
-        <div class="method-base-row"><span class="method-base-label">標準トグル</span><div id="method-base-toggle" class="side-choice"></div></div>
-        <div class="method-base-row"><span class="method-base-label">数式常駐</span><div id="method-base-math" class="side-choice"></div></div>
-        <div class="method-base-row"><span class="method-base-label">一時＋固定</span><div id="method-base-hybrid" class="side-choice"></div></div>
-        <div class="method-base-row"><span class="method-base-label">長押し</span><div id="method-base-hold" class="side-choice"></div></div>
-      </div>
     </section>
 
     <section class="side-section" id="unit-preset-section">

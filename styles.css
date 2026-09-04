@@ -961,11 +961,9 @@ body .modifier-key.is-physical {
 body[data-input-system="conversion"] { --guide-h: 0px; }
 body[data-input-system="conversion"] #key-guide { display: none !important; }
 body[data-input-system="conversion"] #work-surface { bottom: 0 !important; }
-body[data-input-system="conversion"] #input-system-section,
 body[data-input-system="conversion"] #settings-panel-input,
 body[data-input-system="conversion"] #settings-panel-keys,
-body[data-input-system="conversion"] #conversion-layer-method-section,
-body[data-input-system="conversion"] #legacy-method-base-section { display: none !important; }
+body[data-input-system="conversion"] #conversion-layer-method-section { display: none !important; }
 
 #text-entry-key {
   position: absolute;
@@ -1482,14 +1480,6 @@ body[data-key-capture="accessible"] #capture-hint { color: var(--muted); }
 #assign-section[hidden] { display: none; }
 #conversion-priority-list { max-height: 280px; overflow: auto; overscroll-behavior: contain; }
 body.sidebar-open #app-stage { margin-right: 0; }
-
-/* 最上位の入力系統で、関係しない設定だけを畳む。従来方式の4種と変換方式の
-   層別4種を同じ画面で混ぜないため、選んでいる系統の規則が一目で分かる。 */
-body[data-input-system="legacy"] #conversion-layer-method-section,
-body[data-input-system="legacy"] #conversion-priority-section,
-body[data-input-system="legacy"] #conversion-dictionary-section { display: none; }
-body[data-input-system="conversion"] #legacy-input-method-section,
-body[data-input-system="conversion"] #legacy-method-base-section { display: none; }
 
 #conversion-dictionary-file { width: 100%; max-width: 100%; font-size: 11px; }
 .dictionary-file-label { display: block; margin: 7px 0 3px; font-size: 10px; font-weight: 700; }
