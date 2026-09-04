@@ -69,8 +69,12 @@ async function main() {
     r0.wrap.dataset.canvasX = '400'; r0.wrap.dataset.canvasY = '500';
     r1.wrap.dataset.canvasX = '20'; r1.wrap.dataset.canvasY = '50';
   });
-  // 書き出しメニューは手順2のコピー操作の後も開いたままなので、ここで再度開き直す
-  // 必要はない（開き直すとtoggleが「閉じる」動作になってしまう）。
+  // 仕様: サイドバー外をクリックすると書き出しメニューは閉じる。
+  // 手順3の冒頭でサイドバーを開閉しており、その操作で書き出しメニューは閉じているため、
+  // ここで再度メニューを開いてからコピー操作を行う。
+  await page.click('#export-note-toggle');
+  await page.waitForTimeout(30);
+  ok('サイドバー操作の後は書き出しメニューが閉じており、再度開き直せる', await page.isVisible('#export-note-menu'));
   await page.click('#export-note-latex-copy');
   await page.waitForTimeout(60);
   const canvasCopied = await readClipboard();
