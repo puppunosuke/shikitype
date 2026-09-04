@@ -1,4 +1,11 @@
 // 保存済みの分数＋括弧へ戻り、矢印とBackspaceを使っても状態警告を出さない回帰。
+//
+// 旧版はKeyL(分子)/KeyF(括弧)/Tabなどの物理キー直接構造化を前提にしていたが、
+// 変換方式導入でrouteShikitypeImeKey()が英字物理キーを無条件で読みbufferへ流す
+// ため、直接構造化するキーはもう存在しない。読み'fraction'(かっこ:'paren')＋
+// Enter確定の現行経路で同じ(x)/y構造を組み立てるよう書き換えた。検証内容
+// （復元後の矢印＋Backspaceで式全体を失わず1要素だけ消え、stack-mismatch
+// 警告やconsole errorが出ない）は変えていない。
 import { chromium } from '../spike/node_modules/playwright/index.mjs';
 
 const BASE = 'http://localhost:8893/app.html';
@@ -22,16 +29,18 @@ async function main() {
   await page.evaluate(() => localStorage.removeItem('neo-math.notes.v1'));
   await page.reload({ waitUntil: 'networkidle' });
 
-  // (x)/y を専用キー操作で作る。
+  // (x)/y を変換方式の読み確定操作で作る。
   await page.click('math-field');
-  await page.keyboard.press('KeyL'); // 分子
-  await page.keyboard.press('KeyF'); // 分子内の括弧
-  await page.keyboard.press('Tab');
+  for (const c of ['KeyF', 'KeyR', 'KeyA', 'KeyC', 'KeyT', 'KeyI', 'KeyO', 'KeyN']) await page.keyboard.press(c);
+  await page.keyboard.press('Enter'); // 読み"fraction"確定→空の分数を開く（分子スロットにいる）
+  for (const c of ['KeyP', 'KeyA', 'KeyR', 'KeyE', 'KeyN']) await page.keyboard.press(c);
+  await page.keyboard.press('Enter'); // 読み"paren"確定→分子内に丸括弧を開く
   await page.keyboard.press('KeyX');
-  await page.keyboard.press('Enter'); // 括弧を閉じる
-  await page.keyboard.press('Enter'); // 分母へ
+  await page.keyboard.press('Enter'); // xを確定（単一スロットなので確定と同時に括弧を閉じる）
+  await page.keyboard.press('Enter'); // 括弧の階層を閉じる
+  await page.keyboard.press('Enter'); // 分母スロットへ進む
   await page.keyboard.press('KeyY');
-  await page.keyboard.press('Enter'); // 分数を閉じる
+  await page.keyboard.press('Enter'); // yを確定
   await page.waitForTimeout(520);
   const saved = await page.evaluate(() => window.__neoApp.getNotes().notes[0]);
   ok('分数と括弧を含むノートを保存する', !!saved && saved.rows[0].includes('dfrac') && saved.rows[0].includes('left'), saved);
