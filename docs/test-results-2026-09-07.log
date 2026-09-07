@@ -1,0 +1,997 @@
+  OK  入口ボタンにg_ハッシュではなくGoogle表示名が出る
+  OK  入口ボタンに読めないハッシュが残っていない
+  OK  アカウントダイアログにもg_ハッシュではなく表示名が出る
+  OK  連携済みなら「Googleアカウントを連携」ボタンが出ない
+  OK  連携済みなら「連携済み」の控えめな表示が出る
+  OK  連携済み表示に意味のある文言が入る
+  OK  未連携では「連携済み」表示が出ない
+  OK  表示名が無ければ従来通りidを表示する（パスワード登録アカウントの互換）
+  OK  長い表示名でもaccount-toggleが横に溢れない（既存ellipsis省略が効く）
+  OK  匿名へ戻すと「ログイン」表示に戻る
+  OK  この一連の操作で通信/実行エラーを出さない
+
+=== RESULT: 11 passed, 0 failed ===
+✔ tests\account-google-identity.test.mjs (1307.9606ms)
+  OK  ログインボタンでダイアログを開く
+  OK  Googleの接続情報が無い静的表示では、Googleログイン導線を出さず既存ログインへ戻る
+  OK  06: 狭幅でアカウント操作が横にはみ出さない
+  OK  08: 狭幅でアカウント操作が横にはみ出さない
+  OK  09: 狭幅でアカウント操作が横にはみ出さない
+  OK  13: 狭幅でアカウント操作が横にはみ出さない
+  OK  18: 狭幅でアカウント操作が横にはみ出さない
+  OK  アカウント作成へ切り替えられる
+  OK  回復へ切り替えられる
+  OK  通常のローカル画面で通信エラーを出さない
+  OK  360px/06: 長いログインIDでもアプリ全体が横スクロールしない
+  OK  360px/06: 長いログインIDはaccount-toggle内で省略され、ボタン自体は幅からはみ出さない
+  OK  360px/08: 長いログインIDでもアプリ全体が横スクロールしない
+  OK  360px/08: 長いログインIDはaccount-toggle内で省略され、ボタン自体は幅からはみ出さない
+  OK  360px/09: 長いログインIDでもアプリ全体が横スクロールしない
+  OK  360px/09: 長いログインIDはaccount-toggle内で省略され、ボタン自体は幅からはみ出さない
+  OK  360px/13: 長いログインIDでもアプリ全体が横スクロールしない
+  OK  360px/13: 長いログインIDはaccount-toggle内で省略され、ボタン自体は幅からはみ出さない
+  OK  360px/18: 長いログインIDでもアプリ全体が横スクロールしない
+  OK  360px/18: 長いログインIDはaccount-toggle内で省略され、ボタン自体は幅からはみ出さない
+  OK  1280px/06: 長いログインIDでもアプリ全体が横スクロールしない
+  OK  1280px/06: 長いログインIDはaccount-toggle内で省略され、ボタン自体は幅からはみ出さない
+  OK  1280px/08: 長いログインIDでもアプリ全体が横スクロールしない
+  OK  1280px/08: 長いログインIDはaccount-toggle内で省略され、ボタン自体は幅からはみ出さない
+  OK  1280px/09: 長いログインIDでもアプリ全体が横スクロールしない
+  OK  1280px/09: 長いログインIDはaccount-toggle内で省略され、ボタン自体は幅からはみ出さない
+  OK  1280px/13: 長いログインIDでもアプリ全体が横スクロールしない
+  OK  1280px/13: 長いログインIDはaccount-toggle内で省略され、ボタン自体は幅からはみ出さない
+  OK  1280px/18: 長いログインIDでもアプリ全体が横スクロールしない
+  OK  1280px/18: 長いログインIDはaccount-toggle内で省略され、ボタン自体は幅からはみ出さない
+
+=== RESULT: 30 passed, 0 failed ===
+✔ tests\account-ui.test.mjs (1424.2208ms)
+  OK  既定は全単元
+  OK  新しいノートは科目選択モーダルを開き、全単元が初期選択（単元一覧は科目を選ぶまで出さない）
+  OK  個別ノートは保存単元と上バーが一致する
+  OK  全単元ノートでは個別プリセットに寄せてもノート範囲と上バーは全単元のまま
+
+=== RESULT: 4 passed, 0 failed ===
+✔ tests\all-units-note-modal.test.mjs (3221.1618ms)
+
+== ∫（KeyU + moveToSubscript経由の構造入力）: 閉じた直後のBackspace ==
+  OK  ∫の下限0・上限1を書いて閉じる
+  OK  閉じた∫はBackspace1回で構造ごと消える
+  OK  stackも空に戻る
+
+== Σ（KeyO）: 閉じた直後のBackspace ==
+  OK  Σの下限1・上限2を書いて閉じる
+  OK  閉じたΣはBackspace1回で構造ごと消える
+
+== 分数（KeyL = n/α）: 閉じた直後のBackspace ==
+  OK  1/2を書いて閉じる
+  OK  閉じた分数はBackspace1回で構造ごと消える
+
+== 前後に別の項があっても、閉じた構造だけを1回で消す ==
+  OK  a + Σ_1^2 を書いて閉じる
+  OK  直前のΣだけ消え、aは残る
+  OK  続けてBackspaceするとaも消える
+
+=== RESULT: 10 passed, 0 failed ===
+✔ tests\backspace-closed-structure.test.mjs (2952.9499ms)
+
+== 項目3: たす・ひく・かける・いこーるが変換候補として出て確定できる ==
+  OK  たす は plus 候補を出す
+  OK  plus確定で+が入る
+  OK  ひく は minus 候補を出す
+  OK  minus確定で-が入る
+  OK  かける は multiply 候補を出す
+  OK  multiply確定で物理キー(KeyT)と同じ\cdot が入る
+
+== 項目4: 割り算は記号挿入でなく afrac（直前項を分母化）になる ==
+  OK  わる は fraction 候補を出す（表示はa/□）
+  OK  わる確定で7が分母に入り分子へカーソルが動く
+  OK  stackはafrac
+
+== 項目4: パレットの÷ボタンも同じ挙動 ==
+  OK  パレットに÷ボタンがある
+  OK  パレット÷確定で5が分母に入り分子へカーソルが動く
+  OK  stackはafrac
+
+=== RESULT: 12 passed, 0 failed ===
+✔ tests\basic-operators-conversion.test.mjs (2619.4685ms)
+
+== 0. まだブロックコピーを使っていない状態のCtrl+Vは何も増やさない ==
+  OK  初期状態のblockClipboardは空
+  OK  blockClipboardが空のCtrl+Vはブロックを増やさない（既存のUnicode貼り付け経路へ譲る）
+
+== 1. 行モード: Ctrl+C/Ctrl+Vで現在行の直下に複製される ==
+  OK  Ctrl+Cで現在行をブロッククリップボードへコピーする
+  OK  Ctrl+Vで現在行の直下へ複製した行が増える
+  OK  貼り付けた行へ入力先が移る
+  OK  行モードの貼り付けもCtrl+Zで1操作として戻る
+
+== 2. canvasモード: 単体blockのCtrl+C/Ctrl+Vは重ならない位置へ複製される ==
+  OK  1回目の貼り付けでblockが1つ増える
+  OK  複製内容は元と同じ
+  OK  元の位置とは重ならない位置にずらして置かれる
+  OK  2回目の貼り付けはさらに追加で1つ増える
+  OK  連続貼り付けは1回目の貼り付け位置とも重ならない
+
+== 3. canvasモード: 矩形選択した複数blockをまとめてコピー・貼り付けできる ==
+  OK  block1(q)とblock2(r)が選択されている
+  OK  選択中の2ブロックをまとめてコピーする
+  OK  まとめて貼り付けるとその分だけblockが増える
+  OK  貼り付けたblockはコピー元の内容を保つ
+  OK  貼り付け直後は新しいblockの方が選択状態になる
+
+== 4. まとめて貼り付けもCtrl+Zで1操作として戻る ==
+  OK  複数blockの貼り付けも1回のCtrl+Zで戻る
+  OK  画面エラーなし
+
+=== RESULT: 18 passed, 0 failed ===
+✔ tests\block-clipboard.test.mjs (2465.4777ms)
+
+== 1. block本体をdragで移動できる（既存のcanvas panと混同しない） ==
+  OK  block0とblock1が存在する
+  OK  block0だけが約(60,40)動く
+  OK  block1は動かない
+  OK  block dragはcameraを動かさない（パンではない）
+  OK  rows数は変わらない
+
+== 2. drag後に本文をCtrl+Zしても配置を巻き戻さない ==
+  OK  Ctrl+Zで本文編集は戻る
+  OK  Ctrl+Zでdrag済みblock0の位置を保持する
+  OK  行追加をUndoしてDOMを再構成してもdrag済みblock0の位置を保持する
+
+== 3. Alt+dragで複製できる（元blockは残る） ==
+  OK  Alt+dragでblockが1つ増える
+  OK  元のblockはその場・元の内容のまま残る
+  OK  複製されたblockは元の内容を引き継ぎ、掴んだ位置分だけ動いている
+  OK  Alt+drag複製もCtrl+Zで1操作として戻る
+
+== 4. Shift+dragで矩形選択できる（左drag=panは奪わない） ==
+  OK  block0(既定)・block1・block2の3つがある
+  OK  block1とblock2だけが選択される（block0は範囲外）
+  OK  選択中のblockに見た目の印がつく
+  OK  Shift+dragはpan（camera移動）を発生させない
+
+== 5. 選択したblockをまとめてdrag移動できる ==
+  OK  選択中の2ブロックが両方とも同じだけ動く
+  OK  選択されていないblock0は動かない
+
+== 6. 選択中のblockをDeleteでまとめて削除し、Ctrl+Zで戻せる ==
+  OK  選択中の2ブロックがまとめて消える
+  OK  削除後は選択も空になる
+  OK  まとめて削除もCtrl+Zで1操作として戻る
+
+== 7. Escapeで選択を解除できる（パレット開閉より優先） ==
+  OK  Escape前は選択がある
+  OK  Escapeで選択が解除される
+  OK  選択解除のEscapeではパレットを開かない
+  OK  画面エラーなし
+
+=== RESULT: 25 passed, 0 failed ===
+✔ tests\canvas-block-drag-select.test.mjs (3566.2486ms)
+  OK  設定から行モードとキャンバスを切り替えられる
+  OK  新規ノートの既定である行モードから、明示操作でキャンバスへ切り替わる
+  OK  空白クリックでその場に数式ブロックを作り、入力先を移す
+  OK  空白の左ドラッグはパンし、blockを増やさない
+  OK  空白の単独タップでもその位置に入力ブロックを作る
+  OK  一本指ドラッグはキャンバスを移動し、終了時にブロックを増やさない
+  OK  右ドラッグはパンもblock生成も行わず、通常操作として残る
+  OK  canvas空白のcontextmenuは通常どおり抑止しない
+  OK  ホイールはポインタ中心で拡大し、ページ全体をスクロールしない
+  OK  二本指は拡大と移動をまとめて扱い、ブロックを増やさない
+  OK  canvas block右上の×は44pxのhit領域でそのblockを削除しパンしない
+  OK  キャンバスの配置とカメラをローカルノートへ保存する
+  OK  既存ノートはカメラだけを動かした場合も自動保存する
+  OK  再読込後もキャンバス、カメラ、数式ブロックを復元する
+  OK  変換候補はキャンバス上でも対象blockの外・viewport内へ追従する
+  OK  canvasの新規/既存blockでも変換caretはbody overlayでblock内を追従する
+  OK  canvas zoom後も変換caretは原点へ飛ばず対象blockに残る
+  OK  canvasで2個目blockを作っても可視caretは新しい入力先の1本だけ
+  OK  360px canvasの左端blockでも候補先頭はclipせず、block外に出る
+  OK  360px canvasの右端blockでも候補末尾までviewport内で読める
+  OK  360pxでも×は44pxの操作領域で数式欄と重ならない
+  OK  既存canvasの最後の×削除は0 blockとして保存・再読込できる
+  OK  新しいノートへ切り替えると旧候補tray・raw・ownerを残さない
+  OK  画面エラーなし
+
+=== RESULT: 24 passed, 0 failed ===
+✔ tests\canvas-board.test.mjs (4727.805ms)
+  OK  行表示を挟んだノート変更後もcanvas座標・自由配置・cameraを復元する
+  OK  canvas表示で保存するlayout.blocksは旧クライアント用の本文も残す
+  OK  zoom/pan後も変換caretは数式block内を指す
+  OK  ヘッダーの行/キャンバス切替で表示モードを直接変更できる
+  OK  基本設定は固定760pxではなく内容量に合わせる
+  OK  360pxでは上部ノート操作を一行のアイコンへ収める
+
+=== RESULT: PASS (0 failures) ===
+✔ tests\canvas-layout-persistence.test.mjs (2023.7677ms)
+  OK  06/1024px: 初期canvas blockと×がviewport内
+  OK  06/1024px: 端のclick/tapで作るblockも×を含めviewport内
+  OK  06/1024px: 狭幅補正はcameraと保存座標を変えない
+  OK  06/1024px: viewport内の×でblockを削除できる
+  OK  08/1024px: 初期canvas blockと×がviewport内
+  OK  08/1024px: 端のclick/tapで作るblockも×を含めviewport内
+  OK  08/1024px: 狭幅補正はcameraと保存座標を変えない
+  OK  08/1024px: viewport内の×でblockを削除できる
+  OK  09/1024px: 初期canvas blockと×がviewport内
+  OK  09/1024px: 端のclick/tapで作るblockも×を含めviewport内
+  OK  09/1024px: 狭幅補正はcameraと保存座標を変えない
+  OK  09/1024px: viewport内の×でblockを削除できる
+  OK  13/1024px: 初期canvas blockと×がviewport内
+  OK  13/1024px: 端のclick/tapで作るblockも×を含めviewport内
+  OK  13/1024px: 狭幅補正はcameraと保存座標を変えない
+  OK  13/1024px: viewport内の×でblockを削除できる
+  OK  18/1024px: 初期canvas blockと×がviewport内
+  OK  18/1024px: 端のclick/tapで作るblockも×を含めviewport内
+  OK  18/1024px: 狭幅補正はcameraと保存座標を変えない
+  OK  18/1024px: viewport内の×でblockを削除できる
+  OK  1024px: 画面エラーなし
+  OK  06/736px: 初期canvas blockと×がviewport内
+  OK  06/736px: 端のclick/tapで作るblockも×を含めviewport内
+  OK  06/736px: 狭幅補正はcameraと保存座標を変えない
+  OK  06/736px: viewport内の×でblockを削除できる
+  OK  08/736px: 初期canvas blockと×がviewport内
+  OK  08/736px: 端のclick/tapで作るblockも×を含めviewport内
+  OK  08/736px: 狭幅補正はcameraと保存座標を変えない
+  OK  08/736px: viewport内の×でblockを削除できる
+  OK  09/736px: 初期canvas blockと×がviewport内
+  OK  09/736px: 端のclick/tapで作るblockも×を含めviewport内
+  OK  09/736px: 狭幅補正はcameraと保存座標を変えない
+  OK  09/736px: viewport内の×でblockを削除できる
+  OK  13/736px: 初期canvas blockと×がviewport内
+  OK  13/736px: 端のclick/tapで作るblockも×を含めviewport内
+  OK  13/736px: 狭幅補正はcameraと保存座標を変えない
+  OK  13/736px: viewport内の×でblockを削除できる
+  OK  18/736px: 初期canvas blockと×がviewport内
+  OK  18/736px: 端のclick/tapで作るblockも×を含めviewport内
+  OK  18/736px: 狭幅補正はcameraと保存座標を変えない
+  OK  18/736px: viewport内の×でblockを削除できる
+  OK  736px: 画面エラーなし
+  OK  06/360px: 初期canvas blockと×がviewport内
+  OK  06/360px: 端のclick/tapで作るblockも×を含めviewport内
+  OK  06/360px: 狭幅補正はcameraと保存座標を変えない
+  OK  06/360px: viewport内の×でblockを削除できる
+  OK  08/360px: 初期canvas blockと×がviewport内
+  OK  08/360px: 端のclick/tapで作るblockも×を含めviewport内
+  OK  08/360px: 狭幅補正はcameraと保存座標を変えない
+  OK  08/360px: viewport内の×でblockを削除できる
+  OK  09/360px: 初期canvas blockと×がviewport内
+  OK  09/360px: 端のclick/tapで作るblockも×を含めviewport内
+  OK  09/360px: 狭幅補正はcameraと保存座標を変えない
+  OK  09/360px: viewport内の×でblockを削除できる
+  OK  13/360px: 初期canvas blockと×がviewport内
+  OK  13/360px: 端のclick/tapで作るblockも×を含めviewport内
+  OK  13/360px: 狭幅補正はcameraと保存座標を変えない
+  OK  13/360px: viewport内の×でblockを削除できる
+  OK  18/360px: 初期canvas blockと×がviewport内
+  OK  18/360px: 端のclick/tapで作るblockも×を含めviewport内
+  OK  18/360px: 狭幅補正はcameraと保存座標を変えない
+  OK  18/360px: viewport内の×でblockを削除できる
+  OK  360px: 画面エラーなし
+
+=== RESULT: 63 passed, 0 failed ===
+✔ tests\canvas-narrow-blocks.test.mjs (16718.179ms)
+
+== 1. 表記ゆれと読み途中 ==
+  OK  カタカナをひらがなへ寄せる
+  OK  全角ローマ字は英語aliasとして正規化する
+  OK  既定aliasに漢字はなく、空候補もない
+  OK  既定aliasは候補ごとに正規化後も重複しない
+  OK  既定候補は高校数学・大学受験の採用範囲だけで、単元タグを必ず持つ
+  OK  既定候補は全単元I・A・II・B・III・Cを横断している
+  OK  読み途中でも候補を出す
+
+== 1b. SHIKITYPE専用ローマ字入力 ==
+  OK  sは未確定のまま待機する
+  OK  未確定子音も候補検索用にかなの語頭へ展開する
+  OK  siとshiはどちらも し
+  OK  sigumaは しぐま
+  OK  sekibunは せきぶん
+  OK  登録済みの英語記号名は最後まで打つと和英混在せずに読みへ揃う
+  OK  nとnnはどちらもんとして候補検索できる
+  OK  逐次入力でもnからna/ni/nyaへ正しく伸びる
+  OK  nnaとannaはんを重ねずに変換する
+  OK  konnichihaはこんにちは
+  OK  子音前のn/nnは一つの撥音として同じ読みになる
+  OK  語中のn/nnは接続語でも二重撥音にならない
+  OK  nnは母音/y境界では次の音節を残す
+  OK  kkは促音を確定して次のkを待機する
+  OK  kyoは拗音になる
+  OK  じょうは標準の別綴りでも同じ読みになる
+  OK  拗音・小書きかなの別綴りを共通の読みへ寄せる
+  OK  カタカナ直接入力をひらがなへ寄せる
+  OK  漢字の直接入力はユーザー辞書互換のため読みとして保持する
+
+== 2. 指定語とΣ/∑の区別 ==
+  OK  しぐま の既定1位はギリシャ文字Σ
+  OK  そうわ の既定1位はギリシャ文字Σ
+  OK  わ の既定1位はギリシャ文字Σ
+  OK  すうれつのわ の既定1位はギリシャ文字Σ
+  OK  そうわ の既定1位はギリシャ文字Σ
+  OK  わ の既定1位はギリシャ文字Σ
+  OK  すうれつのわ の既定1位はギリシャ文字Σ
+  OK  souwa の逐次ローマ字読みもΣを先頭候補にする
+  OK  wa の逐次ローマ字読みもΣを先頭候補にする
+  OK  suuretsunowa の逐次ローマ字読みもΣを先頭候補にする
+  OK  せきぶんの既定1位は∫
+  OK  インテグラルの既定1位は∫
+  OK  integralの英字入力も∫を先頭候補にする
+  OK  pa-sento相当の長音なし読みも既定%候補へ正規化して届く
+  OK  jyou/zyouの累乗読みも既定候補へ届く
+  OK  途中のテグだけではインテグラルを予測しない
+  OK  そうわ は既定候補を維持する
+  OK  すうれつのわ は既定候補を維持する
+  OK  せきぶん は既定候補を維持する
+  OK  きょくげん は既定候補を維持する
+  OK  へいほうこん は既定候補を維持する
+  OK  かくりつ は既定候補を維持する
+  OK  きたいち は既定候補を維持する
+  OK  Σと∑は別の安定IDで候補に共存する
+  OK  大学専門寄り・低頻度の候補は既定辞書に出さない
+  OK  既存CSVで明示した旧候補IDは互換枠として再有効化できる
+
+== 3. 学習順位と手動順位 ==
+  OK  同じ読みで選んだ履歴が順位へ反映される
+  OK  手動の最上位指定が既定順位を上書きする
+  OK  手動順位は200回超の学習より必ず優先する
+  OK  学習回数は上限200を超えない
+  OK  手動順位のリセットで初期順位へ戻る
+
+== 4. 保存値の移行・破損耐性 ==
+  OK  旧版相当の有効な学習値だけを復元する
+  OK  手動順位の未知候補を捨てて既知候補だけ保持する
+
+=== RESULT: 59 passed, 0 failed ===
+✔ tests\conversion-core.test.mjs (67.9576ms)
+
+== 1. CSVの読込とカスタム候補 ==
+  OK  BOMとCRLFを受け入れ、1読み1行を候補へまとめる
+  OK  新規候補と既定候補へのalias追加が候補順位に反映される
+  OK  ユーザーCSVの漢字readingは自動変換しない
+
+== 2. 既定aliasの削除と部分拒否 ==
+  OK  候補単位の削除トゥームストーンだけを適用する
+  OK  不正行は既存のカスタム候補を壊さない
+  OK  削除したcustom aliasも同じupsertで復活できる
+
+== 3. 引用符・カンマ・全置換の可逆性 ==
+  OK  RFC4180の引用符とカンマをセル内で扱う
+  OK  export→replace importで有効なカスタム辞書を復元する
+  OK  exportは式として開始するセルを保護する
+  OK  既定CSVのreading列に漢字は残らない
+
+== 4. 壊れたCSVは状態を保持して拒否する ==
+  OK  閉じていない引用符は行番号付きで拒否し、既存状態を残す
+  OK  CSV parserはCRLFを行として数える
+  OK  引用符内でも制御文字を含むreadingは開始行付きで拒否する
+
+=== RESULT: 13 passed, 0 failed ===
+✔ tests\conversion-dictionary.test.mjs (56.9818ms)
+
+== 変換層だけの専用IME・途中候補 ==
+  OK  変換層のx一打は小文字xを絶対先頭候補にする
+  OK  x → Enterで小文字xを確定する
+  OK  p一打は小文字p・大文字P・対応するπの順にする
+  OK  p → Enterで小文字pを確定する
+  OK  a一打は小文字・大文字・対応ギリシャ文字の順
+  OK  既定受験辞書外のξもxの3番目候補に補う
+  OK  Shift+Aは打鍵面の大文字を先頭にし、小文字・ギリシャを続ける
+  OK  Shift+A → Enterで大文字Aを確定する
+  OK  行頭のしたつきは孤立構造を作らないため候補に出さない
+  OK  直前の項があるしたつきは空の下付き構造候補を一つだけ出す
+  OK  したつきを確定するとxの下付き欄を開く
+  OK  JIS Shift+1で!を直接入力する
+  OK  -とShift+-で-と=を直接入力する
+  OK  JIS Shift+8で括弧構造を直接開く
+  OK  jyouでも累乗候補を出す
+  OK  zyouでも累乗候補を出す
+  OK  物理Spaceは変換中に候補選択を開始し数式空白を入れない
+  OK  変換中の物理Spaceをもう一度押すと次候補へ進む
+  OK  Space候補送り後は選択中候補を確定できる
+  OK  画面Space相当も変換中は候補選択を開始し数式空白を入れない
+  OK  画面Space相当をもう一度押すと次候補へ進む
+  OK  画面Space候補送り後は選択中候補を確定できる
+  OK  変換入力が無い通常の物理Spaceは細い数式空白を入れる
+  OK  行モードは位置追従rAF前でも候補trayのowner rowを設定する
+  OK  行モードの候補トレイはcaret直下かつ編集面の左右内に収まる
+  OK  360px行モードでも候補トレイは編集面の左右にclipしない
+  OK  変換層のpaiはπ候補を出す
+  OK  変換層のpai → Enterでπを確定する
+  OK  pasentoは入力途中から%候補を保持する
+  OK  pasento → Enterで%を確定する
+  OK  変換層のintegralは∫候補を出す
+  OK  変換層の∫を確定する
+  OK  変換層のlimはlim候補を出す
+  OK  gは積分の語中一致で候補を出さない
+  OK  guは積分の語中一致で候補を出さない
+  OK  teguは積分の語中一致で候補を出さない
+  OK  iは積分aliasの語頭として候補を出す
+  OK  inは積分aliasの語頭として候補を出す
+  OK  inteは積分aliasの語頭として候補を出す
+  OK  integralは積分aliasの語頭として候補を出す
+  OK  sは積分aliasの語頭として候補を出す
+  OK  sekiは積分aliasの語頭として候補を出す
+  OK  sekibunは積分aliasの語頭として候補を出す
+  OK  Tabでも別入力層へ移らず候補選択を開始する
+  OK  通常数式は非編集proxyへfocusを置きMathLiveへ置かない
+  OK  日本語IME相当Processキーもcode由来英字integralとして∫候補を出す
+  OK  proxy中のcomposition文字は数式にもrawにも混入しない
+  OK  文内physical SpaceはOS標準の文章空白として残る
+  OK  文内画面Space相当も通常の文章空白として残る
+  OK  独立した文キー内だけはMathLiveへfocusして標準IMEを許可する
+  OK  文内のIME確定中Enterは文を閉じず標準入力へ渡す
+  OK  文内の通常Enterだけは文を閉じ、次行を作らずproxyへ戻る
+  OK  文内画面Enter相当も文を閉じてproxyへ戻る
+  OK  文内Escapeは標準IMEへ渡しつつパレットを開かず文を維持する
+  OK  文内Meta+Vをアプリ側でpreventしない
+
+55 passed, 0 failed
+✔ tests\conversion-input.test.mjs (6275.2345ms)
+
+== SHIKITYPE structural conversion actions ==
+  OK  bunno は fraction-structure の候補を出す
+  OK  2 → ぶんの は直前項を分母にして分子へ入る
+  OK  2 → ぶんの → 1 は 1/2 になり、Enterで構造を閉じられる
+  OK  x は latin-lower-x の候補を出す
+  OK  jou は power の候補を出す
+  OK  x → じょう は直前のxに上付きスロットを開く
+  OK  x は latin-lower-x の候補を出す
+  OK  njou は power-n の候補を出す
+  OK  x → nじょう はnを上付きに事前入力する
+  OK  x は latin-lower-x の候補を出す
+  OK  xjou は power-x の候補を出す
+  OK  x → xじょう はxを上付きに事前入力する
+  OK  sqrt は sqrt の候補を出す
+  OK  sqrt候補は根号スロットを開く
+  OK  absolute は absolute の候補を出す
+  OK  absolute候補は絶対値スロットを開く
+  OK  paren は parentheses の候補を出す
+  OK  paren候補は括弧スロットを開く
+  OK  souwakigou は sum-operator の候補を出す
+  OK  総和記号候補は下限→上限を編集できる
+  OK  integral は integral の候補を出す
+  OK  積分候補は下限→上限を編集できる
+  OK  lim は limit の候補を出す
+  OK  n は latin-lower-n の候補を出す
+  OK  lim候補は極限の下付きスロットを開く
+  OK  sqrt は sqrt の候補を出す
+  OK  空の構造候補はBackspace一回で取り消せる
+
+27 passed, 0 failed
+✔ tests\conversion-structured-actions.test.mjs (3445.5113ms)
+
+== 変換層だけの専用IME・途中候補 ==
+  OK  変換層のx一打は小文字xを絶対先頭候補にする
+  OK  x → Enterで小文字xを確定する
+  OK  p一打は小文字p・大文字P・対応するπの順にする
+  OK  p → Enterで小文字pを確定する
+  OK  a一打は小文字・大文字・対応ギリシャ文字の順
+  OK  既定受験辞書外のξもxの3番目候補に補う
+  OK  Shift+Aは打鍵面の大文字を先頭にし、小文字・ギリシャを続ける
+  OK  Shift+A → Enterで大文字Aを確定する
+  OK  行頭のしたつきは孤立構造を作らないため候補に出さない
+  OK  直前の項があるしたつきは空の下付き構造候補を一つだけ出す
+  OK  したつきを確定するとxの下付き欄を開く
+  OK  JIS Shift+1で!を直接入力する
+  OK  -とShift+-で-と=を直接入力する
+  OK  JIS Shift+8で括弧構造を直接開く
+  OK  jyouでも累乗候補を出す
+  OK  zyouでも累乗候補を出す
+  OK  物理Spaceは変換中に候補選択を開始し数式空白を入れない
+  OK  変換中の物理Spaceをもう一度押すと次候補へ進む
+  OK  Space候補送り後は選択中候補を確定できる
+  OK  画面Space相当も変換中は候補選択を開始し数式空白を入れない
+  OK  画面Space相当をもう一度押すと次候補へ進む
+  OK  画面Space候補送り後は選択中候補を確定できる
+  OK  変換入力が無い通常の物理Spaceは細い数式空白を入れる
+  OK  行モードは位置追従rAF前でも候補trayのowner rowを設定する
+  OK  行モードの候補トレイはcaret直下かつ編集面の左右内に収まる
+  OK  360px行モードでも候補トレイは編集面の左右にclipしない
+  OK  変換層のpaiはπ候補を出す
+  OK  変換層のpai → Enterでπを確定する
+  OK  pasentoは入力途中から%候補を保持する
+  OK  pasento → Enterで%を確定する
+  OK  変換層のintegralは∫候補を出す
+  OK  変換層の∫を確定する
+  OK  変換層のlimはlim候補を出す
+  OK  gは積分の語中一致で候補を出さない
+  OK  guは積分の語中一致で候補を出さない
+  OK  teguは積分の語中一致で候補を出さない
+  OK  iは積分aliasの語頭として候補を出す
+  OK  inは積分aliasの語頭として候補を出す
+  OK  inteは積分aliasの語頭として候補を出す
+  OK  integralは積分aliasの語頭として候補を出す
+  OK  sは積分aliasの語頭として候補を出す
+  OK  sekiは積分aliasの語頭として候補を出す
+  OK  sekibunは積分aliasの語頭として候補を出す
+  OK  Tabでも別入力層へ移らず候補選択を開始する
+  OK  通常数式は非編集proxyへfocusを置きMathLiveへ置かない
+  OK  日本語IME相当Processキーもcode由来英字integralとして∫候補を出す
+  OK  proxy中のcomposition文字は数式にもrawにも混入しない
+  OK  文内physical SpaceはOS標準の文章空白として残る
+  OK  文内画面Space相当も通常の文章空白として残る
+  OK  独立した文キー内だけはMathLiveへfocusして標準IMEを許可する
+  OK  文内のIME確定中Enterは文を閉じず標準入力へ渡す
+  OK  文内の通常Enterだけは文を閉じ、次行を作らずproxyへ戻る
+  OK  文内画面Enter相当も文を閉じてproxyへ戻る
+  OK  文内Escapeは標準IMEへ渡しつつパレットを開かず文を維持する
+  OK  文内Meta+Vをアプリ側でpreventしない
+
+55 passed, 0 failed
+✔ tests\conversion-unified-buffer.test.mjs (6199.309ms)
+  OK  削除レールは表示後に実寸の高さを持つ（0のまま固まらない）
+  OK  妥当な行を入力すると保存ボタンが有効になる
+  OK  表からの追加が読み辞書へ反映される（往復不要）
+  OK  行を消しても一覧は先頭へ飛ばない
+  OK  読み追加は直下複製かつ読みだけ空にする
+  OK  読み追加後は複製行の読み欄へフォーカスする
+  OK  検索欄で行を絞り込める
+  OK  単体HTMLの自己診断は全通過（このチケットで一切変更していない）
+  OK  単体HTMLは単独でサンプルCSVを読み込める
+  OK  単体HTMLにページエラーなし
+  OK  設定パネル側にもページエラーなし
+
+=== RESULT: 11 passed, 0 failed ===
+✔ tests\dictionary-table-panel.test.mjs (4238.631ms)
+
+== empty structure arrow exit ==
+  OK  empty integral can be removed after ArrowRight exit
+  OK  empty integral can be removed after advancing to its second slot then ArrowRight exit
+  OK  a non-empty integral is erased wholesale after ArrowRight exit
+  OK  empty power can be cancelled after ArrowRight exit
+
+== empty structure row exit ==
+  OK  empty integral can be removed after leaving and returning to its row
+  OK  empty second-slot integral remains removable after a row round trip
+
+== empty structure Enter exit ==
+  OK  empty integral can be removed after Enter closes its slots
+
+=== RESULT: PASS ===
+✔ tests\empty-structure-exit.test.mjs (2609.4518ms)
+
+== 1. structured Backspace after arrow movement ==
+  OK  setup: (xyz) after arrow out
+  OK  arrow-out + Backspace removes the whole completed structure
+      [probe] after arrow-out Backspace: ""
+  OK  arrow-in + Backspace deletes one char inside (not whole)
+  OK  setup: fraction with + in denominator
+      [probe] after 1st Backspace: "\\dfrac{1}{}"
+  OK  fraction denominator + then Backspace removes only "+" (structure kept)
+  OK  second Backspace in empty denominator steps back (structure kept or removed cleanly)
+  OK  plain end-of-text Backspace still deletes one atom
+
+== 2. elapsed time keeps ticking without keystrokes ==
+  OK  elapsed advances without any keystroke
+
+== 3. key capture mode ==
+  OK  default mode is accessible
+  OK  F2 opens settings sidebar
+  OK  focus moves into sidebar on F2 open
+  OK  F4 toggles key guide collapse
+  OK  F9 cycles theme forward
+  OK  F8 cycles theme backward (back to original)
+  OK  original mode ignores F2
+  OK  capture mode choices exist in sidebar
+  OK  original selectable from sidebar and marked active
+  OK  switching back to accessible works
+  OK  mode persists to localStorage
+  OK  mode survives reload
+
+== 4. consistency ==
+  OK  no [stack-mismatch] warnings during the whole run
+
+=== RESULT: 21 passed, 0 failed ===
+✔ tests\fix-regression.test.mjs (5796.6524ms)
+
+== text candidate ==
+  OK  ぶんしょう → Enter opens native text entry
+  OK  text candidate closes normally and keeps text
+
+== one block line break ==
+  OK  Shift+Enter keeps one block and creates MathLive line break
+
+== selection and Mac undo ==
+  OK  Shift+Arrow selects an atom in the formula
+  OK  Shift+Arrowの方向を反転すると選択が一項ずつ縮む
+  OK  Cmd+Z undoes the latest formula edit
+
+== selection copy clears block copy mode ==
+  OK  Shift+Left 2回で末尾2項を可視選択する
+  OK  逆向き選択でも実際のClipboard APIへ選択式23を書き込む
+  OK  部分コピー後のCmd+Vは古いblockを増やさず選択範囲へ貼り付ける
+
+=== RESULT: PASS ===
+✔ tests\input-basics-regression.test.mjs (2900.9272ms)
+
+== Shift+Digit8/9 で丸括弧 ==
+  OK  Shift+8 → 5 → Shift+9 で (5)
+
+== Shift+BracketLeft/Right で中括弧 ==
+  OK  Shift+[ → 3 → Shift+] で {3}
+
+== 変換方式の読み"paren"→Enterでも丸括弧が開ける（JIS物理キーとは別経路で併存） ==
+  OK  paren → Enter → 7 → Enter で (7)
+
+== Shiftなしの Digit8/9 は従来どおり数字 ==
+  OK  Shiftなしは数字の89のまま
+
+=== RESULT: 4 passed, 0 failed ===
+✔ tests\jis-bracket-shortcuts.test.mjs (2667.8185ms)
+
+== 新規ノート→行モードで入力→キャンバスへ切替→編集→Ctrl+Zを戻し切る ==
+  OK  新規ノートは行モードで始まる
+  OK  キャンバスへ切り替わった
+  OK  キャンバスでの編集後の内容(ab)
+  OK  1回目のCtrl+Zでキャンバス編集(b)を取り消し、内容はaに戻る
+  OK  取り消し後もキャンバス表示のまま（表示モードは編集ではなく取り消し対象外）
+  OK  2回目のCtrl+Zで行モードでの入力(a)も取り消し、内容は空になる
+  OK  切替前のスナップショットまで戻ってもlayoutModeはcanvasのまま（段階2の申し送りバグの修正）
+  OK  #editor-sheetの見た目もcanvas-modeのまま
+  OK  JSエラーなし
+
+9件 OK / 0件 FAIL
+✔ tests\layoutmode-undo.test.mjs (3452.7309ms)
+
+== 1. ブロック単位のLaTeXコピー（最優先要件） ==
+  OK  行のTeXボタンでその式のLaTeXがクリップボードへコピーされる
+  OK  コピー後にボタンへ完了フィードバックが出る
+  OK  フィードバックは一定時間で元の表示(TeX)へ戻る
+
+== 2. 行モードでノート全体をLaTeXとしてコピー ==
+  OK  書き出しメニューが開く
+  OK  行の並び順どおりに\[ ... \]で書き出す
+
+== 3. canvasモードでは配置ではなく読み順（上→下・左→右）で書き出す ==
+  OK  サイドバー操作の後は書き出しメニューが閉じており、再度開き直せる
+  OK  yが小さい(上にある)ブロックが先に来る（座標は捨てて読み順だけ引き継ぐ）
+
+== 4. ノート全体を.texファイルとしてダウンロード ==
+  OK  .tex拡張子でダウンロードされる
+  OK  ダウンロードした中身もクリップボードと同じLaTeXテキスト
+  OK  画面エラーなし
+
+=== RESULT: 10 passed, 0 failed ===
+✔ tests\note-latex-export.test.mjs (4027.0133ms)
+  OK  360x740: 全単元の新規ノートは内容高で収まり、作成を常に押せる
+  OK  360x740: 数III選択後も作成操作が画面内に残る
+  OK  360x740: 撤去済みキーガイドの単元表示導線を表示しない
+  OK  360x800: 全単元の新規ノートは内容高で収まり、作成を常に押せる
+  OK  360x800: 数III選択後も作成操作が画面内に残る
+  OK  360x800: 撤去済みキーガイドの単元表示導線を表示しない
+  OK  1024x800: 全単元の新規ノートは内容高で収まり、作成を常に押せる
+  OK  1024x800: 数III選択後も作成操作が画面内に残る
+  OK  1024x800: 撤去済みキーガイドの単元表示導線を表示しない
+
+=== RESULT: 9 passed, 0 failed ===
+✔ tests\note-modal-sizing.test.mjs (4717.9143ms)
+  OK  分数yと2行目zを自動保存する
+  OK  履歴から2行ノートを復元する
+  OK  新しい括弧と復元分数の混在で1要素だけを戻し、分数と2行目を残す
+  OK  混在操作列でstack-mismatch警告を出さない
+  OK  混在操作列でconsole errorを出さない
+
+=== RESULT: 5 passed, 0 failed ===
+✔ tests\notes-mixed-stack-restore.test.mjs (2696.0368ms)
+  OK  複数行の数式を版付き形式で自動保存する
+  OK  新しいノートは白紙を保存せず統計をリセットする
+  OK  過去のノートはアコーディオンで更新順に展開する
+  OK  選択したノートの全行を復元する
+  OK  再読込後も選択中ノートを復元する
+  OK  復元した括弧をBackspaceしても行全体を失わない
+
+=== RESULT: 6 passed, 0 failed ===
+✔ tests\notes-storage.test.mjs (3842.991ms)
+  OK  分数と括弧を含むノートを保存する
+  OK  復元後の矢印＋Backspaceは式全体を消さず分母の1要素だけを削除する
+  OK  復元後の矢印＋Backspaceでstack-mismatch警告を出さない
+  OK  復元後の矢印＋Backspaceでconsole errorを出さない
+
+=== RESULT: 4 passed, 0 failed ===
+✔ tests\notes-structured-restore.test.mjs (3070.8167ms)
+  OK  2件のノートが別IDで保存されている
+
+== 1. 名前を付ける（未設定は自動プレビューのまま） ==
+  OK  名前未設定は中身からの自動プレビュー
+  OK  名前を保存する
+  OK  一覧の表示も新しい名前になる
+
+== 2. 名前・中身での絞り込み ==
+  OK  中身(beta)で絞り込むとノートBだけが残る
+  OK  名前(テスト用)で絞り込むとノートAだけが残る
+  OK  一致しないときは0件専用の空状態文言を出す
+  OK  絞り込みを消すと両方戻る
+
+== 3. 削除はソフトデリート（ゴミ箱経由で復元できる） ==
+  OK  削除直後は一覧から消える
+  OK  データとしては物理削除されず、deletedAtが立つだけ（誤削除が戻せる）
+  OK  ゴミ箱に削除したノートが出る
+  OK  「元に戻す」でdeletedAtが外れる
+  OK  復元後は通常の一覧に戻る
+
+== 4. 表示中のノートを削除すると別ノートへ切り替わる ==
+  OK  ノートAを開いた
+  OK  表示中ノートを削除すると別の生存ノートへ自動で切り替わる（編集面が削除済みノートを表示し続けない）
+
+== 5. ゴミ箱からの完全削除は確認を挟み、実行後は本当に消える ==
+  OK  完全削除の前に確認ダイアログを挟む
+  OK  確認を承認すると本当にstoreから消える
+  OK  画面エラーなし
+
+=== RESULT: 18 passed, 0 failed ===
+✔ tests\notes-title-delete-filter.test.mjs (4333.4268ms)
+  OK  パレット選択後も次の物理キーを入力できる
+  OK  (mod n) は \pmod{n} として挿入される
+  OK  (mod n) 選択後も次の物理キーを入力できる
+  OK  画面エラーなし
+
+=== RESULT: passed ===
+✔ tests\palette-focus-regression.test.mjs (1940.7697ms)
+
+== current conversion structural contract ==
+  OK  paren は parentheses の候補を出す
+  OK  括弧候補はEnterで閉じ、本文を保つ
+  OK  bunno は fraction-structure の候補を出す
+  OK  直前項を分母にする分数候補は本文とslotを保つ
+  OK  x は latin-lower-x の候補を出す
+  OK  jou は power の候補を出す
+  OK  累乗候補は直前項の上付きとして確定する
+  OK  Shift+Enterは同一blockで改行する
+  OK  integral は integral の候補を出す
+  OK  構造の外のBackspaceは中身のある積分を一打で消す
+  OK  構造が無いEnterは次の行を作る
+
+=== RESULT: 11 passed, 0 failed ===
+✔ tests\pass1.test.mjs (2158.747ms)
+
+== 確定候補のBackspaceは通常の数式削除 ==
+  OK  tannjentoもtan候補へ届く
+  OK  tan候補が確定する
+  OK  tan確定直後のBackspaceは読みを復元せずtan全体を消す
+  OK  積分候補が構造として確定する
+  OK  構造候補でもBackspaceは再変換せず構造を削除する
+  OK  画面エラーなし
+
+=== RESULT: 6 passed, 0 failed ===
+✔ tests\reconvert.test.mjs (2007.1543ms)
+  OK  行ごとのIDを保存する
+  OK  再読み込み後もブロックIDを維持する
+  OK  見直し結果面は初期表示で完全に隠れる
+  OK  未ログイン時はログイン導線を出す
+  OK  Shift+Tabは見直しモーダル内を循環する
+  OK  Tabは見直しモーダル内を循環する
+  OK  見直しモーダル内の文字入力を数式IMEへ漏らさない
+  OK  ログイン導線で入力を保持したままアカウント画面へ移る
+  OK  Escape後は元の数式へフォーカスを戻す
+  OK  狭幅でも見直しモーダルを横スクロールさせない
+  OK  結果の末尾から一覧へ戻ると、実スクロール領域を先頭へ戻して見出しを表示する
+  OK  閉じた入力面を開き直しても、問題文へフォーカスしつつ見出しから読める
+
+=== RESULT: 12 passed, 0 failed ===
+✔ tests\review-ui.test.mjs (3578.1216ms)
+  OK  行3/5でEnterすると直後の4番へ挿入する
+  OK  行モードではblock削除ボタンを表示しない
+  OK  空blockのBackspaceは行を削除し前のblockへfocusする
+  OK  行末のArrowRightは次行の先頭へ移る
+  OK  行頭のArrowLeftは前行の末尾へ移る
+  OK  キャンバスではArrowRightを行順の横移動へ変えない
+  OK  行モードの最後の空blockはBackspaceでも入力先として残す
+  OK  画面エラーなし
+
+=== RESULT: 8 passed, 0 failed ===
+✔ tests\row-block-controls.test.mjs (1733.0459ms)
+
+== 未ログイン（ローカル保存）==
+  OK  初期表示は保存中/保存済みを騙らない（中立表示）
+  OK  編集直後、書き込みが終わるまでは「保存中」を示す
+  OK  遅延書き込みが終わると「保存済み」を示す
+  OK  画面エラーなし
+
+=== RESULT: 4 passed, 0 failed ===
+✔ tests\save-indicator.test.mjs (2588.8996ms)
+  OK  SHIKITYPEは左ブランドだけに残し、常設テーマ一覧を置かない
+  OK  ユーザー向け名称を設定へ統一
+  OK  デザインは設定内だけに5件ある
+  OK  設定からデザインを切替できる
+  OK  1024pxで左のノート・設定操作が画面内にある
+  OK  736pxで左のノート・設定操作が画面内にある
+  OK  360pxで左のノート・設定操作が画面内にある
+  OK  畳むと左レールを完全に隠し中央の開閉ボタンだけを残す
+
+=== RESULT: 8 passed, 0 failed ===
+✔ tests\settings-enhancements.test.mjs (2033.7596ms)
+  OK  既定辞書は100件以上かつIDが一意
+  OK  CSV相当の重複IDを既定候補へ重ねない
+  OK  辞書には単英字の小文字候補を持ち、変換UIが先頭固定に利用できる
+  OK  変換入力はproxy focusのまま視覚caretを出す
+  OK  行modeの変換数式は可視caretを常に1本だけにする
+  OK  変換中のcaretとASCII previewが維持される
+  OK  設定はnative modalで、カテゴリ所属とcaret遮蔽を保つ
+  OK  基本設定の現在値は濃色・選択中表示・段差で明確に判別できる
+  OK  設定modal中のTabは数式層を奪わず次の設定操作へ進む
+  OK  変換順位はbounded listで全辞書を縦積みしない
+  OK  設定検索でCSV節へ移動して一時強調する
+  OK  Escで閉じて数式proxy/caretへ戻る
+  OK  modalを閉じた変換数式はcaretを1本だけ復帰する
+  OK  文入力中は変換caretを表示しない
+  OK  文を閉じると変換caretを1本だけ再表示する
+  OK  狭幅はカテゴリnavを上部tabsへ再配置し横overflowしない
+  OK  ページエラーなし
+
+=== RESULT: 17 passed, 0 failed ===
+✔ tests\settings-modal-caret-dictionary.test.mjs (2276.2543ms)
+
+== SHIKITYPE専用UIと文章 ==
+  OK  SHIKITYPE変換だけを使いキーガイド・入力方式・キー割当を出さない
+  OK  文キーは標準文章入力を開く
+  OK  文の内容を保持してEnterで閉じる
+  OK  文の中だけCtrl+Vを標準テキスト貼り付けへ渡す
+
+== キャンバス画像貼り付け ==
+  OK  画像貼り付けをブラウザ既定へ流さずキャンバスブロックにする
+  OK  貼り付け画像をノートのlayoutへ保存する
+
+6 passed, 0 failed
+✔ tests\shikitype-text-image-paste.test.mjs (2402.2633ms)
+
+== Enter advances exactly one structural level ==
+  OK  paren に parentheses が出る
+  OK  physical Enter closes parenthesis without creating a row
+  OK  sqrt に sqrt が出る
+  OK  physical Enter closes an open root without creating a row
+  OK  integral に integral が出る
+  OK  integral first Enter advances lower to upper
+  OK  integral second Enter closes only integral and stays in its row
+
+== Space does not advance structures; Shift+Enter adds a line in the same block ==
+  OK  paren に parentheses が出る
+  OK  physical Space does not close an open structure
+  OK  Shift+Enter keeps the structure closed and adds a line in the same block
+
+== ぶんすう offers three distinct, keyboard-selectable fraction actions ==
+  OK  ぶんすう shows all three choices together
+  OK  fraction choices use only their structural labels
+  OK  bunsuu に fraction が出る
+  OK  a/□ keeps the previous term as numerator and enters denominator
+  OK  bunsuu に fraction-structure が出る
+  OK  □/a keeps the previous term as denominator and enters numerator
+  OK  bunsuu に fraction-empty が出る
+  OK  □/□ first Enter advances numerator to denominator
+  OK  □/□ second Enter closes fraction in the same row
+  OK  Backspace after closing the fraction removes the closed structure
+
+== text remains an explicit non-row Enter close ==
+  OK  text Enter closes text and does not create a row
+
+21 passed, 0 failed
+✔ tests\structural-enter-fractions.test.mjs (3032.9127ms)
+
+== empty structural contract ==
+  OK  積分は空のまま構造外へ出てもBackspace一回で丸ごと消える
+  OK  分数は空のまま構造外へ出てもBackspace一回で丸ごと消える
+  OK  丸括弧は空のまま構造外へ出てもBackspace一回で丸ごと消える
+  OK  根号は空のまま構造外へ出てもBackspace一回で丸ごと消える
+  OK  絶対値は空のまま構造外へ出てもBackspace一回で丸ごと消える
+  OK  総和は空のまま構造外へ出てもBackspace一回で丸ごと消える
+  OK  空の累乗は基底xを残して消える
+  OK  空の下付きは基底xを残して消える
+  OK  Enterで閉じた空括弧も左右どちらも残さず消える
+  OK  中身のある積分も構造の外側なら一打で全消去する
+  OK  括弧は別行への往復後も空なら丸ごと消える
+  OK  分数は別行への往復後も空なら丸ごと消える
+
+== canvas order and measured reflow ==
+  OK  canvasでも2行目Enterは新しい3行目を挿入し、旧3/4行目を後ろへ送る
+  OK  縦長の数式後の自動配置blockは実寸+余白で重ならない
+  OK  長式は紙面を実幅+操作余白まで伸ばし、1600pxで切らない
+  OK  canvas blockのdrag後も変換caretは移動先の数式blockへ追従する
+  OK  drag済みblockはcanvasFlowがfalseになり自由配置扱いになる
+  OK  自由配置blockは内容が伸びてもx/yが動かない
+
+== canvasFlow survives note save/restore ==
+  OK  ノート復元後もcanvasFlowの真偽が行ごとに維持される
+  OK  ノート復元後も自由配置blockの座標がそのまま復元される
+
+== sidebar dismiss and modal backdrop ==
+  OK  過去ノートは外側クリックで閉じ、aria-expandedも戻る
+  OK  書き出しメニューも外側クリックで閉じる
+  OK  新規ノートdialogはbackdrop相当のdialog自身クリックで閉じる
+
+23 passed, 0 failed
+✔ tests\structure-canvas-interactions.test.mjs (4683.4324ms)
+
+== 1. 文内Backspaceは文字を消すだけで、文自体を早期に閉じない ==
+  OK  Backspace1回で最後の1文字だけ消え、文は開いたまま
+  OK  文字を全部消した直後のBackspaceで文構造ごと閉じる（他の空構造と同じ削除契約）
+
+== 2. 文が開いている間はArrowDownを行移動へ奪わない（文内カーソル操作として専有） ==
+  OK  文が開いたままArrowDownを押しても行は移らず文も開いたまま
+  OK  Enterで文を閉じた後、row0の内容・閉状態を保ったままrow1へ移れる
+
+== 3. canvasモードでも文キーが開き、通常どおり閉じる ==
+  OK  canvasモードでも文キーが開く
+  OK  canvasモードでも通常Enterで文が閉じ、内容を保持する
+
+== 4. 文を含むノートの保存復元 ==
+  OK  再読込後も\text内容がそのまま復元され、文は閉じた状態
+
+== 5. 文→式復帰後、通常の数式入力を続けられる ==
+  OK  文を閉じた直後から通常の数式構造（分数）を入力できる
+
+== 6. 画面エラーなし ==
+  OK  pageerrorが発生していない
+
+=== RESULT: 9 passed, 0 failed ===
+✔ tests\text-block-boundary.test.mjs (3313.2049ms)
+
+== 1. 数式入力を順に取り消し・やり直しできる ==
+  OK  打った内容: 123
+  OK  1回目のCtrl+Zは直近の入力だけ戻す
+  OK  2回目のCtrl+Zはその前の入力も戻す
+  OK  Ctrl+Shift+Zで2をやり直す
+  OK  Ctrl+Yで3をやり直す
+
+== 2. カーソル/フォーカスは操作前の場所へ戻る ==
+  OK  取り消し後もアクティブ行へフォーカスが残る（proxyかmathfieldのどちらか）
+
+== 3. ブロック追加をCtrl+Zで取り消す ==
+  OK  Enterでブロックが増える
+  OK  Ctrl+Zでブロック追加を取り消す
+  OK  取り消し後のアクティブ行は元の行(0)
+  OK  取り消し後も元の内容(1)を保つ
+  OK  やり直すとブロック追加が戻る
+
+== 4. ブロック削除をCtrl+Zで取り消す ==
+  OK  削除前は2 block(1, 空)
+  OK  空blockのBackspaceでblockを削除する
+  OK  Ctrl+Zで削除したblockと内容を復元する
+
+== 5. 変換候補の確定は独立した取り消し単位 ==
+  OK  xを小文字で確定する
+  OK  候補確定でxの後ろに∫が入る
+  OK  Ctrl+Zは候補確定だけを取り消しxだけ残す
+
+== 6. 設定モーダル・文章ブロックのCtrl+Zを奪わない ==
+  OK  設定モーダル内のCtrl+Zはアプリの履歴を動かさない
+  OK  文章ブロック内のCtrl+Zはアプリの履歴を動かさない
+  OK  画面エラーなし
+
+=== RESULT: 20 passed, 0 failed ===
+✔ tests\undo-redo.test.mjs (5263.2526ms)
+
+== 1. 科目→単元の2段選択 ==
+  OK  全単元を先頭に、科目は6件
+  OK  科目に数I〜数IIIが揃う
+
+== 2. 科目を変えると単元一覧と選択が追従する ==
+  OK  数Aを選ぶと先頭単元が自動選択される
+  OK  全単元ノートの上部表示は、ガイドを変えても全単元のまま
+
+== 3. 単元選択はキーボードだけで到達できる ==
+  OK  図形の性質を選べる
+  OK  選択後のフォーカスはbuttonのまま（Tab移動できる）
+
+== 4. 選択はリロード後も維持される ==
+  OK  リロード後も整数の性質のまま
+
+== 5. 単元を切り替えてもキー割り当ては1つも変わらない（機械的検証） ==
+  OK  30キー全件、単元をまたいでも symbol/origin/disabled が完全一致
+
+== 6. 単元に応じたout-of-unit状態は内部情報として残る ==
+  OK  lim(Y)のout-of-unit状態は単元に応じて変わる（見た目は薄くしない）
+
+== 7. パレットは単元を切り替えても記号が1つも減らない・単元向けが先頭に来る ==
+  OK  ベクトル単元でパレットが開く
+  OK  ベクトル単元でベクトル記号が先頭に来る
+  OK  ベクトル単元でも a⃗ が打てる
+  OK  別の単元へ切替えてもパレットの総数は変わらない（記号が消えない）
+  OK  consoleエラー・警告なし
+
+=== RESULT: 14 passed, 0 failed ===
+✔ tests\unit-system.test.mjs (2677.0449ms)
+ℹ tests 41
+ℹ suites 0
+ℹ pass 41
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 71309.1956

@@ -100,9 +100,9 @@ async function main() {
   }
 
   // =========================================================================
-  // 1. Backspace安全化: 矢印移動後も式全体が消えない
+  // 1. 構造の外側ではBackspace一回で一項全体を消す。内部は通常の一文字削除。
   // =========================================================================
-  console.log('\n== 1. backspace safety after arrow movement ==');
+  console.log('\n== 1. structured Backspace after arrow movement ==');
 
   await resetLastRow();
   // KeyF（'('）は変換方式では読みバッファに入るだけで構造を開けないため、
@@ -111,13 +111,10 @@ async function main() {
   await typeLiteralOnLastRow('xyz');
   await pressCode('ArrowRight');                 // 構造の外へ出る
   assertEqual('setup: (xyz) after arrow out', await latex(), '\\left(xyz\\right)');
-  await pressCode('Backspace');                  // 旧実装では式全体が消えた
+  await pressCode('Backspace');
   const afterArrowBs = await latex();
-  assertEqual('arrow-out + Backspace keeps the structure', afterArrowBs.startsWith('\\left('), true);
+  assertEqual('arrow-out + Backspace removes the whole completed structure', afterArrowBs, '');
   console.log('      [probe] after arrow-out Backspace:', JSON.stringify(afterArrowBs));
-  // 構造が壊れず（式全体が消えず）、かつ1文字だけ減っていること
-  assertEqual('arrow-out + Backspace deletes ONE char only (structure kept)',
-    afterArrowBs.length < '\\left(xyz\\right)'.length && afterArrowBs.includes('xyz'), true);
 
   await resetLastRow();
   await dispatchOnLastRow({ type: 'open', kind: 'paren' });

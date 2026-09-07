@@ -23,9 +23,9 @@ for (let index = 0; index < 4; index += 1) {
     const row = window.__neoApp.getActiveRow();
     row.mf.value = value;
     row.mf.position = row.mf.lastOffset;
-    row.mf.focus();
+    row.inputProxy.focus();
   }, `r${index + 1}`);
-  await page.waitForFunction(() => document.activeElement === window.__neoApp.getActiveRow().mf);
+  await page.waitForFunction(() => document.activeElement === window.__neoApp.getActiveRow().inputProxy);
   await page.keyboard.press('Enter');
   await page.waitForFunction((count) => window.__neoApp.rows.length === count + 1, before);
   await page.waitForTimeout(40);
@@ -33,9 +33,9 @@ for (let index = 0; index < 4; index += 1) {
 await page.evaluate(() => {
   const row = window.__neoApp.getActiveRow();
   row.mf.value = 'r5'; row.mf.position = row.mf.lastOffset;
-  window.__neoApp.rows[2].mf.focus();
+  window.__neoApp.rows[2].inputProxy.focus();
 });
-await page.waitForFunction(() => document.activeElement === window.__neoApp.rows[2].mf && window.__neoApp.getActiveRow() === window.__neoApp.rows[2]);
+await page.waitForFunction(() => document.activeElement === window.__neoApp.rows[2].inputProxy && window.__neoApp.getActiveRow() === window.__neoApp.rows[2]);
 await page.keyboard.press('Enter');
 await page.waitForTimeout(30);
 const inserted = await page.evaluate(() => ({
@@ -56,7 +56,7 @@ ok('空blockのBackspaceは行を削除し前のblockへfocusする', JSON.strin
 await page.evaluate(() => {
   const row = window.__neoApp.rows[1];
   row.mf.position = row.mf.lastOffset;
-  row.mf.focus();
+  row.inputProxy.focus();
 });
 await page.waitForFunction(() => window.__neoApp.getActiveRow() === window.__neoApp.rows[1]);
 await page.keyboard.press('ArrowRight'); await page.waitForTimeout(35);
@@ -79,7 +79,7 @@ await page.evaluate(() => {
   window.__neoApp.setLayoutMode('canvas', false);
   const row = window.__neoApp.rows[1];
   row.mf.position = row.mf.lastOffset;
-  row.mf.focus();
+  row.inputProxy.focus();
 });
 await page.waitForFunction(() => window.__neoApp.getActiveRow() === window.__neoApp.rows[1]);
 await page.keyboard.press('ArrowRight'); await page.waitForTimeout(35);

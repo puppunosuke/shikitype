@@ -35,7 +35,7 @@ type ManualPriorityState = { version: 1; priorities: Record<string, number> };
 type ProfileRow = { dictionary_json: string; manual_json: string; revision: number; updated_at: string };
 type ProfileUpdateRow = { fingerprint: string; response_json: string };
 type PublicConversionProfile = { dictionary: DictionaryState; manual: ManualPriorityState; revision: number; updatedAt: string | null };
-type ReviewBlock = { id: string; latex: string };
+type ReviewBlock = { id: string; latex: string; canvasPosition?: { x: number; y: number; order: number } };
 type ReviewRequest = { noteId: string; noteUpdatedAt: string; problem: string; conditions: string; reviewKind: 'hint' | 'review'; mode: 'single' | 'pipeline'; blocks: ReviewBlock[]; idempotencyKey: string };
 type ReviewRunRow = { id: string; user_id: string; note_id: string; note_updated_at: string; snapshot_json: string; problem_text: string; conditions_text: string; review_kind: 'hint' | 'review'; mode: 'single' | 'pipeline'; status: 'running' | 'completed' | 'failed'; result_json: string | null; error_code: string | null; created_at: string; completed_at: string | null };
 type ReviewStage = 'independent_solver' | 'solution_auditor' | 'falsifier' | 'tutor' | 'single';
@@ -762,7 +762,13 @@ function reviewRequestFromUnknown(value: Record<string, unknown>): ReviewRequest
     const id = reviewText(block.id, 120, true);
     const latex = reviewText(block.latex, MAX_REVIEW_BLOCK_CHARS, true);
     if (!/^[a-z][a-z0-9:_-]{0,119}$/i.test(id) || blockIds.has(id)) throw new ApiError(400, 'invalid_review');
-    blockIds.add(id); blocks.push({ id, latex });
+    const position = block.canvasPosition;
+    const positionRecord = position && typeof position === 'object' && !Array.isArray(position) ? position as Record<string, unknown> : null;
+    const canvasPosition = positionRecord
+      && Number.isFinite(positionRecord.x) && Number.isFinite(positionRecord.y) && Number.isSafeInteger(positionRecord.order)
+      ? { x: Math.max(-100_000, Math.min(100_000, Number(positionRecord.x))), y: Math.max(-100_000, Math.min(100_000, Number(positionRecord.y))), order: Math.max(0, Math.min(MAX_REVIEW_BLOCKS - 1, Number(positionRecord.order))) }
+      : undefined;
+    blockIds.add(id); blocks.push({ id, latex, ...(canvasPosition ? { canvasPosition } : {}) });
   }
   if (encoder.encode(JSON.stringify({ noteId, noteUpdatedAt, problem, conditions, blocks })).byteLength > MAX_BODY_BYTES - 4_096) throw new ApiError(413, 'review_too_large');
   return { noteId, noteUpdatedAt, problem, conditions, reviewKind, mode, blocks, idempotencyKey };
@@ -803,13 +809,6 @@ function safeHintDirection(value: unknown): string {
   const text = typeof value === 'string' ? value.replace(/\u0000/g, '').trim().slice(0, 180) : '';
   if (!text || /[\\=0-9０-９]|答え|解答|最終|結果|最小|最大|になる|求める/.test(text)) return '答案のつながりを、次の一手につながる範囲で確認します。';
   return text;
-}
-
-function safeReviewChatMessage(value: string): string {
-  // モデルへの指示だけに頼らず、答えや式らしい返答は固定の最小ヒントへ退避する。
-  // この経路では数値・数式・最終値の説明を必要としない。
-  if (!value || /[\\=0-9０-９]|答え|解答|最終|結果|最小|最大|正しい値|解は|になる|求める/.test(value)) return '見直しカードの「次の一手」で示した箇所だけを、前の行とのつながりで確かめましょう。';
-  return value;
 }
 
 function stageOutput(rows: ReviewStageRow[], stage: ReviewStage): Record<string, unknown> {
@@ -921,7 +920,7 @@ async function responseJson(env: Env, stage: ReviewStage, input: Record<string, 
   if (!env.OPENAI_API_KEY) throw new ApiError(503, 'review_not_configured');
   const schema = reviewStageSchema(stage);
   const stageInstruction = stage === 'solution_auditor'
-    ? 'Treat a different correct approach as correct. Call out only the first block that is no longer mathematically derivable from prior blocks and stated conditions. Never put final values, reference formulas, or worked solution steps in hintDirection or correctSummary.'
+    ? 'Treat a different correct approach as correct. Call out only the first block that is no longer mathematically derivable from prior blocks and stated conditions. Strengths must name something actually present in the student answer; never describe your own analysis as the student\'s achievement. If canvasPosition is supplied, use its relative placement only as supporting evidence for reading order; do not invent a relation from coordinates alone. Never put final values, reference formulas, or worked solution steps in hintDirection or correctSummary.'
     : stage === 'tutor'
       ? 'Use only the supplied safe handoff. Never reconstruct or reveal a full solution, reference formula, or final answer.'
       : 'Do not reveal a full chain of thought.';
@@ -963,7 +962,7 @@ async function reviewChatResponse(env: Env, context: Record<string, unknown>): P
         model: 'gpt-5.6-terra', store: false,
         text: { format: { type: 'json_schema', name: 'shikitype_review_chat', strict: true, schema: { type: 'object', additionalProperties: false, properties: { message: { type: 'string' } }, required: ['message'] } } },
         input: [
-          { role: 'developer', content: [{ type: 'input_text', text: 'You answer a follow-up question about a Japanese high-school mathematics review. Return only JSON. Use only the supplied final card, safe conversation summary, limited chat history, and question. Never reveal or infer the original problem, student answer, independent solution, reference steps, correct summary, a worked solution, formula, or final answer. Give one small, plain-language next action.' }] },
+          { role: 'developer', content: [{ type: 'input_text', text: 'You answer a follow-up question about the user\'s own Japanese high-school mathematics review. Return only JSON. Use the supplied problem, conditions, student answer, final card, safe conversation summary, and limited chat history to answer the actual question specifically and rigorously. The independent solution and internal stage records are unavailable: do not claim to have them. Prefer a small next action and explain why when asked. Do not fabricate facts, chain-of-thought, or certainty. Do not give a full worked solution or final answer unless the user explicitly asks for a completed review; even then give a concise checked conclusion, not hidden reasoning.' }] },
           { role: 'user', content: [{ type: 'input_text', text: JSON.stringify(context) }] },
         ],
       }),
@@ -977,7 +976,7 @@ async function reviewChatResponse(env: Env, context: Record<string, unknown>): P
     const candidate = parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? (parsed as Record<string, unknown>).message : null;
     const message = typeof candidate === 'string' ? candidate.replace(/\u0000/g, '').trim().slice(0, MAX_REVIEW_CHAT_CHARS) : '';
     if (!message) throw new Error();
-    return safeReviewChatMessage(message);
+    return message;
   } catch { throw new ApiError(502, 'review_invalid_response'); }
 }
 
@@ -994,7 +993,7 @@ async function executeReviewPipeline(env: Env, runId: string, review: ReviewRequ
     stages.push({ stage, inputScope });
   };
   if (review.mode === 'single') {
-    const response = await responseJson(env, 'single', { task: review.reviewKind, problem: review.problem, conditions: review.conditions, studentBlocks: review.blocks, output: 'Return strengths, corrections, nextStep, confidence.' });
+    const response = await responseJson(env, 'single', { task: review.reviewKind, problem: review.problem, conditions: review.conditions, studentBlocks: review.blocks, output: 'Return strengths grounded only in facts visible in studentBlocks; do not praise your own analysis. Return corrections, nextStep, confidence.' });
     const card = normalizeReviewCard(response.output, allowedIds);
     await insertReviewStage(env, runId, 'single', 'problem_conditions_and_student_blocks', card, response.usage, response.durationMs);
     stages.push({ stage: 'single', inputScope: 'problem_conditions_and_student_blocks' });
@@ -1008,7 +1007,7 @@ async function executeReviewPipeline(env: Env, runId: string, review: ReviewRequ
   stages.push({ stage: 'independent_solver', inputScope: 'problem_and_conditions' });
 
   const auditorResponse = await responseJson(env, 'solution_auditor', {
-    task: review.reviewKind,
+    task: review.reviewKind, problem: review.problem, conditions: review.conditions,
     reference,
     studentBlocks: review.blocks,
     auditRule: 'Do not mark a different method wrong merely because it differs from the reference. An error is the first block that can no longer be mathematically derived from the prior blocks and stated conditions.',
@@ -1030,9 +1029,21 @@ async function executeReviewPipeline(env: Env, runId: string, review: ReviewRequ
 
   // Contract: pipeline mode always runs all four roles. The falsifier sees summaries only,
   // never the complete student answer.
-  const falsifierResponse = await responseJson(env, 'falsifier', { task: 'Try to refute the audit without inventing facts.', reference, diagnosis, output: 'Return verdict, disagreement, strengths, corrections, nextStep, confidence.' });
+  const falsifierResponse = await responseJson(env, 'falsifier', { task: 'Try to refute the audit without inventing facts.', reference, diagnosis, output: 'Return verdict, disagreement, strengths limited to the supplied diagnosis strengths, corrections, nextStep, confidence.' });
   const falsifier = falsifierResponse.output;
-  const verified = { ...diagnosis, strengths: boundedStringList(falsifier.strengths).length ? boundedStringList(falsifier.strengths) : diagnosis.strengths, corrections: reviewCorrections(falsifier.corrections, allowedIds).length ? reviewCorrections(falsifier.corrections, allowedIds) : diagnosis.corrections, confidence: boundedConfidence(falsifier.confidence) };
+  const falsifierStrengths = boundedStringList(falsifier.strengths);
+  const falsifierCorrections = reviewCorrections(falsifier.corrections, allowedIds);
+  const auditWithdrawn = falsifier.disagreement === true && falsifierCorrections.length === 0;
+  // disagreement=true と空配列は「監査の指摘を撤回」の明示結果。空を旧指摘へ
+  // 差し戻すと、反証工程が誤りを正した事実を画面から消してしまう。この場合は
+  // 訂正と一組の監査上の不一致情報も無効なので、tutor へ渡してはいけない。
+  const verified = {
+    ...diagnosis,
+    strengths: falsifierStrengths.length ? falsifierStrengths : diagnosis.strengths,
+    corrections: falsifierCorrections.length || falsifier.disagreement === true ? falsifierCorrections : diagnosis.corrections,
+    ...(auditWithdrawn ? { firstMismatchBlockId: null, issueTypes: [], hintDirection: '', correctSummary: '' } : {}),
+    confidence: boundedConfidence(falsifier.confidence),
+  };
   await insertReviewStage(env, runId, 'falsifier', 'reference_and_audit_summary', { verdict: typeof falsifier.verdict === 'string' ? falsifier.verdict.slice(0, 300) : '', disagreement: falsifier.disagreement === true, ...verified }, falsifierResponse.usage, falsifierResponse.durationMs);
   stages.push({ stage: 'falsifier', inputScope: 'reference_and_audit_summary' });
 
@@ -1040,7 +1051,7 @@ async function executeReviewPipeline(env: Env, runId: string, review: ReviewRequ
   // and the auditor's full record. Real API leakage-rate evaluation belongs in a separate eval,
   // never this regular user-facing request path; mocks assert this fixed handoff shape.
   const safeHandoff = { blockId: verified.firstMismatchBlockId, issueTypes: verified.issueTypes, hintDirection: verified.hintDirection, correctSummary: verified.correctSummary, strengths: verified.strengths };
-  const tutorResponse = await responseJson(env, 'tutor', { task: review.reviewKind, safeHandoff, output: 'Return strengths, corrections, nextStep, confidence. Give the smallest useful hint; do not reveal a full solution or final answer.' });
+  const tutorResponse = await responseJson(env, 'tutor', { task: review.reviewKind, safeHandoff, output: 'Return strengths only by restating supplied safeHandoff strengths; never invent student achievements. Return corrections, nextStep, confidence. Give the smallest useful hint; do not reveal a full solution or final answer.' });
   const card = normalizeReviewCard(tutorResponse.output, allowedIds);
   await insertReviewStage(env, runId, 'tutor', 'safe_audit_handoff_only', card, tutorResponse.usage, tutorResponse.durationMs);
   stages.push({ stage: 'tutor', inputScope: 'safe_audit_handoff_only' });
@@ -1086,7 +1097,7 @@ async function createReview(request: Request, env: Env): Promise<Response> {
 async function reviewChat(request: Request, env: Env): Promise<Response> {
   validateOrigin(request); const userId = await authenticatedUser(request, env);
   const chatRequest = reviewChatFromUnknown(await boundedJson(request));
-  const run = await env.DB.prepare("SELECT id, status, result_json FROM review_runs WHERE id = ? AND user_id = ?").bind(chatRequest.runId, userId).first<{ id: string; status: string; result_json: string | null }>();
+  const run = await env.DB.prepare("SELECT id, status, result_json, problem_text, conditions_text, snapshot_json, review_kind FROM review_runs WHERE id = ? AND user_id = ?").bind(chatRequest.runId, userId).first<{ id: string; status: string; result_json: string | null; problem_text: string; conditions_text: string; snapshot_json: string; review_kind: 'hint' | 'review' }>();
   if (!run) throw new ApiError(404, 'review_not_found');
   if (run.status !== 'completed' || !run.result_json) throw new ApiError(409, 'review_not_completed');
   let result: Record<string, unknown>;
@@ -1103,18 +1114,37 @@ async function reviewChat(request: Request, env: Env): Promise<Response> {
   if (history.length > MAX_REVIEW_CHAT_MESSAGES - 2) throw new ApiError(409, 'review_chat_limit');
   const card = result.card && typeof result.card === 'object' && !Array.isArray(result.card) ? result.card : {};
   const conversation = Array.isArray(result.conversation) ? result.conversation : [];
-  // 元問題・答案・stage出力などの秘密情報をこの文脈に加えない。保存済みの公開結果だけを渡す。
-  const message = await reviewChatResponse(env, { card, conversation, history: history.map(({ role, message: text }) => ({ role, message: text })), question: chatRequest.message });
+  let studentBlocks: unknown = [];
+  try { studentBlocks = JSON.parse(run.snapshot_json); } catch { throw new ApiError(409, 'review_not_completed'); }
+  // 同じ所有者の見直しだけを読む。盲検の独立解法や内部stage出力は依然として渡さない。
+  const message = await reviewChatResponse(env, {
+    reviewKind: run.review_kind, problem: run.problem_text, conditions: run.conditions_text,
+    studentBlocks, card, conversation,
+    history: history.map(({ role, message: text }) => ({ role, message: text })), question: chatRequest.message,
+  });
   const chat = [...history, { role: 'user' as const, message: chatRequest.message, idempotencyKey: chatRequest.idempotencyKey, fingerprint }, { role: 'assistant' as const, message }];
   result.chat = chat;
-  await env.DB.prepare('UPDATE review_runs SET result_json = ? WHERE id = ? AND user_id = ? AND status = ?').bind(JSON.stringify(result), run.id, userId, 'completed').run();
+  // 別タブの質問が先に保存した会話を、古いread結果で上書きしない。
+  const updated = await env.DB.prepare('UPDATE review_runs SET result_json = ? WHERE id = ? AND user_id = ? AND status = ? AND result_json = ?').bind(JSON.stringify(result), run.id, userId, 'completed', run.result_json).run();
+  if (!updated.meta.changes) throw new ApiError(409, 'review_chat_conflict');
   return json({ message });
 }
 
 async function listReviews(request: Request, env: Env, noteId: string): Promise<Response> {
   const userId = await authenticatedUser(request, env);
-  const result = await env.DB.prepare("SELECT id, note_id, note_updated_at, snapshot_json, review_kind, mode, status, result_json, error_code, created_at, completed_at FROM review_runs WHERE user_id = ? AND note_id = ? AND status = 'completed' ORDER BY created_at DESC LIMIT 12").bind(userId, noteId).all<ReviewRunRow>();
-  return json({ reviews: result.results.map((row) => ({ runId: row.id, noteId: row.note_id, noteUpdatedAt: row.note_updated_at, reviewKind: row.review_kind, mode: row.mode, createdAt: row.created_at, completedAt: row.completed_at, snapshot: JSON.parse(row.snapshot_json), result: row.result_json ? JSON.parse(row.result_json) : null })) });
+  const before = new URL(request.url).searchParams.get('before');
+  const cursor = before ? before.split('\n') : null;
+  if (before && (!cursor || cursor.length !== 2 || !/^\d{4}-\d\d-\d\dT/.test(cursor[0]) || !/^rev_[a-z0-9-]{8,120}$/i.test(cursor[1]))) throw new ApiError(400, 'invalid_review_cursor');
+  const query = cursor
+    ? "SELECT id, note_id, note_updated_at, snapshot_json, problem_text, conditions_text, review_kind, mode, status, result_json, error_code, created_at, completed_at FROM review_runs WHERE user_id = ? AND note_id = ? AND status = 'completed' AND (created_at < ? OR (created_at = ? AND id < ?)) ORDER BY created_at DESC, id DESC LIMIT 7"
+    : "SELECT id, note_id, note_updated_at, snapshot_json, problem_text, conditions_text, review_kind, mode, status, result_json, error_code, created_at, completed_at FROM review_runs WHERE user_id = ? AND note_id = ? AND status = 'completed' ORDER BY created_at DESC, id DESC LIMIT 7";
+  const result = cursor
+    ? await env.DB.prepare(query).bind(userId, noteId, cursor[0], cursor[0], cursor[1]).all<ReviewRunRow>()
+    : await env.DB.prepare(query).bind(userId, noteId).all<ReviewRunRow>();
+  const page = result.results.slice(0, 6);
+  const payload: Record<string, unknown> = { reviews: page.map((row) => ({ runId: row.id, noteId: row.note_id, noteUpdatedAt: row.note_updated_at, problem: row.problem_text, conditions: row.conditions_text, reviewKind: row.review_kind, mode: row.mode, createdAt: row.created_at, completedAt: row.completed_at, snapshot: JSON.parse(row.snapshot_json), result: row.result_json ? JSON.parse(row.result_json) : null })) };
+  if (result.results.length > page.length && page.length) payload.nextCursor = `${page.at(-1)!.created_at}\n${page.at(-1)!.id}`;
+  return json(payload);
 }
 
 // 見直し実行中の進行状況だけを軽量に返す。executeReviewPipeline()は各段階が終わるたびに

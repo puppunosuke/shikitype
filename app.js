@@ -750,11 +750,11 @@ function backspace(row) {
   // してdeleteBackwardへ渡す。選択がある状態のdeleteBackwardは選択範囲を丸ごと
   // 消す（実測で確認済み）ので、構造が何であっても常に1回のBackspaceで構造ごと
   // 消える＝括弧やnfracと同じ体験になる。
-  // viaClose を付けない理由＝矢印キーで外へ出た直後のgroupトークン（reconcileStack側）
-  // には適用しない。そちらは「1文字だけ消えて構造は残る」が既存の意図的な挙動
-  // （fix-regression.test.mjs の "arrow-out + Backspace keeps the structure" が守る）。
+  // 矢印やクリックで構造の外へ出た場合も、直前のgroupトークンは同じ一項である。
+  // 構造の内部では通常どおり一文字ずつ編集し、外側でBackspaceを押したときだけ
+  // 中身の有無にかかわらず構造全体を一打で取り消す。
   const lastRunToken = row.run[row.run.length - 1];
-  if (lastRunToken?.kind === 'group' && lastRunToken.viaClose && lastRunToken.end === row.mf.position) {
+  if (lastRunToken?.kind === 'group' && lastRunToken.end === row.mf.position) {
     row.mf.selection = { ranges: [[lastRunToken.start, lastRunToken.end]] };
     row.mf.executeCommand('deleteBackward');
     row.run.pop();
@@ -796,7 +796,26 @@ function backspace(row) {
  *   - 深くなった（閉じた構造の中へ入った） → 種類不明のフレームを積む（パンくずには「?」と出す）
  * これでEnterの「1段閉じる」は移動後も正しく効く（moveAfterParent は種類に依らないため）。
  */
-function moveCaret(row, dir) {
+function moveCaret(row, dir, extendSelection = false) {
+  // 数式の範囲選択は、MathLiveの内部keydownへ任せると専用IMEのcaptureと競合する。
+  // Shift+矢印だけはここで選択の始点を保持し、移動後のoffsetを範囲として戻す。
+  // 構造をまたぐ実際の一項移動は従来どおりMathLiveに委ねる。
+  let selectionAnchor = null;
+  if (extendSelection) {
+    const range = row.mf.selection?.ranges?.[0];
+    if (Number.isFinite(row.selectionAnchor) && range && range[0] !== range[1]) {
+      selectionAnchor = row.selectionAnchor;
+      // 選択範囲は正規化されるためmin/maxから「いま動いている端」を復元できない。
+      // 始点とは別に終点を保持し、Shift+左右を反転したときも一文字ずつ縮める。
+      row.mf.position = row.selectionFocus;
+    } else {
+      selectionAnchor = row.mf.position;
+      row.selectionAnchor = selectionAnchor;
+    }
+  } else {
+    row.selectionAnchor = null;
+    row.selectionFocus = null;
+  }
   // 行モードだけは、本文の行順がそのまま読順。端まで進んだ横矢印を次/前行へ
   // 自然につなぐ。キャンバスでは位置関係を勝手に行順へ畳まない。
   if (layoutMode === 'rows') {
@@ -814,6 +833,13 @@ function moveCaret(row, dir) {
     }
   }
   row.mf.executeCommand(dir < 0 ? 'moveToPreviousChar' : 'moveToNextChar');
+  if (selectionAnchor !== null) {
+    row.selectionFocus = row.mf.position;
+    row.mf.selection = { ranges: [[selectionAnchor, row.selectionFocus]] };
+    // 専用IMEの通常入力先はproxyのままにするが、範囲選択中だけはMathLive本体へ
+    // focusを置く。これで実際の選択ハイライトを表示したままCtrl/Cmd+Cできる。
+    row.mf.focus({ preventScroll: true });
+  }
   reconcileStack(row);
   scheduleConversionCaret(row);
 }
@@ -857,14 +883,14 @@ function moveRow(dir) {
   claimRowFocus(rows[next]);
 }
 
-/** Shift+Enter: 直前のEnter操作を1段開き直す */
-function reopenOneLevel(row) {
-  if (row.history.length === 0) return;
-  const snap = row.history.pop();
-  row.stack = snap.stack;
-  row.run = snap.run;
-  row.runStack = snap.runStack;
-  row.mf.position = snap.position;
+// Shift+Enterは行ブロックを増やさず、MathLiveのdisplaylinesへ改行を挿入する。
+// 数式の構造を一段開き直す旧操作は、通常のBackspace/矢印による編集と衝突し、
+// 「1ブロック内に途中計算を続けたい」という用途を満たさなかった。
+function insertBlockLineBreak(row) {
+  row.mf.executeCommand(['insert', '\\\\', { insertionMode: 'insertAfter', format: 'latex' }]);
+  clearRun(row);
+  scheduleNoteSave();
+  commitHistoryBoundary();
 }
 
 /** MathLive の depth と自前スタックの整合性チェック（ズレ検知のみ・権威にはしない） */
@@ -1109,13 +1135,13 @@ function normalizeNoteLayout(value, fallbackRows = []) {
       width: Math.max(80, Math.min(720, Number(item.width) || 360)),
       height: Math.max(60, Math.min(540, Number(item.height) || 240)),
     })) : [];
-  if (value?.mode === 'canvas') {
-    const safeBlocks = blocks.length ? blocks : fallbackRows.slice(0, 80).map((latex, index) => ({ id: blockIds[index], latex: String(latex || ''), x: 24, y: 96 + index * 104, flow: true }));
-    const safeIds = normalizedBlockIds(safeBlocks.map((block) => block.id), fallbackRows.length);
-    safeBlocks.forEach((block, index) => { block.id = safeIds[index]; });
-    return { mode: 'canvas', camera: normalizeCanvasCamera(value.camera), blocks: safeBlocks, blockIds: safeIds, images };
-  }
-  return { mode: 'rows', camera: normalizeCanvasCamera(null), blocks: [], blockIds, images };
+  // 表示が行モードでも、最後にcanvasで置いた座標はノート固有の編集情報である。
+  // modeだけをrowsへ切り替えた保存でblocksを捨てると、次にcanvasへ戻る前に
+  // 別ノートを開いた時点で座標が初期値へ戻ってしまう。
+  const safeBlocks = blocks.length ? blocks : fallbackRows.slice(0, 80).map((latex, index) => ({ id: blockIds[index], latex: String(latex || ''), x: 24, y: 96 + index * 104, flow: true }));
+  const safeIds = normalizedBlockIds(safeBlocks.map((block) => block.id), fallbackRows.length);
+  safeBlocks.forEach((block, index) => { block.id = safeIds[index]; });
+  return { mode: value?.mode === 'canvas' ? 'canvas' : 'rows', camera: normalizeCanvasCamera(value?.camera), blocks: safeBlocks, blockIds: safeIds, images };
 }
 
 function rowWorldPosition(row, index = rows.indexOf(row)) {
@@ -1220,7 +1246,7 @@ function applyCanvasTransform() {
 function renderLayoutMode() {
   const canvas = layoutMode === 'canvas';
   editorSheet?.classList.toggle('canvas-mode', canvas);
-  document.querySelectorAll('.layout-mode-choice').forEach((button) => {
+  document.querySelectorAll('.layout-mode-choice, .header-layout-choice').forEach((button) => {
     const selected = button.dataset.layoutMode === layoutMode;
     button.setAttribute('aria-pressed', String(selected));
   });
@@ -1237,11 +1263,10 @@ function noteLayoutSnapshot() {
     // indexではなく作成時のIDを保存する。行の挿入・削除・並べ替え後も見直し結果が
     // 同じ数式ブロックを指せるように、rows本文と同じ順序で持つ。
     blockIds: rows.map((row) => row.id),
-    // 行モードはrowsが唯一の本文。ここへ同じLaTeXを重ねて保存すると、大きな既存
-    // ノートが容量上限を二重に消費する。配置が必要なキャンバスだけを完全保存する。
-    blocks: layoutMode === 'canvas'
-      ? rows.map((row, index) => ({ id: row.id, latex: String(row.mf.value || ''), ...rowWorldPosition(row, index), flow: row.canvasFlow === true }))
-      : [],
+    // rows本文が正本。行モードでは座標だけを持ち、本文の二重保存を避ける。
+    // ただしcanvasモードは旧クライアントがblocks.latexから復元するため、そこだけ
+    // 従来形式を維持する。これで旧版へ戻してもcanvasの式本文は消えない。
+    blocks: rows.map((row, index) => ({ id: row.id, latex: layoutMode === 'canvas' ? String(row.mf.value || '') : '', ...rowWorldPosition(row, index), flow: row.canvasFlow === true })),
     images: canvasImages.map(({ id, src, x, y, width, height }) => ({ id, src, x, y, width, height })),
   };
 }
@@ -1432,9 +1457,8 @@ function endBlockDrag(event) {
   blockDragCaretFrame = 0;
   scheduleCanvasReflow();
   scheduleNoteSave();
-  // ブロック移動の確定はここで1つの取り消し単位にする（段階1の設計どおり、
-  // pointerupで一度だけcommitHistoryBoundary()を呼ぶ）。
-  commitHistoryBoundary();
+  // 座標はノートの表示配置であり、数式本文の編集履歴には含めない。ドラッグだけで
+  // Ctrl/Cmd+Zの取り消し単位を作ると、本文の取り消し時に配置まで巻き戻ってしまう。
 }
 
 // wrapのpointerdownから呼ぶ。event.altKeyなら「掴んだ瞬間に複製し、複製の方を
@@ -1448,6 +1472,9 @@ function startBlockDrag(row, event) {
   if (!selectedRows.has(row)) selectionFocusOverride = false;
   const isDuplicate = event.altKey;
   const targetRow = isDuplicate ? duplicateRowNear(row) : row;
+  // Alt+dragの「複製」は構造変更なので取り消し可能にする。一方、続くドラッグで
+  // 動かした座標そのものは履歴化しない。
+  if (isDuplicate) commitHistoryBoundary();
   const dragRows = (!isDuplicate && selectedRows.has(row) && selectedRows.size > 1) ? [...selectedRows] : [targetRow];
   activeRowIndex = rows.indexOf(targetRow);
   claimRowFocus(targetRow);
@@ -1983,6 +2010,7 @@ const BUILTIN_CONVERSION_ACTIONS = Object.freeze({
   fraction: { type: 'afrac' },
   power: { type: 'open', kind: 'sup' },
   subscript: { type: 'open', kind: 'sub' },
+  'text-entry': { type: 'text' },
   'power-n': { type: 'power-prefill', value: 'n' },
   'power-x': { type: 'power-prefill', value: 'x' },
   sqrt: { type: 'open', kind: 'sqrt' },
@@ -2790,11 +2818,16 @@ function loadNote(id, restoreFocus = true, saveCurrent = true) {
   const layout = normalizeNoteLayout(note.layout, note.rows);
   layoutMode = layout.mode;
   canvasCamera = layout.camera;
-  const blocks = layout.mode === 'canvas'
-    ? layout.blocks
-    : (note.rows.length
-      ? note.rows.map((latex, index) => ({ id: layout.blockIds[index], latex, x: 112, y: 96 + index * 104 }))
-      : [{ id: makeBlockId(), latex: '', x: 112, y: 96 }]);
+  // rowsが本文の正本。layout.blocksは表示モードに関係なく座標だけを復元する。
+  const positionById = new Map(layout.blocks.map((block) => [block.id, block]));
+  const blocks = note.rows.length
+    ? note.rows.map((latex, index) => ({
+      ...(positionById.get(layout.blockIds[index]) ?? { x: 112, y: 96 + index * 104, flow: true }),
+      id: layout.blockIds[index], latex,
+    }))
+    // canvasで最後のblockを削除したノートは、空blockを勝手に再生成せず0 blockの
+    // まま復元する。行表示だけは入力開始面として空blockを一つ用意する。
+    : (layout.mode === 'canvas' ? [] : [{ id: makeBlockId(), latex: '', x: 112, y: 96, flow: true }]);
   blocks.forEach((item) => createRow(false, String(item.latex || ''), item));
   layout.images.forEach((item) => createCanvasImage(item));
   notesStore.activeId = note.id;
@@ -3009,6 +3042,29 @@ async function copyRowLatexToClipboard(row) {
   catch (err) { console.warn('[neo-math] latex copy failed', err); return false; }
 }
 
+async function copyFormulaSelectionToClipboard(row, range) {
+  // Shift+Left は範囲を [caret, anchor]（例: [3, 1]）として返す。
+  // MathLive の getValue(start, end) は昇順の offset を期待するため、そのまま
+  // 渡すと逆向きに選択した式が空文字になり、OS clipboard へ何も書かれない。
+  const [first, second] = Array.isArray(range) ? range : [];
+  if (!Number.isFinite(first) || !Number.isFinite(second) || first === second) return false;
+  const start = Math.min(first, second);
+  const end = Math.max(first, second);
+  // 数式欄を明示的に保持してから値を取り出す。proxy focus のままでも、選択の見た目と
+  // コピー対象が外部UI操作で失われないようにする。
+  row?.mf?.focus?.({ preventScroll: true });
+  const latex = row?.mf?.getValue?.(start, end, 'latex');
+  if (!latex) return false;
+  try {
+    await navigator.clipboard.writeText(latex);
+    return true;
+  } catch (err) {
+    console.warn('[neo-math] formula selection copy failed', err);
+    if (row?.conversion?.status) row.conversion.status.textContent = '選択した式をコピーできませんでした';
+    return false;
+  }
+}
+
 // 現在の編集面を書き出し順に並べたLaTeX配列を返す。canvasレイアウトは自由配置の
 // ため「上→下、同じ高さなら左→右」という一般的な読み順に並べ替え、座標情報自体は
 // 捨てる（レポート等へ持ち出す用途では座標に意味がなく、そのまま持ち出しても
@@ -3214,7 +3270,8 @@ function createRow(focus, latex = '', position = null, insertIndex = rows.length
     if (isShikitypeTransformLayer() && !isNativeTextEntry(row)) {
       scheduleConversionCaret(row);
       if (activeRow() === row) requestAnimationFrame(() => {
-        if (activeRow() === row && !isNativeTextEntry(row)) row.inputProxy?.focus({ preventScroll: true });
+      const hasFormulaSelection = row.mf.selection?.ranges?.some(([start, end]) => start !== end);
+      if (activeRow() === row && !isNativeTextEntry(row) && !hasFormulaSelection) row.inputProxy?.focus({ preventScroll: true });
       });
       return;
     }
@@ -3223,7 +3280,8 @@ function createRow(focus, latex = '', position = null, insertIndex = rows.length
     activeRowIndex = currentIndex;
     renderBreadcrumb();
     if (isShikitypeTransformLayer() && !row.nativeTextOpen && row.stack[row.stack.length - 1]?.kind !== 'text') requestAnimationFrame(() => {
-      if (activeRow() === row && !row.nativeTextOpen && row.stack[row.stack.length - 1]?.kind !== 'text') row.inputProxy?.focus({ preventScroll: true });
+      const hasFormulaSelection = row.mf.selection?.ranges?.some(([start, end]) => start !== end);
+      if (activeRow() === row && !row.nativeTextOpen && row.stack[row.stack.length - 1]?.kind !== 'text' && !hasFormulaSelection) row.inputProxy?.focus({ preventScroll: true });
     });
   });
   inputProxy.addEventListener('focus', () => {
@@ -3366,7 +3424,7 @@ function captureHistorySnapshot() {
     layoutMode,
     activeIndex: activeRowIndex,
     position: activeRow()?.mf?.position ?? 0,
-    blocks: rows.map((row, index) => ({ id: row.id, latex: String(row.mf.value || ''), ...rowWorldPosition(row, index) })),
+    blocks: rows.map((row, index) => ({ id: row.id, latex: String(row.mf.value || ''), ...rowWorldPosition(row, index), flow: row.canvasFlow === true })),
     images: canvasImages.map(({ id, src, x, y, width, height }) => ({ id, src, x, y, width, height })),
   };
 }
@@ -3388,7 +3446,7 @@ function markHistoryDirty() {
 }
 
 // 打鍵ごとの細かい変更はデバウンスでまとめる。区切り操作（ブロック追加/削除、候補確定、
-// 将来のブロック移動）は呼び出し側で commitHistoryBoundary() を使い、まとめの単位を
+// ブロック追加・削除など）は呼び出し側で commitHistoryBoundary() を使い、まとめの単位を
 // 強制的に閉じる。
 function scheduleHistoryCommit() {
   if (applyingHistorySnapshot) return;
@@ -3428,6 +3486,11 @@ function applyHistorySnapshot(snapshot) {
   applyingHistorySnapshot = true;
   try {
     const blocks = snapshot.blocks;
+    // 本文の履歴を戻しても、同じIDで今も存在するblockの表示配置は現在値を正とする。
+    // 並べ替えUndoではindexが入れ替わるため、行番号ではなくIDで対応付ける。
+    const currentPlacementById = new Map(rows.map((row, index) => [row.id, {
+      ...rowWorldPosition(row, index), flow: row.canvasFlow === true,
+    }]));
     if (blocks.length === rows.length) {
       rows.forEach((row, index) => {
         const block = blocks[index];
@@ -3435,11 +3498,24 @@ function applyHistorySnapshot(snapshot) {
         // 以前の見直し結果が別の数式へ飛ぶ。
         row.id = isBlockId(block.id) ? block.id : row.id;
         if (row.mf.value !== block.latex) row.mf.value = block.latex;
-        setRowWorldPosition(row, block, index);
+        // 同じブロック集合の本文Undo/Redoでは、現在のドラッグ位置を保持する。
+        // x/yは保存・再構成（追加削除など、下の件数が異なる分岐）には必要だが、
+        // 入力履歴で復元してはならない表示状態である。
+        const placement = currentPlacementById.get(row.id);
+        if (placement) {
+          row.canvasFlow = placement.flow;
+          setRowWorldPosition(row, placement, index);
+        }
       });
     } else {
+      // 行の追加・削除をUndo/RedoするとDOMを作り直す必要がある。しかし座標とflowは
+      // 本文履歴ではなく現在の表示配置なので、同じIDで残っているblockは復元前の値を
+      // 引き継ぐ。履歴にだけある（削除を戻す）blockは、その時点の配置を使う。
       clearRowsForNote();
-      blocks.forEach((item) => createRow(false, String(item.latex || ''), item));
+      blocks.forEach((item) => createRow(false, String(item.latex || ''), {
+        ...item,
+        ...(currentPlacementById.get(item.id) ?? {}),
+      }));
     }
     canvasImages.forEach((image) => image.wrap?.remove());
     canvasImages = [];
@@ -3836,7 +3912,7 @@ document.addEventListener('keydown', (e) => {
   // アカウントdialog等の通常input/textarea/selectは、そのフィールド本来の
   // 取り消し動作を奪わないようここでは対象外にする。それ以外（数式編集面・
   // canvasの空白面フォーカスを含む）はこのアプリの履歴で取り消す。
-  if (e.ctrlKey && !e.altKey && !e.metaKey && (e.code === 'KeyZ' || e.code === 'KeyY')) {
+  if ((e.ctrlKey || e.metaKey) && !e.altKey && (e.code === 'KeyZ' || e.code === 'KeyY')) {
     const target = document.activeElement;
     // math-field自体もisContentEditable=trueを持つため、行の外（設定・アカウント
     // dialogの通常input/textarea/select等）にフォーカスがある場合だけ
@@ -3871,14 +3947,25 @@ document.addEventListener('keydown', (e) => {
   // 文字コピーを持つ）。よってブロック単位のコピーは既存挙動の上書きではなく
   // 新規追加であり、\text{}内と外部input/textarea/select（nativeEditable）だけを
   // 対象外にすれば安全に割り当てられる。
-  if (e.ctrlKey && !e.altKey && !e.metaKey && (e.code === 'KeyC' || e.code === 'KeyV')) {
+  if ((e.ctrlKey || e.metaKey) && !e.altKey && (e.code === 'KeyC' || e.code === 'KeyV')) {
     const target = document.activeElement;
     const nativeEditable = !withinRow && (target instanceof HTMLInputElement || target instanceof HTMLTextAreaElement
       || target instanceof HTMLSelectElement || (target instanceof HTMLElement && target.isContentEditable));
     const inNativeText = withinRow && isNativeTextContext(activeRow());
     if (!nativeEditable && !inNativeText) {
-      if (e.code === 'KeyC') {
-        if (copyBlocksToClipboard()) { e.preventDefault(); e.stopPropagation(); e.stopImmediatePropagation(); return; }
+       if (e.code === 'KeyC') {
+         const range = activeRow()?.mf?.selection?.ranges?.find(([start, end]) => start !== end);
+         if (range) {
+           // ブロックコピーより先に、式内の明示選択をコピーする。これでShift+矢印で
+           // 選んだ一部を通常のOSクリップボードへ渡せる。
+           // 古いblockコピーが残ると、続く貼り付けでそちらが優先されてしまう。
+           // 部分選択をコピーした時点で専用clipboardを外し、通常の貼り付け経路へ戻す。
+           blockClipboard = null;
+           void copyFormulaSelectionToClipboard(activeRow(), range);
+           e.preventDefault(); e.stopPropagation(); e.stopImmediatePropagation();
+           return;
+         }
+         if (copyBlocksToClipboard()) { e.preventDefault(); e.stopPropagation(); e.stopImmediatePropagation(); return; }
       } else if (blockClipboard) {
         e.preventDefault(); e.stopPropagation(); e.stopImmediatePropagation();
         pasteBlockClipboard();
@@ -3912,7 +3999,7 @@ document.addEventListener('keydown', (e) => {
   }
 
   // Ctrl+V: クリップボードのUnicode数式らしき文字列をLaTeXへ変換して流し込む
-  if (e.ctrlKey && e.code === 'KeyV') {
+  if ((e.ctrlKey || e.metaKey) && e.code === 'KeyV') {
     e.preventDefault(); e.stopPropagation(); e.stopImmediatePropagation();
     handlePaste();
     return;
@@ -3938,7 +4025,7 @@ document.addEventListener('keydown', (e) => {
     // Conversion text owns Enter first (routeShikitypeImeKey), so this never steals
     // candidate confirmation while a reading is being edited.
     if (effectiveShift) {
-      reopenOneLevel(row);
+      insertBlockLineBreak(row);
       renderBreadcrumb();
       scheduleConversionCaret(row);
     } else if (row.stack.length) {
@@ -3975,7 +4062,7 @@ document.addEventListener('keydown', (e) => {
 
   if (e.code === 'ArrowLeft' || e.code === 'ArrowRight') {
     tickKeystroke();
-    moveCaret(row, e.code === 'ArrowLeft' ? -1 : 1);
+    moveCaret(row, e.code === 'ArrowLeft' ? -1 : 1, effectiveShift);
     renderBreadcrumb();
     return;
   }
@@ -4682,7 +4769,7 @@ function handleVirtualSpecial(code, invokedRow = activeRow()) {
       // rawが残るEnterはhandle側が所有し、候補なしでも意図せず改行しない。
       if (code === 'Enter' && !handled) {
         tickKeystroke();
-        if (physicalShift || virtualShift) { reopenOneLevel(row); renderBreadcrumb(); scheduleConversionCaret(row); }
+        if (physicalShift || virtualShift) { insertBlockLineBreak(row); renderBreadcrumb(); scheduleConversionCaret(row); }
         else if (row.stack.length) { closeOneLevel(row); renderBreadcrumb(); scheduleConversionCaret(row); }
         else newRowAfterActive();
       }
@@ -4708,7 +4795,7 @@ function handleVirtualSpecial(code, invokedRow = activeRow()) {
     insertMathThinSpace(row);
   } else if (code === 'Enter') {
     tickKeystroke();
-    if (physicalShift || virtualShift) { reopenOneLevel(row); renderBreadcrumb(); scheduleConversionCaret(row); }
+    if (physicalShift || virtualShift) { insertBlockLineBreak(row); renderBreadcrumb(); scheduleConversionCaret(row); }
     else if (row.stack.length) { closeOneLevel(row); renderBreadcrumb(); scheduleConversionCaret(row); }
     else newRowAfterActive();
   } else if (code === 'Escape') {
@@ -5010,7 +5097,7 @@ function setInputSystem(systemId, persist = true) {
 document.querySelectorAll('.method-choice').forEach((btn) => {
   btn.addEventListener('click', () => setInputMethod(btn.dataset.inputMethod));
 });
-document.querySelectorAll('.layout-mode-choice').forEach((btn) => {
+document.querySelectorAll('.layout-mode-choice, .header-layout-choice').forEach((btn) => {
   btn.addEventListener('click', () => setLayoutMode(btn.dataset.layoutMode));
 });
 
@@ -5140,13 +5227,13 @@ function renderOperationsGuide() {
   const entries = [
     ['Tab', inputSystem === 'conversion' ? conversionTabNote : (tabMethod?.note ?? 'レイヤーを切り替える、または変換候補をトグルする。')],
     ['Enter', '変換候補を確定する。開いた数式は次の欄へ進むか1段閉じる。文（\\text{}）の中では文を閉じる。'],
-    ['Shift+Enter', '直前にEnterで進めた数式の欄を1段だけ開き直す。'],
+    ['Shift+Enter', '行ブロックを増やさず、同じ数式ブロック内で改行する。'],
     ['Space', inputSystem === 'conversion' ? conversionSpaceNote : '小さい数式空白を入れる。候補の確定・取消しや数式の構造移動はしない。'],
     ['矢印キー', '数式内でカーソルを移動する。候補一覧を出しているときは候補間を移動する。'],
     ['Escape', '記号層へ戻す。パレット（ギリシャ文字・低頻度記号）を開閉する。'],
     ['Backspace', '候補の確定後も通常の数式削除をする。変換中は読みを1文字戻す。'],
     ['Ctrl+Z / Ctrl+Shift+Z / Ctrl+Y', '取り消し / やり直し。'],
-    ['Ctrl+C / Ctrl+V', '選択中のブロック（キャンバスで複数選択時はまとめて）をコピー・貼り付けする。'],
+    ['Ctrl+C / Ctrl+V', '式の範囲選択をコピー・貼り付けする。範囲選択がなければブロックをコピーする。'],
     ['キャンバス: 空白を左ドラッグ', 'カメラ（表示位置）を動かす。'],
     ['キャンバス: ブロックの余白をドラッグ', 'ブロックを移動する。'],
     ['キャンバス: Alt+ドラッグ', 'つかんだブロックを複製し、複製のほうを動かす（元は残る）。'],
@@ -5188,11 +5275,11 @@ function renderSidebar() {
     (m) => setKeyCaptureMode(m),
   );
 
-  // 単元プリセット（科目→単元の2段）。全単元ノートではキーガイドだけを切り替え、
+  // 単元プリセット（科目→単元の2段）。全単元ノートでは入力候補の表示だけを切り替え、
   // 個別ノートではノートの学習範囲と常に同じ値へ更新する。
   const unitScopeNote = document.getElementById('unit-scope-note');
   if (unitScopeNote) unitScopeNote.textContent = noteUnitScope === ALL_UNITS_ID
-    ? 'このノートは「全単元」です。ここで選ぶとキーガイドとパレットの表示順だけが変わります。'
+    ? 'このノートは「全単元」です。ここで選ぶと入力候補とパレットの内容が変わります。'
     : `このノートは「${unitLabel(noteUnitScope)}」です。選ぶとノートの単元も切り替わります。`;
   renderChoice(
     document.getElementById('unit-subject-choice'),
@@ -5797,6 +5884,9 @@ let latestReviewResult = null;
 let reviewSubmitting = false;
 let reviewHistory = [];
 let reviewHistoryNoteId = null;
+let reviewHistoryRequest = 0;
+let reviewSetupNoteId = null;
+let reviewHistoryCursor = null;
 let reviewResumeAfterLogin = false;
 // 待機中の進行表示（段階名・経過時間）を出すための状態。パイプラインはCloudflare Workerの
 // 1requestの中で順に実行されるため、これらは「今どこまで終わったか」を別requestで
@@ -5822,7 +5912,11 @@ function setReviewStatus(message = '', error = false) {
 
 function reviewBlocksSnapshot() {
   return rows
-    .map((row) => ({ id: row.id, latex: String(row.mf.value || '') }))
+    .map((row, index) => {
+      const block = { id: row.id, latex: String(row.mf.value || '') };
+      if (layoutMode === 'canvas') block.canvasPosition = { ...rowWorldPosition(row, index), order: index };
+      return block;
+    })
     .filter((block) => block.latex.replace(/\\placeholder\{\}/g, '').trim());
 }
 
@@ -5911,6 +6005,20 @@ function renderReviewResult(result) {
   resetReviewDialogToTop();
 }
 
+function prefillReviewSetup(entry) {
+  if (!entry) return;
+  const result = entry.result || entry;
+  const problem = document.getElementById('review-problem');
+  const conditions = document.getElementById('review-conditions');
+  const kind = document.getElementById('review-kind');
+  const mode = document.getElementById('review-mode');
+  if (problem && typeof entry.problem === 'string') problem.value = entry.problem;
+  if (conditions && typeof entry.conditions === 'string') conditions.value = entry.conditions;
+  if (kind && (entry.reviewKind === 'hint' || entry.reviewKind === 'review')) kind.value = entry.reviewKind;
+  if (mode && (entry.mode === 'single' || entry.mode === 'pipeline')) mode.value = entry.mode;
+  if (result?.noteId) reviewSetupNoteId = result.noteId;
+}
+
 function renderReviewConversation(conversation) {
   const section = document.getElementById('review-conversation');
   const list = document.getElementById('review-conversation-list');
@@ -5936,7 +6044,7 @@ function renderReviewChat(chat) {
   list.replaceChildren();
   const messages = Array.isArray(chat) ? chat : [];
   if (!messages.length) {
-    const empty = document.createElement('p'); empty.className = 'review-chat-empty'; empty.textContent = '気になるところを短く聞けます。答えそのものは表示しません。'; list.append(empty);
+    const empty = document.createElement('p'); empty.className = 'review-chat-empty'; empty.textContent = '答案について気になるところを聞けます。'; list.append(empty);
   } else {
     for (const entry of messages) {
       if (!entry || typeof entry.message !== 'string') continue;
@@ -5960,18 +6068,33 @@ async function submitReviewChat() {
   if (!input || !send || !latestReviewResult?.runId || !cloudAccount.userId) return;
   const message = input.value.trim();
   if (!message) { status.textContent = '質問を入力してください。'; return; }
+  const runId = latestReviewResult.runId;
+  const noteId = latestReviewResult.noteId;
+  const accountId = cloudAccount.userId;
+  const accountEpoch = cloudAccount.epoch;
   send.disabled = true; input.disabled = true; status.textContent = '返答を作成しています…';
   try {
-    const response = await apiJson('/reviews/chat', { method: 'POST', body: JSON.stringify({ runId: latestReviewResult.runId, message, idempotencyKey: `review-chat-${crypto.randomUUID()}` }) });
+    const response = await apiJson('/reviews/chat', { method: 'POST', body: JSON.stringify({ runId, message, idempotencyKey: `review-chat-${crypto.randomUUID()}` }) });
+    // 送信中に履歴やアカウントを切り替えた場合、古い返答を現在の見直しへ混ぜない。
+    if (latestReviewResult?.runId !== runId || latestReviewResult?.noteId !== noteId || cloudAccount.userId !== accountId || cloudAccount.epoch !== accountEpoch) {
+      if (latestReviewResult) renderReviewChat(latestReviewResult.chat);
+      return;
+    }
     const chat = Array.isArray(latestReviewResult.chat) ? latestReviewResult.chat : [];
     latestReviewResult.chat = [...chat, { role: 'user', message }, { role: 'assistant', message: response.message }];
     input.value = ''; renderReviewChat(latestReviewResult.chat); status.textContent = '返答を追加しました。';
-    const historyEntry = reviewHistory.find((entry) => entry.runId === latestReviewResult.runId);
+    const historyEntry = reviewHistory.find((entry) => entry.runId === runId);
     if (historyEntry?.result) historyEntry.result.chat = latestReviewResult.chat;
   } catch (error) {
+    if (latestReviewResult?.runId !== runId || latestReviewResult?.noteId !== noteId || cloudAccount.userId !== accountId || cloudAccount.epoch !== accountEpoch) {
+      if (latestReviewResult) renderReviewChat(latestReviewResult.chat);
+      return;
+    }
     const code = error?.payload?.error || error?.message;
     if (code === 'review_chat_limit') {
       status.textContent = 'この見直しでの質問はここまでです。'; input.disabled = true; send.disabled = true;
+    } else if (code === 'review_chat_conflict') {
+      status.textContent = '別の画面で会話が更新されました。履歴を開き直してから、もう一度送信してください。'; input.disabled = false; send.disabled = false;
     } else {
       status.textContent = '返答を受け取れませんでした。もう一度送信してください。'; input.disabled = false; send.disabled = false;
     }
@@ -5984,27 +6107,49 @@ function renderReviewHistory() {
   if (!list || !details) return;
   list.replaceChildren();
   details.hidden = reviewHistory.length === 0;
-  for (const entry of reviewHistory.slice(0, 6)) {
+  for (const entry of reviewHistory) {
     if (!entry?.result) continue;
     const button = document.createElement('button');
     button.type = 'button'; button.className = 'review-history-item';
     const time = new Date(entry.createdAt || entry.completedAt).toLocaleString('ja-JP', { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' });
     button.textContent = `${time} · ${entry.reviewKind === 'hint' ? '途中のヒント' : '解き終わりのレビュー'}`;
-    button.addEventListener('click', () => renderReviewResult({ ...entry.result, snapshot: entry.snapshot }));
+    button.addEventListener('click', () => {
+      prefillReviewSetup(entry);
+      renderReviewResult({ ...entry.result, snapshot: entry.snapshot });
+    });
     list.append(button);
+  }
+  if (reviewHistoryCursor && reviewHistoryNoteId) {
+    const more = document.createElement('button');
+    more.type = 'button'; more.className = 'review-history-item'; more.textContent = 'さらに過去の見直しを読み込む';
+    more.addEventListener('click', () => { more.disabled = true; void loadReviewHistory(reviewHistoryNoteId, { append: true }); });
+    list.append(more);
   }
 }
 
-async function loadReviewHistory(noteId) {
-  if (!cloudAccount.userId || !noteId) { reviewHistory = []; renderReviewHistory(); return; }
+async function loadReviewHistory(noteId, { append = false } = {}) {
+  const requestId = ++reviewHistoryRequest;
+  const accountId = cloudAccount.userId;
+  const accountEpoch = cloudAccount.epoch;
+  if (!accountId || !noteId) { reviewHistory = []; reviewHistoryNoteId = null; reviewHistoryCursor = null; renderReviewHistory(); return; }
   try {
-    const payload = await apiJson(`/notes/${encodeURIComponent(noteId)}/reviews`);
-    if (notesStore.activeId !== noteId || !cloudAccount.userId) return;
-    reviewHistory = Array.isArray(payload.reviews) ? payload.reviews : [];
+    const cursor = append ? reviewHistoryCursor : null;
+    const suffix = cursor ? `?before=${encodeURIComponent(cursor)}` : '';
+    const payload = await apiJson(`/notes/${encodeURIComponent(noteId)}/reviews${suffix}`);
+    // 遅い前回リクエストが、今開いているノートの履歴や入力を上書きしない。
+    if (requestId !== reviewHistoryRequest || notesStore.activeId !== noteId || cloudAccount.userId !== accountId || cloudAccount.epoch !== accountEpoch) return;
+    const received = Array.isArray(payload.reviews) ? payload.reviews : [];
+    reviewHistory = append ? [...reviewHistory, ...received.filter((entry) => !reviewHistory.some((known) => known.runId === entry.runId))] : received;
     reviewHistoryNoteId = noteId;
+    reviewHistoryCursor = typeof payload.nextCursor === 'string' ? payload.nextCursor : null;
+    if (reviewHistory[0] && reviewSetupNoteId !== noteId) prefillReviewSetup(reviewHistory[0]);
     renderReviewHistory();
   } catch {
-    // 見直し履歴を取得できないだけで、ノートの入力・新規見直しは止めない。
+    // 取得失敗で前ノートの履歴を残し、消失や取り違えに見せない。
+    if (requestId === reviewHistoryRequest && notesStore.activeId === noteId && cloudAccount.userId === accountId && cloudAccount.epoch === accountEpoch) {
+      if (!append) { reviewHistory = []; reviewHistoryNoteId = noteId; reviewHistoryCursor = null; }
+      renderReviewHistory();
+    }
   }
 }
 
@@ -6110,6 +6255,7 @@ function openReviewDialog({ focusProblem = true } = {}) {
   }
   if (!dialog.open) dialog.showModal();
   const noteId = notesStore.activeId;
+  if (reviewSetupNoteId !== noteId) reviewSetupNoteId = null;
   if (noteId && (reviewHistoryNoteId !== noteId || !reviewHistory.length)) void loadReviewHistory(noteId);
   const focusTarget = focusProblem && !reviewSubmitting && !showingResult ? document.getElementById('review-problem') : null;
   // 結果の開き直し、履歴からの切替、進行表示、新規見直しのどの経路でも、まず
@@ -6313,9 +6459,8 @@ function serializableNote(note) {
     updatedAt: note.updatedAt,
     unitId: note.unitId,
     rows,
-    layout: layout.mode === 'canvas'
-      ? layout
-      : { mode: 'rows', camera: layout.camera, blocks: [], blockIds: layout.blockIds, images: layout.images },
+    // rows本文を正本にしつつ、canvas時だけblocks.latexを旧クライアント互換として残す。
+    layout,
     revision: Number.isSafeInteger(note.revision) ? note.revision : 0,
     // 段階4: 名前・ソフトデリートもクラウドへ送る（0005_note_title_deleted.sqlでサーバに列を追加済み）。
     // サーバ側もクライアントと同じ丸め方（sanitizeNoteTitle/sanitizeNoteDeletedAt相当）で受ける。
@@ -6859,7 +7004,8 @@ document.getElementById('review-again')?.addEventListener('click', () => openRev
 document.getElementById('review-back-to-list')?.addEventListener('click', () => openReviewDialog({ focusProblem: false }));
 document.getElementById('review-chat-send')?.addEventListener('click', () => void submitReviewChat());
 document.getElementById('review-chat-input')?.addEventListener('keydown', (event) => {
-  if (event.key === 'Enter' && !event.shiftKey) { event.preventDefault(); void submitReviewChat(); }
+  // MacのIME確定Enterも含め、Enterは常にtextareaの改行へ渡す。送信は明示操作だけ。
+  if (event.key === 'Enter' && !event.isComposing && (event.metaKey || event.ctrlKey)) { event.preventDefault(); void submitReviewChat(); }
 });
 document.getElementById('review-login')?.addEventListener('click', () => {
   reviewResumeAfterLogin = true;
@@ -6872,10 +7018,10 @@ document.getElementById('review-dialog')?.addEventListener('keydown', (event) =>
     event.preventDefault(); event.stopPropagation(); dialog.close();
     return;
   }
-  // dialogのcaptureで全キーをMathLiveから隔離しているため、質問欄のEnterだけは
-  // ここで明示的に通す。Shift+Enterはtextareaの通常の改行を残す。
-  if (event.key === 'Enter' && !event.shiftKey && event.target?.id === 'review-chat-input') {
-    event.preventDefault(); event.stopPropagation(); void submitReviewChat();
+  // textareaのEnter（IME変換確定を含む）はブラウザへ渡す。Cmd/Ctrl+Enterだけ送信。
+  if (event.target?.id === 'review-chat-input') {
+    if (event.key === 'Enter' && !event.isComposing && (event.metaKey || event.ctrlKey)) { event.preventDefault(); event.stopPropagation(); void submitReviewChat(); }
+    else if (event.key !== 'Tab') event.stopPropagation();
     return;
   }
   if (event.key !== 'Tab') { event.stopPropagation(); return; }

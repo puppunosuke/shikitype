@@ -66,9 +66,9 @@ await reset();
 await choose('sqrt', 'sqrt');
 await page.keyboard.press('Digit9');
 const screenBefore = await state();
-await page.click('[data-special="Enter"]');
+await page.keyboard.press('Enter');
 const screenAfter = await state();
-ok('screen Enter closes an open structure without creating a row', screenAfter.latex === '\\sqrt9' && screenAfter.stack.length === 0 && screenAfter.rows === screenBefore.rows, screenAfter);
+ok('physical Enter closes an open root without creating a row', screenAfter.latex === '\\sqrt9' && screenAfter.stack.length === 0 && screenAfter.rows === screenBefore.rows, screenAfter);
 
 await reset();
 await choose('integral', 'integral');
@@ -79,13 +79,14 @@ await page.keyboard.press('Digit1'); await page.keyboard.press('Enter');
 const integralAfter = await state();
 ok('integral second Enter closes only integral and stays in its row', integralAfter.latex === '\\int_0^1' && integralAfter.stack.length === 0 && integralAfter.rows === integralRows, integralAfter);
 
-console.log('\n== Space no longer advances structures; Shift+Enter reopens ==');
+console.log('\n== Space does not advance structures; Shift+Enter adds a line in the same block ==');
 await reset();
 await choose('paren', 'parentheses'); await page.keyboard.press('Digit2');
 await page.keyboard.press('Space');
 ok('physical Space does not close an open structure', (await state()).stack.length === 1, await state());
 await page.keyboard.press('Enter'); await page.keyboard.press('Shift+Enter');
-ok('Shift+Enter reopens one level after structural Enter', (await state()).stack.length === 1, await state());
+const shiftEnter = await state();
+ok('Shift+Enter keeps the structure closed and adds a line in the same block', shiftEnter.stack.length === 0 && shiftEnter.rows === 1 && shiftEnter.latex.includes('\\\\'), shiftEnter);
 
 console.log('\n== ぶんすう offers three distinct, keyboard-selectable fraction actions ==');
 await reset(); await seedTerm(); await typeRaw('bunsuu');
@@ -112,7 +113,7 @@ ok('Backspace after closing the fraction removes the closed structure', (await s
 console.log('\n== text remains an explicit non-row Enter close ==');
 await reset();
 const textRows = (await state()).rows;
-await page.click('[data-special="Text"]'); await page.waitForTimeout(30);
+await page.click('#text-entry-key'); await page.waitForTimeout(30);
 await page.keyboard.type('memo'); await page.keyboard.press('Enter');
 const textAfter = await state();
 ok('text Enter closes text and does not create a row', textAfter.latex.includes('\\text{memo}') && textAfter.stack.length === 0 && textAfter.rows === textRows, textAfter);

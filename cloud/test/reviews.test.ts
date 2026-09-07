@@ -43,7 +43,7 @@ describe('AI review pipeline', () => {
     const outputs = [
       { referenceSteps: ['置換する'], checkpoints: ['微分を確認'], confidence: 0.92 },
       { strengths: ['置換の発想は正しい'], corrections: [{ blockId: 'block-1', text: '微分係数をもう一度確認' }], firstMismatchBlockId: 'block-1', issueTypes: ['係数'], hintDirection: '置換に伴う微分係数を見直す', correctSummary: '置換の方針は正しい', confidence: 0.91, needsFalsifier: false },
-      { verdict: '監査結果を支持', disagreement: false, strengths: ['置換の発想は正しい'], corrections: [{ blockId: 'block-1', text: '係数だけを見直して' }], nextStep: '微分係数を再確認', confidence: 0.9 },
+      { verdict: '監査結果を撤回', disagreement: true, strengths: ['置換の発想は正しい'], corrections: [], nextStep: '微分係数を再確認', confidence: 0.9 },
       { strengths: ['置換の方針は合っています'], corrections: [{ blockId: 'block-1', text: '係数だけを見直して' }], nextStep: '置換後の微分を一行だけ確かめよう。', confidence: 0.91 },
     ];
     const realFetch = globalThis.fetch;
@@ -55,7 +55,7 @@ describe('AI review pipeline', () => {
     });
     vi.stubGlobal('fetch', mocked);
     try {
-      const response = await call('/api/reviews', { method: 'POST', body: JSON.stringify({ noteId, noteUpdatedAt, problem: '∫2x dx を求めよ', conditions: '高校数学の範囲', reviewKind: 'hint', mode: 'pipeline', blocks: [{ id: 'block-1', latex: '\\int 2x' }], idempotencyKey: `review-${crypto.randomUUID()}` }) }, cookie);
+      const response = await call('/api/reviews', { method: 'POST', body: JSON.stringify({ noteId, noteUpdatedAt, problem: '∫2x dx を求めよ', conditions: '高校数学の範囲', reviewKind: 'hint', mode: 'pipeline', blocks: [{ id: 'block-1', latex: '\\int 2x', canvasPosition: { x: 120, y: 240, order: 0 } }], idempotencyKey: `review-${crypto.randomUUID()}` }) }, cookie);
       expect(response.status).toBe(201);
       const created = await response.json<{ runId: string; mode: string; card: { nextStep: string }; stages: unknown[]; conversation: Array<{ role: string; label: string; message: string }> }>();
       expect(created).toEqual(expect.objectContaining({ mode: 'pipeline', card: expect.objectContaining({ nextStep: expect.any(String) }), stages: [{ stage: 'independent_solver', inputScope: 'problem_and_conditions' }, { stage: 'solution_auditor', inputScope: 'reference_solution_and_student_blocks' }, { stage: 'falsifier', inputScope: 'reference_and_audit_summary' }, { stage: 'tutor', inputScope: 'safe_audit_handoff_only' }] }));
@@ -64,12 +64,13 @@ describe('AI review pipeline', () => {
       expect(JSON.stringify(created.conversation)).not.toContain('correctSummary');
       const history = await call(`/api/notes/${noteId}/reviews`, {}, cookie);
       expect(history.status).toBe(200);
-      expect(await history.json()).toEqual({ reviews: [expect.objectContaining({ runId: created.runId, result: expect.objectContaining({ card: expect.objectContaining({ nextStep: expect.any(String) }) }) })] });
+      expect(await history.json()).toEqual({ reviews: [expect.objectContaining({ runId: created.runId, problem: '∫2x dx を求めよ', conditions: '高校数学の範囲', result: expect.objectContaining({ card: expect.objectContaining({ nextStep: expect.any(String) }) }) })] });
     } finally { vi.stubGlobal('fetch', realFetch); }
     expect(inputs).toHaveLength(4);
     expect(inputs[0]).toEqual(expect.objectContaining({ problem: '∫2x dx を求めよ' }));
     expect(inputs[0]).not.toHaveProperty('studentBlocks');
     expect(inputs[1]).toHaveProperty('studentBlocks');
+    expect(inputs[1].studentBlocks).toEqual([{ id: 'block-1', latex: '\\int 2x', canvasPosition: { x: 120, y: 240, order: 0 } }]);
     expect(inputs[2]).toEqual(expect.objectContaining({ reference: expect.any(Object), diagnosis: expect.any(Object) }));
     expect(inputs[2]).not.toHaveProperty('studentBlocks');
     expect(inputs[3]).toHaveProperty('safeHandoff');
@@ -77,9 +78,11 @@ describe('AI review pipeline', () => {
     expect(inputs[3]).not.toHaveProperty('reference');
     expect(inputs[3]).not.toHaveProperty('diagnosis');
     expect(inputs[3]).not.toHaveProperty('studentBlocks');
-    expect(inputs[3].safeHandoff).toEqual(expect.objectContaining({ blockId: 'block-1', issueTypes: ['係数'], hintDirection: expect.any(String) }));
+    expect(inputs[3].safeHandoff).toEqual({ blockId: null, issueTypes: [], hintDirection: '', correctSummary: '', strengths: ['置換の発想は正しい'] });
     const stored = await env.DB.prepare('SELECT stage, input_scope, output_json, input_tokens, output_tokens, total_tokens, duration_ms FROM review_stages ORDER BY created_at DESC LIMIT 4').all<{ stage: string; input_scope: string; output_json: string; input_tokens: number | null; output_tokens: number | null; total_tokens: number | null; duration_ms: number | null }>();
     expect(stored.results.map((row) => row.input_scope).sort()).toEqual(['problem_and_conditions', 'reference_and_audit_summary', 'reference_solution_and_student_blocks', 'safe_audit_handoff_only']);
+    const falsifierStored = stored.results.find((row) => row.stage === 'falsifier');
+    expect(JSON.parse(falsifierStored!.output_json).corrections).toEqual([]);
     expect(stored.results.every((row) => !row.output_json.includes('hidden chain-of-thought'))).toBe(true);
     expect(stored.results.every((row) => row.total_tokens === 18 && typeof row.duration_ms === 'number')).toBe(true);
   });
@@ -150,12 +153,13 @@ describe('AI review pipeline', () => {
     expect(await response.json()).toEqual({ error: 'note_stale' });
   });
 
-  it('keeps review chat owned, completed, bounded, idempotent, and limited to public review context', async () => {
+  it('keeps review chat owned, completed, bounded, idempotent, and grounded in the owner\'s review context', async () => {
     const first = await account(); const other = await account();
     const seen: Record<string, unknown>[] = [];
+    let chatBody: { message: string } | null = null;
     const replies = [
       { strengths: ['式を確認できています'], corrections: [], nextStep: '次の変形を一行ずつ確かめましょう。', confidence: 0.8 },
-      { message: 'まず、前の行から今の行へ変わった部分だけを声に出して確認してみましょう。' },
+      { message: 'x=1 と書いた根拠を、問題の条件と照らして確認してください。' },
     ];
     const realFetch = globalThis.fetch;
     vi.stubGlobal('fetch', vi.fn(async (_input: RequestInfo | URL, init?: RequestInit) => {
@@ -174,7 +178,7 @@ describe('AI review pipeline', () => {
       const invalid = await call('/api/reviews/chat', { method: 'POST', body: JSON.stringify({ runId: created.runId, message: 'x'.repeat(801), idempotencyKey: key }) }, first.cookie);
       expect(invalid.status).toBe(400);
       const chat = await call('/api/reviews/chat', { method: 'POST', body: JSON.stringify({ runId: created.runId, message: 'どう確認する？', idempotencyKey: key }) }, first.cookie);
-      expect(chat.status).toBe(200); expect(await chat.json()).toEqual({ message: expect.any(String) });
+      expect(chat.status).toBe(200); chatBody = await chat.json<{ message: string }>(); expect(chatBody).toEqual({ message: expect.any(String) });
       const replay = await call('/api/reviews/chat', { method: 'POST', body: JSON.stringify({ runId: created.runId, message: 'どう確認する？', idempotencyKey: key }) }, first.cookie);
       expect(replay.status).toBe(200); expect(await replay.json()).toEqual({ message: expect.any(String) });
       const conflict = await call('/api/reviews/chat', { method: 'POST', body: JSON.stringify({ runId: created.runId, message: '別の質問', idempotencyKey: key }) }, first.cookie);
@@ -189,8 +193,54 @@ describe('AI review pipeline', () => {
       expect(limited.status).toBe(409); expect(await limited.json()).toEqual({ error: 'review_chat_limit' });
     } finally { vi.stubGlobal('fetch', realFetch); }
     expect(seen).toHaveLength(2);
-    expect(seen[1]).toEqual(expect.objectContaining({ card: expect.any(Object), conversation: expect.any(Array), history: expect.any(Array), question: 'どう確認する？' }));
-    expect(JSON.stringify(seen[1])).not.toContain('秘密の問題文');
-    expect(JSON.stringify(seen[1])).not.toContain('secret-answer');
+    expect(seen[1]).toEqual(expect.objectContaining({ problem: '秘密の問題文', conditions: '秘密の条件', studentBlocks: [{ id: 'block-1', latex: 'secret-answer' }], card: expect.any(Object), conversation: expect.any(Array), history: expect.any(Array), question: 'どう確認する？' }));
+    expect(chatBody?.message).toContain('x=1');
+  });
+
+  it('does not overwrite a chat saved by another tab while the model is replying', async () => {
+    const { cookie, noteId, noteUpdatedAt } = await account();
+    let runId = '';
+    let calls = 0;
+    const realFetch = globalThis.fetch;
+    vi.stubGlobal('fetch', vi.fn(async () => {
+      calls += 1;
+      if (calls === 2) {
+        const row = await env.DB.prepare('SELECT result_json FROM review_runs WHERE id = ?').bind(runId).first<{ result_json: string }>();
+        const result = JSON.parse(row!.result_json) as Record<string, unknown>;
+        result.chat = [{ role: 'user', message: '別タブの質問' }, { role: 'assistant', message: '別タブの返答' }];
+        await env.DB.prepare('UPDATE review_runs SET result_json = ? WHERE id = ?').bind(JSON.stringify(result), runId).run();
+      }
+      const output = calls === 1
+        ? { strengths: ['答案の一行目に根拠があります'], corrections: [], nextStep: '条件と一行目を照合してください。', confidence: 0.8 }
+        : { message: 'この返答は保存してはいけません。' };
+      return new Response(JSON.stringify({ output_text: JSON.stringify(output) }), { status: 200, headers: { 'Content-Type': 'application/json' } });
+    }));
+    try {
+      const created = await call('/api/reviews', { method: 'POST', body: JSON.stringify({ noteId, noteUpdatedAt, problem: 'xを求めよ', conditions: '', reviewKind: 'hint', mode: 'single', blocks: [{ id: 'block-1', latex: 'x=1' }], idempotencyKey: `review-${crypto.randomUUID()}` }) }, cookie);
+      runId = (await created.json<{ runId: string }>()).runId;
+      const chat = await call('/api/reviews/chat', { method: 'POST', body: JSON.stringify({ runId, message: '確認したい', idempotencyKey: `review-chat-${crypto.randomUUID()}` }) }, cookie);
+      expect(chat.status).toBe(409);
+      expect(await chat.json()).toEqual({ error: 'review_chat_conflict' });
+      const row = await env.DB.prepare('SELECT result_json FROM review_runs WHERE id = ?').bind(runId).first<{ result_json: string }>();
+      expect(row!.result_json).toContain('別タブの返答');
+      expect(row!.result_json).not.toContain('この返答は保存してはいけません。');
+    } finally { vi.stubGlobal('fetch', realFetch); }
+  });
+
+  it('pages older completed reviews instead of making them disappear after the first six', async () => {
+    const { cookie, noteId } = await account();
+    const owner = await env.DB.prepare('SELECT user_id FROM notes WHERE id = ?').bind(noteId).first<{ user_id: string }>();
+    for (let index = 0; index < 7; index += 1) {
+      const id = `rev_page-${String(index).padStart(8, '0')}`;
+      await env.DB.prepare('INSERT INTO review_runs (id, user_id, note_id, note_updated_at, snapshot_json, problem_text, conditions_text, review_kind, mode, status, idempotency_key, fingerprint, result_json, created_at, completed_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)')
+        .bind(id, owner!.user_id, noteId, '2026-08-28T00:00:00.000Z', '[]', `問題${index}`, '', 'hint', 'single', 'completed', `page-${index}`, `fingerprint-${index}`, JSON.stringify({ runId: id, card: {}, chat: [] }), `2026-09-06T00:00:0${index}.000Z`, `2026-09-06T00:00:0${index}.000Z`).run();
+    }
+    const first = await call(`/api/notes/${noteId}/reviews`, {}, cookie);
+    const firstBody = await first.json<{ reviews: Array<{ runId: string }>; nextCursor?: string }>();
+    expect(firstBody.reviews).toHaveLength(6); expect(firstBody.nextCursor).toEqual(expect.any(String));
+    const second = await call(`/api/notes/${noteId}/reviews?before=${encodeURIComponent(firstBody.nextCursor!)}`, {}, cookie);
+    const secondBody = await second.json<{ reviews: Array<{ runId: string }>; nextCursor?: string }>();
+    expect(secondBody.reviews).toHaveLength(1); expect(secondBody.nextCursor).toBeUndefined();
+    expect(new Set([...firstBody.reviews, ...secondBody.reviews].map((item) => item.runId))).toHaveLength(7);
   });
 });

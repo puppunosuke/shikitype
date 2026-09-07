@@ -305,6 +305,9 @@ body.theme-rail-collapsed #sidebar-toggle { display: none; }
   border-bottom: 1px solid var(--line);
   background: rgba(247, 246, 242, .9);
 }
+.header-layout-switch { display: inline-flex; align-items: center; gap: 2px; justify-self: center; padding: 3px; border: 1px solid var(--line); background: color-mix(in srgb, var(--sheet) 88%, transparent); }
+.header-layout-switch .header-layout-choice { min-height: 28px; padding: 4px 9px; border: 1px solid transparent; background: transparent; color: inherit; cursor: pointer; font: 600 11px var(--font-jp), var(--font-en); }
+.header-layout-switch .header-layout-choice[aria-pressed="true"] { border-color: var(--accent); background: var(--accent); color: #fff; }
 #course-label { font-size: 12px; font-weight: 500; }
 #course-label span { display: block; color: var(--muted); font: 500 9px/1.4 var(--font-en); letter-spacing: .15em; }
 #stats { display: flex; align-items: center; gap: 14px; font: 500 10px/1 var(--font-en), var(--font-jp); white-space: nowrap; }
@@ -1160,6 +1163,7 @@ body[data-input-system="conversion"] #conversion-layer-method-section { display:
 #review-chat-send { justify-self: end; min-height: 38px; min-width: 88px; padding: 7px 16px; border: 1px solid var(--ink); border-radius: 0; background: var(--ink); color: #fff; cursor: pointer; font: 700 12px var(--font-jp), var(--font-en); }
 #review-chat-send:disabled, #review-chat-input:disabled { opacity: .62; cursor: wait; }
 #review-chat-status { min-height: 1.4em; margin: 0; color: var(--muted); font-size: 12px; }
+.review-chat-shortcut { margin: -4px 0 0; color: var(--muted); font-size: 11px; line-height: 1.45; }
 .review-evaluation { border: 1px solid var(--line); padding: 9px 10px; font-size: 12px; }
 .review-evaluation summary { cursor: pointer; font-weight: 700; }
 .review-evaluation label { display: grid; gap: 5px; margin-top: 9px; }
@@ -1238,6 +1242,9 @@ body.sidebar-open #app-stage { margin-right: 356px; }
   #note-actions { grid-column: 2; grid-row: 1; display: flex; align-items: stretch; justify-content: center; padding: 0; }
   #note-actions > button { min-height: 50px; flex: 1; padding: 5px 3px; font-size: 9px; }
   #note-actions > button > span:first-child { font-size: 15px; }
+  /* 360pxでは全操作を1行で読めることを優先する。名称は既存のaria-labelと
+     ボタンのアクセシブル名に残り、視覚面はアイコンだけへ縮める。 */
+  #note-actions > button > span:last-child { display: none; }
   #account-toggle { position: relative; margin-top: 0; border-top: 0 !important; border-left: 1px solid rgba(255,255,255,.16) !important; min-width: 0; }
   /* #sync-statusをこの幅で置ける行が無いため、視覚的には隠す。ただし
      display:noneにするとaria-live announcementごと失われ、未ログイン時の
@@ -1449,12 +1456,12 @@ body[data-key-capture="accessible"] #capture-hint { color: var(--muted); }
 #conversion-priority-reset { width: 100%; }
 
 /* ---------- 設定: modal内のカテゴリナビ + 独立スクロール ---------- */
-#sidebar { width: min(1160px, calc(100vw - 36px)); height: min(760px, calc(100vh - 36px)); max-height: none; margin: auto; padding: 0; overflow: hidden; border: 1px solid #111; border-radius: 0; background: var(--paper); color: var(--ink); box-shadow: 12px 12px 0 rgba(17,17,17,.22); }
+#sidebar { top: 50%; right: auto; bottom: auto; left: 50%; width: min(1160px, calc(100vw - 36px)); height: auto; max-height: calc(100vh - 36px); margin: 0; padding: 0; overflow: hidden; transform: translate(-50%, -50%); border: 1px solid #111; border-radius: 0; background: var(--paper); color: var(--ink); box-shadow: 12px 12px 0 rgba(17,17,17,.22); }
 #sidebar::backdrop { background: rgba(16,16,16,.48); }
 #sidebar-head { display: flex; align-items: center; justify-content: space-between; height: 56px; padding: 0 18px; border-bottom: 1px solid var(--line); }
 #sidebar-head h2 { margin: 0; font-size: 19px; }
 #sidebar-close { width: 34px; height: 34px; border: 1px solid var(--line); border-radius: 0; background: transparent; color: inherit; cursor: pointer; font-size: 22px; }
-.settings-layout { height: calc(100% - 56px); display: grid; grid-template-columns: 256px minmax(0, 1fr); min-width: 0; }
+.settings-layout { display: grid; grid-template-columns: 256px minmax(0, 1fr); min-width: 0; max-height: calc(100vh - 92px); }
 #settings-nav { position: relative; min-width: 0; padding: 16px 12px; border-right: 1px solid var(--line); background: color-mix(in srgb, var(--paper) 88%, #111); overflow-y: auto; }
 .settings-search-label { display: block; margin-bottom: 4px; color: var(--muted); font-size: 10px; font-weight: 700; }
 #settings-search { width: 100%; min-height: 36px; padding: 7px 8px; border: 1px solid var(--line); border-radius: 0; background: #fff; color: #111; font: inherit; font-size: 12px; }
@@ -1465,7 +1472,7 @@ body[data-key-capture="accessible"] #capture-hint { color: var(--muted); }
 .settings-nav-item { min-height: 38px; padding: 7px 9px; border: 1px solid transparent; border-radius: 0; background: transparent; color: inherit; text-align: left; cursor: pointer; font: 600 13px var(--font-jp), var(--font-en); }
 .settings-nav-item:hover, .settings-nav-item[aria-current="page"] { border-color: var(--line); background: #fff; }
 .settings-nav-item[aria-current="page"] { border-left: 4px solid var(--accent); padding-left: 6px; }
-#settings-content { min-width: 0; overflow: auto; overscroll-behavior: contain; padding: 28px 34px 42px; }
+#settings-content { min-width: 0; max-height: calc(100vh - 92px); overflow: auto; overscroll-behavior: contain; padding: 28px 34px 42px; }
 .settings-panel { max-width: 780px; }
 .settings-panel > h3 { margin: 0 0 18px; font-size: 22px; }
 .side-section { margin: 0 0 18px; padding: 0 0 18px; border-bottom: 1px solid var(--line); }

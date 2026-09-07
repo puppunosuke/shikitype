@@ -309,6 +309,9 @@ const HIGH_SCHOOL_EXAM_CANDIDATES = [
   withExamScope({ id: 'greek-sigma', label: 'Σ', latex: '\\Sigma ', aliases: ['しぐま', 'そうわ', 'わ', 'すうれつのわ', 'sigma', 'sum'], categories: ['general', 'greek'], basePriority: 300 }, ['mathB', 'math3']),
   withExamScope({ id: 'sum-operator', label: '∑', latex: '\\sum ', aliases: ['そうわきごう', 'しーぐま', 'わのえんざんし', 'sum'], categories: ['general'], basePriority: 190 }, ['mathB', 'math3']),
   withExamScope({ id: 'integral', label: '∫', latex: '\\int ', aliases: ['せきぶん', 'いんてぐらる', 'integral', 'int'], categories: ['general'], basePriority: 300 }, ['math2', 'math3']),
+  // 文キーは画面上の専用ボタンだけに閉じず、変換入力からも開けるようにする。
+  // latexはCSV互換用の表示値で、実際の入力はapp.jsの固定アクションだけが行う。
+  withExamScope({ id: 'text-entry', label: '文', latex: '\\text{}', aliases: ['ぶんしょう', 'てきすと', 'ぶん', 'text'], categories: ['general'], basePriority: 255 }, HIGH_SCHOOL_EXAM_SCOPE.units),
   withExamScope({ id: 'limit', label: 'lim', latex: '\\lim ', aliases: ['りみっと', 'きょくげん', 'lim', 'limit'], categories: ['general'], basePriority: 260 }, ['math3']),
   withExamScope({ id: 'infinity', label: '∞', latex: '\\infty ', aliases: ['むげん', 'むげんだい', 'infinity'], categories: ['general'], basePriority: 250 }, ['math3']),
   withExamScope({ id: 'sqrt', label: '√', latex: '\\sqrt{}', aliases: ['るーと', 'へいほうこん', 'sqrt'], categories: ['general'], basePriority: 240 }, ['math1', 'math2']),

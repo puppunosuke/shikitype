@@ -1,7 +1,6 @@
 // 段階2: canvasのブロックdrag移動・Alt+drag複製・矩形選択（Shift+drag）・
 // まとめて移動/削除・選択解除（Escape）の回帰。
-// 段階1の汎用履歴スタック（commitHistoryBoundary）へ正しく乗ることも
-// Ctrl+Zで確認する。
+// 座標は表示配置として保存し、本文のCtrl+Zでは巻き戻さないことも確認する。
 import { chromium } from '../spike/node_modules/playwright/index.mjs';
 
 const BASE = 'http://localhost:8893/app.html';
@@ -81,10 +80,28 @@ async function main() {
   ok('block dragはcameraを動かさない（パンではない）', cameraAfter.x === cameraBefore.x && cameraAfter.y === cameraBefore.y, { cameraBefore, cameraAfter });
   ok('rows数は変わらない', blocksAfter.length === blocksBefore.length, blocksAfter.length);
 
-  console.log('\n== 2. block移動はCtrl+Zで1操作として戻る ==');
+  console.log('\n== 2. drag後に本文をCtrl+Zしても配置を巻き戻さない ==');
+  // ドラッグ自体は履歴に積まない。続けて本文を編集してからUndoすると、本文だけが
+  // 戻り、直前に置いた座標は保持される必要がある。
+  await page.keyboard.press('Digit1');
+  await page.waitForTimeout(450);
+  const beforeUndo = await page.evaluate(() => window.__neoApp.getCanvasBlocks());
   await pressCode('KeyZ', { ctrl: true });
   const undone = await page.evaluate(() => window.__neoApp.getCanvasBlocks());
-  ok('Ctrl+Zでblock0の位置が戻る', Math.abs(undone[0].x - blocksBefore[0].x) < 1 && Math.abs(undone[0].y - blocksBefore[0].y) < 1, { undone: undone[0], before: blocksBefore[0] });
+  ok('Ctrl+Zで本文編集は戻る', undone[0].latex !== beforeUndo[0].latex, { beforeUndo: beforeUndo[0], undone: undone[0] });
+  ok('Ctrl+Zでdrag済みblock0の位置を保持する', Math.abs(undone[0].x - blocksAfter[0].x) < 1 && Math.abs(undone[0].y - blocksAfter[0].y) < 1, { undone: undone[0], dragged: blocksAfter[0] });
+  // 行追加のUndoはrows.lengthが変わるため、applyHistorySnapshotがDOMを作り直す経路を通る。
+  // その場合でも残るblock0の自由配置を、履歴上の古い座標へ戻してはならない。
+  await page.keyboard.press('Enter');
+  await page.waitForTimeout(30);
+  const beforeLengthChangeUndo = await page.evaluate(() => window.__neoApp.getCanvasBlocks());
+  await pressCode('KeyZ', { ctrl: true });
+  const afterLengthChangeUndo = await page.evaluate(() => window.__neoApp.getCanvasBlocks());
+  ok('行追加をUndoしてDOMを再構成してもdrag済みblock0の位置を保持する',
+    afterLengthChangeUndo.length === beforeLengthChangeUndo.length - 1
+      && Math.abs(afterLengthChangeUndo[0].x - blocksAfter[0].x) < 1
+      && Math.abs(afterLengthChangeUndo[0].y - blocksAfter[0].y) < 1,
+    { beforeLengthChangeUndo, afterLengthChangeUndo, dragged: blocksAfter[0] });
 
   console.log('\n== 3. Alt+dragで複製できる（元blockは残る） ==');
   await toCanvas();

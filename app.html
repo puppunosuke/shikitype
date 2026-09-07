@@ -44,6 +44,10 @@
     <section id="app-stage">
       <header id="top-bar">
         <div id="course-label"><span>数III</span>極限・微分積分</div>
+        <div id="header-layout-switch" class="header-layout-switch" role="group" aria-label="編集面">
+          <button type="button" class="header-layout-choice" data-layout-mode="rows" aria-pressed="true">行</button>
+          <button type="button" class="header-layout-choice" data-layout-mode="canvas" aria-pressed="false">キャンバス</button>
+        </div>
         <div id="stats">
           <span>打鍵 <b id="stat-keystrokes">0</b></span>
           <span>経過 <b id="stat-elapsed">0.0s</b></span>
@@ -234,10 +238,10 @@
 
   <dialog id="guide-unit-dialog" aria-labelledby="guide-unit-dialog-title">
     <form id="guide-unit-dialog-shell" method="dialog">
-      <div class="note-dialog-head"><h2 id="guide-unit-dialog-title">キーガイドの単元</h2><button type="button" id="guide-unit-dialog-close" aria-label="閉じる">×</button></div>
-      <p>ノートは全単元のまま、キーガイドとパレットの表示順だけを選べます。</p>
-      <div id="guide-unit-subject-choice" class="unit-modal-subject-choice" role="list" aria-label="キーガイドの科目"></div>
-      <div id="guide-unit-choice" class="new-note-unit-choice" role="list" aria-label="キーガイドの単元"></div>
+      <div class="note-dialog-head"><h2 id="guide-unit-dialog-title">単元の表示</h2><button type="button" id="guide-unit-dialog-close" aria-label="閉じる">×</button></div>
+      <p>ノートは全単元のまま、入力候補とパレットに出す内容を選べます。</p>
+      <div id="guide-unit-subject-choice" class="unit-modal-subject-choice" role="list" aria-label="科目"></div>
+      <div id="guide-unit-choice" class="new-note-unit-choice" role="list" aria-label="単元"></div>
     </form>
   </dialog>
 
@@ -268,7 +272,7 @@
         <div class="review-card review-next"><h3>次の一手</h3><p id="review-next-step"></p></div>
         <p id="review-stale" hidden>この結果の後にノートが編集されています。</p>
         <section id="review-conversation" aria-labelledby="review-conversation-title"><h3 id="review-conversation-title">AI同士の検証会話（要約）</h3><ol id="review-conversation-list"></ol></section>
-        <section id="review-chat" aria-labelledby="review-chat-title"><h3 id="review-chat-title">この見直しについて聞く</h3><div id="review-chat-messages" role="log" aria-live="off"></div><p id="review-chat-status" role="status" aria-live="polite"></p><label class="review-chat-label" for="review-chat-input">質問</label><textarea id="review-chat-input" maxlength="800" rows="3" placeholder="次にどこを確かめればいい？"></textarea><button type="button" id="review-chat-send">送信</button></section>
+        <section id="review-chat" aria-labelledby="review-chat-title"><h3 id="review-chat-title">この見直しについて聞く</h3><div id="review-chat-messages" role="log" aria-live="off"></div><p id="review-chat-status" role="status" aria-live="polite"></p><label class="review-chat-label" for="review-chat-input">質問</label><textarea id="review-chat-input" maxlength="800" rows="3" placeholder="次にどこを確かめればいい？"></textarea><p class="review-chat-shortcut">Enterは改行です。送信はボタン、または Cmd/Ctrl+Enter を使います。</p><button type="button" id="review-chat-send">送信</button></section>
         <button type="button" id="review-again">別の見直しをする</button>
         <button type="button" id="review-back-to-list" class="review-link-button">過去の見直し一覧に戻る</button>
       </section>

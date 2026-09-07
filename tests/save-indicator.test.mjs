@@ -28,7 +28,9 @@ async function main() {
   ok('初期表示は保存中/保存済みを騙らない（中立表示）', initial === 'この端末に保存', initial);
 
   await page.click('math-field');
-  await page.keyboard.press('KeyF'); // 何か1打鍵入れて保存をスケジュールさせる
+  // 変換方式では英字は候補の読みとして保留され、ノート保存は発火しない。
+  // 数式として即確定する数字を打ち、実際の編集→遅延保存を検証する。
+  await page.keyboard.press('Digit1');
   await page.waitForTimeout(80); // MathLiveの'input'イベント発火(非同期)を待つが、420msの書き込みより前
   const duringSave = await statusText();
   ok('編集直後、書き込みが終わるまでは「保存中」を示す', duringSave === '保存中…', duringSave);

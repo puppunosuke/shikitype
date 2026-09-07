@@ -33,10 +33,6 @@ async function main() {
   async function undo() { await pressCode('KeyZ', { ctrl: true }); }
   async function redoShift() { await pressCode('KeyZ', { ctrl: true, shift: true }); }
   async function redoY() { await pressCode('KeyY', { ctrl: true }); }
-  async function switchLayer(layer) {
-    let guard = 0;
-    while (await page.evaluate(() => window.__neoApp.getBaseLayer()) !== layer && guard++ < 3) await pressCode('Tab');
-  }
   async function value(index) { return page.evaluate((i) => window.__neoApp.rows[i]?.mf.value, index); }
   async function rowsCount() { return page.evaluate(() => window.__neoApp.rows.length); }
   async function activeIndex() { return page.evaluate(() => window.__neoApp.rows.indexOf(window.__neoApp.getActiveRow())); }
@@ -51,24 +47,21 @@ async function main() {
     });
   }
 
-  console.log('\n== 1. 連続入力はまとめて1単位で戻る ==');
+  console.log('\n== 1. 数式入力を順に取り消し・やり直しできる ==');
   await page.evaluate(() => window.__neoApp.newNote());
   await page.click('math-field');
-  await switchLayer('latin');
-  await pressCode('KeyX');
-  await pressCode('KeyY'); // 'xy' を600ms以内に続けて打つ → 1つの取り消し単位
-  await page.waitForTimeout(650); // coalesceを確定させる
-  await pressCode('KeyZ'); // 'xyz' — 別の取り消し単位
-  await page.waitForTimeout(650);
-  ok('打った内容: xyz', await value(0) === 'xyz', await value(0));
+  // 変換方式では英字は読みとして保留される。数学の直接入力として常に有効な数字で
+  // 実際の履歴経路を通し、旧レイヤー切替前提を持ち込まない。
+  await pressCode('Digit1'); await pressCode('Digit2'); await pressCode('Digit3');
+  ok('打った内容: 123', await value(0) === '123', await value(0));
   await undo();
-  ok('1回目のCtrl+Zは直近のburst(z)だけ戻す', await value(0) === 'xy', await value(0));
+  ok('1回目のCtrl+Zは直近の入力だけ戻す', await value(0) === '12', await value(0));
   await undo();
-  ok('2回目のCtrl+Zは最初のburst(xy)を戻す', await value(0) === '', await value(0));
+  ok('2回目のCtrl+Zはその前の入力も戻す', await value(0) === '1', await value(0));
   await redoShift();
-  ok('Ctrl+Shift+Zでxyへやり直す', await value(0) === 'xy', await value(0));
+  ok('Ctrl+Shift+Zで2をやり直す', await value(0) === '12', await value(0));
   await redoY();
-  ok('Ctrl+Yでxyzへやり直す', await value(0) === 'xyz', await value(0));
+  ok('Ctrl+Yで3をやり直す', await value(0) === '123', await value(0));
 
   console.log('\n== 2. カーソル/フォーカスは操作前の場所へ戻る ==');
   await undo(); await undo();
@@ -78,29 +71,25 @@ async function main() {
   console.log('\n== 3. ブロック追加をCtrl+Zで取り消す ==');
   await page.evaluate(() => window.__neoApp.newNote());
   await page.click('math-field');
-  await switchLayer('latin');
-  await pressCode('KeyA');
-  await page.waitForTimeout(650); // 直前の入力を1単位として確定させておく
+  await pressCode('Digit1');
   const beforeAdd = await rowsCount();
   await pressCode('Enter'); // 新しい空blockを追加
   ok('Enterでブロックが増える', await rowsCount() === beforeAdd + 1, await rowsCount());
   await undo();
   ok('Ctrl+Zでブロック追加を取り消す', await rowsCount() === beforeAdd, await rowsCount());
   ok('取り消し後のアクティブ行は元の行(0)', await activeIndex() === 0, await activeIndex());
-  ok('取り消し後も元の内容(a)を保つ', await value(0) === 'a', await value(0));
+  ok('取り消し後も元の内容(1)を保つ', await value(0) === '1', await value(0));
   await redoShift();
   ok('やり直すとブロック追加が戻る', await rowsCount() === beforeAdd + 1, await rowsCount());
 
   console.log('\n== 4. ブロック削除をCtrl+Zで取り消す ==');
   await page.evaluate(() => window.__neoApp.newNote());
   await page.click('math-field');
-  await switchLayer('latin');
-  await pressCode('KeyA');
-  await page.waitForTimeout(650);
+  await pressCode('Digit1');
   await pressCode('Enter'); // 空の2番目blockを作る
   await page.waitForTimeout(650);
   const beforeDelete = await page.evaluate(() => window.__neoApp.rows.map((row) => row.mf.value));
-  ok('削除前は2 block(a, 空)', JSON.stringify(beforeDelete) === JSON.stringify(['a', '']), beforeDelete);
+  ok('削除前は2 block(1, 空)', JSON.stringify(beforeDelete) === JSON.stringify(['1', '']), beforeDelete);
   await pressCode('Backspace'); // 空blockのBackspace = removeEmptyRow経由でblock削除
   await page.waitForTimeout(30);
   ok('空blockのBackspaceでblockを削除する', await rowsCount() === beforeDelete.length - 1, await rowsCount());
@@ -113,7 +102,6 @@ async function main() {
   await page.evaluate(() => window.__neoApp.newNote());
   await page.click('math-field');
   // 変換層でxを打ち、Enterで小文字xを確定（＝1つの取り消し単位）
-  await switchLayer('symbol');
   await pressCode('KeyX');
   await pressCode('Enter');
   await page.waitForTimeout(650);
@@ -128,7 +116,7 @@ async function main() {
   ok('Ctrl+Zは候補確定だけを取り消しxだけ残す', await value(0) === beforeConfirm, await value(0));
 
   console.log('\n== 6. 設定モーダル・文章ブロックのCtrl+Zを奪わない ==');
-  await page.evaluate(() => { localStorage.removeItem('neo-math.notes.v1'); window.__neoApp.setInputSystem('legacy', false); });
+  await page.evaluate(() => { localStorage.removeItem('neo-math.notes.v1'); window.__neoApp.setInputSystem('conversion', false); });
   await page.reload({ waitUntil: 'networkidle' });
   await page.click('math-field');
   await page.click('#sidebar-toggle');
@@ -143,7 +131,7 @@ async function main() {
   await page.waitForTimeout(80);
 
   await page.click('math-field');
-  await page.click('[data-special="Text"]');
+  await page.evaluate(() => window.__neoApp.dispatchAction(window.__neoApp.getActiveRow(), { type: 'text' }));
   await page.waitForTimeout(30);
   await page.keyboard.type('hi');
   const historyBeforeText = await page.evaluate(() => window.__neoApp.getHistoryState());

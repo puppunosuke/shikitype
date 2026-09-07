@@ -20,7 +20,10 @@ async function main() {
   await page.click('math-field');
   await page.keyboard.press('KeyX');
   await page.keyboard.press('Enter');
+  // 変換方式では1回目のEnterはxの候補確定。行を増やす通常Enterは次の一打。
+  await page.keyboard.press('Enter');
   await page.keyboard.press('KeyY');
+  await page.keyboard.press('Enter');
   await page.waitForTimeout(520);
   const first = await page.evaluate(() => window.__neoApp.getNotes().notes[0]?.layout?.blockIds);
   ok('行ごとのIDを保存する', Array.isArray(first) && first.length === 2 && new Set(first).size === 2, first);
@@ -68,7 +71,7 @@ async function main() {
   await page.waitForTimeout(20);
   const escaped = await page.evaluate(() => {
     const row = window.__neoApp.getActiveRow();
-    return { dialogOpen: document.getElementById('review-dialog').open, mathFocused: document.activeElement === row.mf || row.mf.shadowRoot?.contains(document.activeElement) };
+    return { dialogOpen: document.getElementById('review-dialog').open, mathFocused: document.activeElement === row.inputProxy || document.activeElement === row.mf || row.mf.shadowRoot?.contains(document.activeElement) };
   });
   ok('Escape後は元の数式へフォーカスを戻す', !escaped.dialogOpen && escaped.mathFocused, escaped);
 

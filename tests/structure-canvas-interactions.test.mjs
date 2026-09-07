@@ -62,7 +62,7 @@ await reset();
 await page.evaluate(() => window.__neoApp.dispatchAction(window.__neoApp.getActiveRow(), { type: 'integral' }));
 await page.evaluate(() => window.__neoApp.dispatchAction(window.__neoApp.getActiveRow(), { type: 'digit', value: '0' }));
 await press('ArrowRight', 4); await press('Backspace');
-ok('中身のある積分は空構造契約で全消去しない', (await latex()).includes('\\int'), await latex());
+ok('中身のある積分も構造の外側なら一打で全消去する', await latex() === '', await latex());
 for (const entry of [['括弧', { type: 'open', kind: 'paren' }], ['分数', { type: 'nfrac' }]]) {
   await reset(); await press('Enter');
   await page.evaluate((action) => window.__neoApp.dispatchAction(window.__neoApp.getActiveRow(), action), entry[1]);

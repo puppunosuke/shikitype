@@ -45,16 +45,10 @@ async function checkViewport(browser, viewport) {
     state);
   await page.click('#new-note-dialog-close');
 
-  await page.click('#guide-unit-switch');
-  state = await dialogState(page, 'guide-unit-dialog');
-  ok(`${viewport.width}x${viewport.height}: キーガイドの単元選択も固定空白を作らない`,
-    state.open && state.height < state.viewport - 80 && !state.dialogScrollable,
-    state);
-  await page.click('#guide-unit-subject-choice [data-subject-id="s3"]');
-  state = await dialogState(page, 'guide-unit-dialog');
-  ok(`${viewport.width}x${viewport.height}: キーガイドの候補表示もviewport内に収まる`,
-    state.height < state.viewport - 56 && !state.dialogScrollable,
-    state);
+  // キーガイドの単元表示ダイアログはD1で撤去済み。非表示の旧導線をクリックして
+  // timeoutにするのでなく、撤去後も画面に操作の抜け殻を残さないことを確認する。
+  const legacyGuideVisible = await page.locator('#guide-unit-switch').isVisible();
+  ok(`${viewport.width}x${viewport.height}: 撤去済みキーガイドの単元表示導線を表示しない`, !legacyGuideVisible, legacyGuideVisible);
   await page.close();
 }
 
